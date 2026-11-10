@@ -391,13 +391,15 @@ Regla: un PR que toque estos archivos se anuncia antes y se revisa por los dos d
 
 ## 16. Decisiones pendientes (requieren respuesta humana)
 
-| ID | Pregunta |
-|---|---|
-| D1 | ¿Se confirma Supabase en lugar del PostgreSQL propio del ERS? ¿Se actualiza el ERS? |
-| D2 | ¿El frontend accede a datos solo vía FastAPI (recomendado) o también directo a Supabase? |
-| D3 | ¿Los puntos y el cashback se canjean? ¿Cómo? (el ERS no lo define) |
-| D4 | Técnica de verificación facial y dónde se ejecuta |
-| D5 | ¿Los niveles tienen precio y duración? ¿Puede cambiar de nivel una membresía activa (ascenso)? |
-| D6 | ¿Los artículos de una compra se capturan como texto libre o habrá un catálogo mínimo? |
-| D7 | ¿El frontend Next.js vive en este repositorio o en otro? |
-| D8 | ¿"Eliminar cliente" es borrado lógico (recomendado) o físico? |
+| ID | Pregunta | Respuesta | Estado |
+|---|---|---|---|
+| D1 | ¿Se confirma Supabase en lugar del PostgreSQL propio del ERS? ¿Se actualiza el ERS? | Sí, se usa Supabase (proyecto Member+ conectado). | ✅ Resuelta |
+| D2 | ¿El frontend accede a datos solo vía FastAPI (recomendado) o también directo a Supabase? | Solo vía FastAPI. | ✅ Resuelta |
+| D3 | ¿Los puntos y el cashback se canjean? ¿Cómo? (el ERS no lo define) | | ⏳ Pendiente |
+| D4 | Técnica de verificación facial y dónde se ejecuta | | ⏳ Pendiente |
+| D5 | ¿Los niveles tienen precio y duración? ¿Puede cambiar de nivel una membresía activa (ascenso)? | | ⏳ Pendiente |
+| D6 | ¿Los artículos de una compra se capturan como texto libre o habrá un catálogo mínimo? | | ⏳ Pendiente |
+| D7 | ¿El frontend Next.js vive en este repositorio o en otro? | | ⏳ Pendiente |
+| D8 | ¿"Eliminar cliente" es borrado lógico (recomendado) o físico? | | ⏳ Pendiente |
+
+> D1 implica actualizar el ERS (§2.1, §3.1.3, §3.1.4 y RNF Servidor externo) para reflejar Supabase. Es una tarea de documentación para el equipo, en Drive.
