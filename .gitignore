@@ -1,0 +1,38 @@
+# --- Entorno y secretos ---
+.env
+.env.*
+!.env.example
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# --- uv / entorno virtual ---
+.venv/
+
+# --- Bases de datos locales (SQLite de respaldo) ---
+*.db
+*.sqlite3
+
+# --- Herramientas y pruebas ---
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# --- Docker (datos persistentes locales) ---
+pgdata/
+
+# --- Editores y SO ---
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# --- Logs ---
+*.log
