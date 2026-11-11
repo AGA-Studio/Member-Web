@@ -1,0 +1,34 @@
+[project]
+name = "member-web"
+version = "0.1.0"
+description = "Backend (API) de Member+: SaaS multi-negocio de membresías."
+requires-python = ">=3.14"
+dependencies = [
+    "email-validator>=2.3.0",
+    "fastapi>=0.162.4",
+    "psycopg[binary]>=3.3.8",
+    "pwdlib[argon2]>=0.3.1",
+    "pydantic-settings>=2.16.2",
+    "pyjwt>=2.15.1",
+    "python-multipart>=0.0.33",
+    "sqlmodel>=0.0.48",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=9.2.0",
+    "ruff>=0.17.4",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["B008"]  # Depends() en argumentos por defecto es el patrón de FastAPI
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

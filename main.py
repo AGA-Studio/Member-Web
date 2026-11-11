@@ -1,0 +1,63 @@
+"""Member+ API entry point.
+
+Development:
+    uv run uvicorn main:app --reload        # http://127.0.0.1:8000/docs
+
+Layout:
+    core/     settings, CORS and security (Argon2id + JWT)
+    db/       database engine and session
+    models/   tables (SQLModel, table=True)
+    schemas/  input/output DTOs (Pydantic)
+    api/v1/   versioned routers; register every new module in API_V1_ROUTERS
+"""
+
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+
+from api.v1 import auth_api, user_api
+from core.config import settings
+from core.cors import setup_cors
+from db.database import create_db_and_tables
+
+API_V1_PREFIX = "/api/v1"
+
+# Order = order shown in /docs.
+API_V1_ROUTERS = [
+    auth_api.router,
+    user_api.router,
+    # Next MVP modules (H1–H3):
+    # customer_api.router, membership_api.router, tier_api.router,
+    # checkout_api.router, movement_api.router, platform_api.router,
+]
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: create missing tables. To be replaced by migrations.
+    create_db_and_tables()
+    yield
+    # Shutdown: nothing to release yet.
+
+
+def create_app() -> FastAPI:
+    app = FastAPI(
+        title=settings.app_name,
+        version="0.1.0",
+        description="API for Member+, the multi-business membership SaaS.",
+        lifespan=lifespan,
+    )
+
+    setup_cors(app)
+
+    for router in API_V1_ROUTERS:
+        app.include_router(router, prefix=API_V1_PREFIX)
+
+    @app.get("/health", tags=["system"])
+    def health() -> dict[str, str]:
+        return {"status": "ok"}
+
+    return app
+
+
+app = create_app()

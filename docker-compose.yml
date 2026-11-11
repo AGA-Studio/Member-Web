@@ -1,0 +1,27 @@
+# Local development database.
+#   docker compose up -d
+# PostgreSQL is exposed on host port 5433 to avoid clashing with a
+# locally installed Postgres (5432).
+services:
+  db:
+    image: postgres:18
+    container_name: memberplus-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-memberplus}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-memberplus}
+      POSTGRES_DB: ${POSTGRES_DB:-memberplus}
+    ports:
+      - "5433:5432"
+    volumes:
+      # Postgres 18 stores data in /var/lib/postgresql/18/docker,
+      # so the volume is mounted at /var/lib/postgresql.
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:
