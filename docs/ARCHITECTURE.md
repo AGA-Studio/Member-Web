@@ -52,7 +52,7 @@ flowchart TB
     ROOT --> SCH["schemas/"]
     ROOT --> API["api/v1/"]
     ROOT --> TST["tests/"]
-    ROOT --> CFG["pyproject.toml · uv.lock · requirements.txt<br/>docker-compose.yml · .env"]
+    ROOT --> CFG["pyproject.toml · uv.lock<br/>docker-compose.yml · .env"]
 
     CORE --> C1["config.py — Settings (lee .env)"]
     CORE --> C2["cors.py — setup_cors(app)"]
