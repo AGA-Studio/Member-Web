@@ -42,6 +42,8 @@ El repo es público, así que el registro y los minutos de Actions no cuestan na
 
 La imagen final no lleva `tests/`, ni `.git`, ni `.env`, ni el CLI de uv. Todo lo que trae es lo que necesita para migrar y servir.
 
+**Carpeta nueva de código = línea nueva en el `Dockerfile`.** El `Dockerfile` copia cada paquete por nombre (`api/`, `core/`, `db/`, `models/`, `schemas/`, `services/`…). Si se crea otra carpeta con código Python y no se agrega su `COPY`, la imagen no arranca. Para que eso falle al construir y no en Coolify, el `Dockerfile` ejecuta `python -c "import main"` al final de la etapa de dependencias: si falta un paquete, la construcción se cae con `ModuleNotFoundError` y no se publica la imagen.
+
 ---
 
 ## 3. Qué publica cada evento
