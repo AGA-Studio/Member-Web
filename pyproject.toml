@@ -19,6 +19,7 @@ dependencies = [
 dev = [
     "httpx>=0.28.1",
     "pytest>=9.2.0",
+    "pytest-cov>=7.1.0",
     "ruff>=0.17.4",
 ]
 
@@ -32,3 +33,13 @@ ignore = ["B008"]  # Depends() en argumentos por defecto es el patrón de FastAP
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
+filterwarnings = ["ignore:Using `httpx` with `starlette.testclient` is deprecated"]
+
+[tool.coverage.run]
+source = ["api", "core", "db", "models", "schemas", "main"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true

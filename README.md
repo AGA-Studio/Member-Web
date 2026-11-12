@@ -33,4 +33,5 @@ uv run ruff check .
 
 ## Documentación
 
-Arquitectura, modelo de datos y flujos: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- Arquitectura, modelo de datos y flujos: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- Pruebas, resultados y hallazgos: [docs/TESTING.md](docs/TESTING.md)
