@@ -3,7 +3,7 @@
 from functools import lru_cache
 from typing import Annotated, Literal
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 SQLITE_FALLBACK_URL = "sqlite:///memberplus.db"
@@ -22,6 +22,11 @@ class Settings(BaseSettings):
     secret_key: str
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 480
+
+    # Login brute-force protection (H4): after this many failed attempts for one
+    # email, logins for it are blocked for the lockout time.
+    login_max_attempts: int = Field(default=5, ge=1)
+    login_lockout_minutes: int = Field(default=15, ge=1)
 
     # Session cookie
     cookie_name: str = "access_token"

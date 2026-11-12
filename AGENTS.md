@@ -78,7 +78,7 @@ db/database.py   engine, check_database_connection, get_session
 migrations/      Alembic: env.py y versions/ (una migración por cambio)
 models/          tablas SQLModel (table=True), una por archivo: <nombre>_model.py
 schemas/         DTOs Pydantic: <nombre>_schema.py (XCreate, XUpdate, XResponse)
-services/        lógica de negocio y cálculo; se crea con el primer módulo que la necesite
+services/        lógica de negocio y cálculo (hoy: auth_service.py, revocación y límite de login)
 api/v1/          dependencies.py y un router por módulo: <nombre>_api.py
 tests/           pytest
 docs/            documentación con diagramas Mermaid
@@ -110,6 +110,11 @@ Ningún router es gordo: el router valida y delega. El cálculo (descuento, punt
 - Los schemas de salida nunca exponen `hashed_password` ni tokens.
 - Un negocio `suspended` no tiene acceso: lo garantiza `ensure_user_can_access` en
   `api/v1/dependencies.py`; no lo dupliques en cada router.
+- Logout revoca el token por su `jti` (tabla `revoked_tokens`) y el login se bloquea tras
+  `LOGIN_MAX_ATTEMPTS` fallos por email (tabla `login_attempts`, 429). Ambos en
+  `services/auth_service.py`.
+- Si un `commit` puede chocar con un índice único, captura `IntegrityError`, haz `rollback` y responde
+  409 (ver `_save` en `api/v1/user_api.py`).
 
 ### Pruebas
 

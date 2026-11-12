@@ -13,6 +13,7 @@ from db.database import get_session
 from models.business_model import Business, BusinessStatus
 from models.user_model import Role, User
 from schemas.token_schema import TokenData
+from services.auth_service import is_token_revoked
 
 # The frontend sends the token in the httpOnly cookie; the Bearer header is kept for
 # Swagger (/docs) and tests. auto_error=False so the cookie can be checked afterwards.
@@ -27,21 +28,32 @@ _credentials_error = HTTPException(
 )
 
 
-def get_token_data(
+def get_request_token(
     request: Request, bearer: Annotated[str | None, Depends(oauth2_scheme)]
+) -> str | None:
+    """Raw token from the httpOnly cookie (frontend) or the Bearer header."""
+    return request.cookies.get(settings.cookie_name) or bearer
+
+
+def get_token_data(
+    session: SessionDep, token: Annotated[str | None, Depends(get_request_token)]
 ) -> TokenData:
-    token = request.cookies.get(settings.cookie_name) or bearer
     if not token:
         raise _credentials_error
     try:
         payload = decode_access_token(token)
-        return TokenData(
+        token_data = TokenData(
             user_id=int(payload["sub"]),
             role=payload["role"],
             business_id=payload.get("business_id"),
+            jti=payload["jti"],
         )
     except jwt.InvalidTokenError, KeyError, ValueError:
         raise _credentials_error from None
+    # H2: a token used to log out is dead even though its signature is still valid.
+    if is_token_revoked(session, token_data.jti):
+        raise _credentials_error
+    return token_data
 
 
 def get_current_user(

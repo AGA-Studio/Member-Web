@@ -40,7 +40,14 @@ def test_cors_origins_accept_a_list() -> None:
 
 
 def test_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
-    for var in ("ALGORITHM", "ACCESS_TOKEN_EXPIRE_MINUTES", "COOKIE_SECURE", "ENVIRONMENT"):
+    for var in (
+        "ALGORITHM",
+        "ACCESS_TOKEN_EXPIRE_MINUTES",
+        "COOKIE_SECURE",
+        "ENVIRONMENT",
+        "LOGIN_MAX_ATTEMPTS",
+        "LOGIN_LOCKOUT_MINUTES",
+    ):
         monkeypatch.delenv(var, raising=False)
     s = make_settings(secret_key="k")
     assert s.algorithm == "HS256"
@@ -48,6 +55,14 @@ def test_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert s.cookie_name == "access_token"
     assert s.cookie_secure is False
     assert s.environment == "development"
+    assert s.login_max_attempts == 5
+    assert s.login_lockout_minutes == 15
+
+
+@pytest.mark.parametrize("field", ["login_max_attempts", "login_lockout_minutes"])
+def test_login_limits_must_be_positive(field: str) -> None:
+    with pytest.raises(ValidationError):
+        make_settings(secret_key="k", **{field: 0})
 
 
 def test_invalid_environment_is_rejected() -> None:

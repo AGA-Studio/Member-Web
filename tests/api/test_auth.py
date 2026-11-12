@@ -1,6 +1,6 @@
 """Tests for /api/v1/auth and the authentication dependencies."""
 
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 import jwt
 import pytest
@@ -168,16 +168,18 @@ class TestCurrentUser:
     @pytest.mark.parametrize(
         "payload",
         [
-            {"role": "admin", "business_id": 1},  # no sub
-            {"sub": "1", "business_id": 1},  # no role
-            {"sub": "abc", "role": "admin", "business_id": 1},  # sub not numeric
-            {"sub": "1", "role": "superuser", "business_id": 1},  # unknown role
+            {"role": "admin", "business_id": 1, "jti": "a"},  # no sub
+            {"sub": "1", "business_id": 1, "jti": "a"},  # no role
+            {"sub": "abc", "role": "admin", "business_id": 1, "jti": "a"},  # sub not numeric
+            {"sub": "1", "role": "superuser", "business_id": 1, "jti": "a"},  # unknown role
+            {"sub": "1", "role": "admin", "business_id": 1},  # no jti (tokens before H2)
         ],
-        ids=["no-sub", "no-role", "sub-not-int", "unknown-role"],
+        ids=["no-sub", "no-role", "sub-not-int", "unknown-role", "no-jti"],
     )
-    def test_malformed_claims(self, client: TestClient, payload: dict) -> None:
+    def test_malformed_claims(self, client: TestClient, two_businesses, payload: dict) -> None:
         from core.config import settings
 
+        payload = {**payload, "exp": datetime.now(UTC) + timedelta(minutes=5)}
         token = jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
         response = client.get(ME_URL, headers={"Authorization": f"Bearer {token}"})
         assert response.status_code == 401
@@ -297,3 +299,57 @@ class TestLogout:
 
     def test_logout_without_session(self, client: TestClient) -> None:
         assert client.post(LOGOUT_URL).status_code == 204
+
+    def test_token_copy_is_invalid_after_logout(self, client: TestClient, two_businesses) -> None:
+        # H2: deleting the cookie is not enough; the token itself is revoked.
+        token = login(client, "admin.a@demo.mx")
+        client.post(LOGOUT_URL)
+        client.cookies.clear()
+        response = client.get(ME_URL, headers={"Authorization": f"Bearer {token}"})
+        assert response.status_code == 401
+
+    def test_logout_with_bearer_revokes_it(self, client: TestClient, two_businesses) -> None:
+        # The cashier reader and Swagger log out with the header, not the cookie.
+        token = login(client, "employee.a@demo.mx")
+        client.cookies.clear()
+        headers = {"Authorization": f"Bearer {token}"}
+        assert client.post(LOGOUT_URL, headers=headers).status_code == 204
+        assert client.get(ME_URL, headers=headers).status_code == 401
+
+    def test_other_sessions_stay_open(self, client: TestClient, two_businesses) -> None:
+        # Logging out on one device does not close the user's other sessions.
+        laptop = login(client, "admin.a@demo.mx")
+        client.cookies.clear()
+        phone = login(client, "admin.a@demo.mx")
+        client.cookies.clear()
+        assert laptop != phone
+        client.post(LOGOUT_URL, headers={"Authorization": f"Bearer {laptop}"})
+        assert client.get(ME_URL, headers={"Authorization": f"Bearer {laptop}"}).status_code == 401
+        assert client.get(ME_URL, headers={"Authorization": f"Bearer {phone}"}).status_code == 200
+
+    def test_logout_twice_is_harmless(self, client: TestClient, two_businesses) -> None:
+        token = login(client, "admin.a@demo.mx")
+        headers = {"Authorization": f"Bearer {token}"}
+        assert client.post(LOGOUT_URL, headers=headers).status_code == 204
+        assert client.post(LOGOUT_URL, headers=headers).status_code == 204
+
+    @pytest.mark.parametrize("token", ["not-a-jwt", "a.b.c"], ids=["garbage", "bad-parts"])
+    def test_logout_with_invalid_token(self, client: TestClient, token: str) -> None:
+        response = client.post(LOGOUT_URL, headers={"Authorization": f"Bearer {token}"})
+        assert response.status_code == 204
+
+    def test_logout_with_expired_token(self, client: TestClient, two_businesses) -> None:
+        token = create_access_token(
+            user_id=two_businesses["admin_a"].id,
+            role="admin",
+            business_id=two_businesses["business_a"].id,
+            expires_delta=timedelta(seconds=-1),
+        )
+        response = client.post(LOGOUT_URL, headers={"Authorization": f"Bearer {token}"})
+        assert response.status_code == 204
+
+    def test_logging_in_again_after_logout_works(self, client: TestClient, two_businesses) -> None:
+        login(client, "admin.a@demo.mx")
+        client.post(LOGOUT_URL)
+        login(client, "admin.a@demo.mx")
+        assert client.get(ME_URL).status_code == 200

@@ -52,6 +52,15 @@ class TestAccessToken:
         assert payload["role"] == "admin"
         assert payload["business_id"] == 3
         assert "exp" in payload
+        assert len(payload["jti"]) == 32
+
+    def test_every_token_has_a_unique_jti(self) -> None:
+        # H2: logout revokes one token by its jti, so they must never repeat.
+        jtis = {
+            decode_access_token(create_access_token(user_id=1, role="admin", business_id=1))["jti"]
+            for _ in range(50)
+        }
+        assert len(jtis) == 50
 
     def test_platform_token_has_null_business(self) -> None:
         token = create_access_token(user_id=1, role="platform", business_id=None)
