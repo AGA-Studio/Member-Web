@@ -10,6 +10,7 @@ from sqlmodel import Session
 from core.config import settings
 from core.security import decode_access_token
 from db.database import get_session
+from models.business_model import Business, BusinessStatus
 from models.user_model import Role, User
 from schemas.token_schema import TokenData
 
@@ -52,9 +53,24 @@ def get_current_user(
     return user
 
 
-def get_current_active_user(user: Annotated[User, Depends(get_current_user)]) -> User:
+def ensure_user_can_access(session: Session, user: User) -> None:
+    """Shared by login and every authenticated request.
+
+    Blocks inactive users and users whose business is suspended. The platform
+    owner has no business, so only `is_active` applies to them.
+    """
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Inactive user")
+    if user.business_id is not None:
+        business = session.get(Business, user.business_id)
+        if business is None or business.status == BusinessStatus.SUSPENDED:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Business suspended")
+
+
+def get_current_active_user(
+    session: SessionDep, user: Annotated[User, Depends(get_current_user)]
+) -> User:
+    ensure_user_can_access(session, user)
     return user
 
 

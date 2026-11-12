@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlmodel import select
 
-from api.v1.dependencies import CurrentUser, SessionDep
+from api.v1.dependencies import CurrentUser, SessionDep, ensure_user_can_access
 from core.config import settings
 from core.security import create_access_token, verify_password
 from models.user_model import User
@@ -34,8 +34,7 @@ def login(
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    if not user.is_active:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Inactive user")
+    ensure_user_can_access(session, user)
 
     token = create_access_token(user_id=user.id, role=user.role, business_id=user.business_id)
     response.set_cookie(

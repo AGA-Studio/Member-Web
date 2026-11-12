@@ -129,7 +129,8 @@ Autogenerate es una ayuda, no un oráculo. Hay cosas que **no detecta** o que ha
 | Caso | Qué pasa | Qué hacer |
 |------|----------|-----------|
 | Renombrar una columna o tabla | Lo ve como *borrar + crear* y **se pierden los datos** | Cambiar a `op.alter_column(..., new_column_name=...)` o `op.rename_table` |
-| Agregar un valor a un `Enum` en PostgreSQL | No lo detecta | `op.execute("ALTER TYPE role ADD VALUE 'manager'")` |
+| Agregar un valor a un `Enum` en PostgreSQL | No lo detecta | `op.execute("ALTER TYPE role ADD VALUE 'manager'")` (en minúscula) |
+| Renombrar un valor de un `Enum` | No lo detecta | `op.execute("ALTER TYPE role RENAME VALUE 'old' TO 'new'")`; en SQLite, un `UPDATE` (ver `c9e2d3e6ee70`) |
 | Borrar una tabla con `Enum` en PostgreSQL | El `downgrade` no borra el tipo `ENUM` | Agregar `sa.Enum(name="...").drop(op.get_bind(), checkfirst=True)` (como en la migración inicial) |
 | Columna nueva `NOT NULL` en una tabla con datos | Falla al aplicar | Agregar `server_default`, o crearla nullable, llenarla y luego volverla `NOT NULL` |
 | Datos (no estructura) | No los genera | Escribir el `op.execute(...)` o `op.bulk_insert(...)` a mano |
@@ -192,8 +193,16 @@ El `&&` garantiza que la API nunca arranque con un esquema viejo. Antes de una m
 | Revisión | Archivo | Qué hace |
 |----------|---------|----------|
 | `f689e0ec2cd6` | `2026_11_12_0340-f689e0ec2cd6_create_businesses_and_users.py` | Crea `businesses` y `users`, los tipos `businessstatus` y `role`, el índice de `users.business_id` y el índice único de `users.email`. El `downgrade` borra todo, incluidos los tipos `ENUM`. |
+| `c9e2d3e6ee70` | `2026_11_12_0504-c9e2d3e6ee70_store_enum_values_in_lowercase.py` | Escrita a mano (H7). Pasa los `ENUM` a minúscula: en PostgreSQL renombra las etiquetas (`ALTER TYPE ... RENAME VALUE`), y las filas existentes cambian solas; en SQLite actualiza las filas con `lower()`. El `downgrade` hace lo contrario. |
 
-SQL que genera en PostgreSQL (`uv run alembic upgrade head --sql`):
+```mermaid
+flowchart LR
+    BASE(["base"]) --> R1["f689e0ec2cd6<br/>create businesses and users"]
+    R1 --> R2["c9e2d3e6ee70<br/>store enum values in lowercase"]
+    R2 --> HEAD(["head"])
+```
+
+SQL de la primera migración en PostgreSQL (`uv run alembic upgrade f689e0ec2cd6 --sql`). Crea los `ENUM` en mayúscula; la segunda migración los renombra:
 
 ```sql
 CREATE TYPE businessstatus AS ENUM ('TRIAL', 'ACTIVE', 'SUSPENDED');
@@ -226,7 +235,18 @@ CREATE INDEX ix_users_business_id ON users (business_id);
 CREATE UNIQUE INDEX ix_users_email ON users (email);
 ```
 
-> **Nota sobre los `ENUM`:** en la base se guarda el **nombre** del miembro (`'ADMIN'`, `'TRIAL'`), no el valor que devuelve la API (`"admin"`, `"trial"`). Es el comportamiento por defecto de SQLAlchemy. Para la API no cambia nada, pero cualquier SQL escrito a mano (un `seed.sql`, una consulta en `psql`) debe usar **mayúsculas**: `WHERE role = 'ADMIN'`. Ver hallazgo H7 en [TESTING.md](TESTING.md#7-hallazgos).
+SQL de la segunda migración (`uv run alembic upgrade f689e0ec2cd6:c9e2d3e6ee70 --sql`):
+
+```sql
+ALTER TYPE role RENAME VALUE 'PLATFORM' TO 'platform';
+ALTER TYPE role RENAME VALUE 'ADMIN' TO 'admin';
+ALTER TYPE role RENAME VALUE 'EMPLOYEE' TO 'employee';
+ALTER TYPE businessstatus RENAME VALUE 'TRIAL' TO 'trial';
+ALTER TYPE businessstatus RENAME VALUE 'ACTIVE' TO 'active';
+ALTER TYPE businessstatus RENAME VALUE 'SUSPENDED' TO 'suspended';
+```
+
+> **Los `ENUM` se guardan en minúscula** (decisión H7). La base, la API y el SQL escrito a mano usan los mismos valores: `WHERE role = 'admin'`, `status = 'suspended'`. Los modelos lo logran con `sa_type=sa.Enum(..., values_callable=enum_values)` (`models/enum_utils.py`). **Todo `Enum` nuevo debe declararse igual**; si no, SQLAlchemy guarda el nombre en mayúscula.
 
 ---
 
@@ -243,6 +263,8 @@ CREATE UNIQUE INDEX ix_users_email ON users (email);
 | `test_upgrade_after_downgrade` | Se puede bajar y volver a subir sin errores |
 | `test_database_is_stamped_at_head` | `alembic_version` queda en la última revisión |
 | `test_app_works_on_migrated_schema` | La API funciona (login y crear usuario) sobre tablas creadas por Alembic |
+| `test_lowercase_enum_migration_converts_existing_rows` | Filas en mayúscula de la primera migración quedan en minúscula con `c9e2d3e6ee70`, y el `downgrade` las regresa |
+| `test_app_stores_lowercase_enum_values` | La app guarda `'employee'` y `'trial'` en la base |
 
 Se comprobó que la prueba de sincronía detecta un olvido real: al agregar `phone: str | None` a `User` sin migración, falló con:
 

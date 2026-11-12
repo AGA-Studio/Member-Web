@@ -93,6 +93,9 @@ Ningún router es gordo: el router valida y delega. El cálculo (descuento, punt
   wiki escribe `negocio_id`; en código es `business_id`: es lo mismo.
 - Rutas con la forma `/<recurso en singular>/<acción>`: `/user/create`, `/user/list`, `/user/{id}`,
   `/user/{id}/update`.
+- Nombres de personas con `PersonName` (`schemas/validators.py`: mínimo 2 letras). Todo `Enum` de un
+  modelo con `values_callable=enum_values` (`models/enum_utils.py`): en la base se guardan en
+  minúscula, igual que en la API.
 - Cada módulo nuevo: modelo → importarlo en `models/__init__.py` → migración → schemas → servicio →
   router → agregarlo a `API_V1_ROUTERS` en `main.py` → pruebas.
 
@@ -105,6 +108,8 @@ Ningún router es gordo: el router valida y delega. El cálculo (descuento, punt
 - RLS en la base como defensa en profundidad, además del filtro en la aplicación (lo pide el MVP).
 - Cada módulo nuevo incluye una prueba de que un negocio no ve datos de otro.
 - Los schemas de salida nunca exponen `hashed_password` ni tokens.
+- Un negocio `suspended` no tiene acceso: lo garantiza `ensure_user_can_access` en
+  `api/v1/dependencies.py`; no lo dupliques en cada router.
 
 ### Pruebas
 

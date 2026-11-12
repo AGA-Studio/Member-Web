@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session
 
 from core.security import create_access_token
-from models import Role, User
+from models import Business, BusinessStatus, Role, User
 from tests.conftest import DEFAULT_PASSWORD, LOGIN_URL, login
 
 ME_URL = "/api/v1/auth/me"
@@ -215,6 +215,74 @@ class TestCurrentUser:
         session.commit()
         assert client.get(ME_URL).json()["role"] == "admin"
         assert client.get("/api/v1/user/list").status_code == 200
+
+
+class TestBusinessStatus:
+    """H1: a suspended business loses access, both at login and mid-session."""
+
+    def test_suspended_business_cannot_login(
+        self, client: TestClient, make_business, make_user
+    ) -> None:
+        business = make_business("Suspended", status=BusinessStatus.SUSPENDED)
+        make_user("suspended@demo.mx", business=business)
+        response = client.post(
+            LOGIN_URL, data={"username": "suspended@demo.mx", "password": DEFAULT_PASSWORD}
+        )
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Business suspended"
+        assert "set-cookie" not in response.headers
+
+    def test_suspended_business_message_needs_valid_password(
+        self, client: TestClient, make_business, make_user
+    ) -> None:
+        # Wrong password still gives 401: the status is not revealed to strangers.
+        business = make_business("Suspended", status=BusinessStatus.SUSPENDED)
+        make_user("suspended@demo.mx", business=business)
+        response = client.post(LOGIN_URL, data={"username": "suspended@demo.mx", "password": "x"})
+        assert response.status_code == 401
+
+    @pytest.mark.parametrize("status", [BusinessStatus.TRIAL, BusinessStatus.ACTIVE])
+    def test_trial_and_active_businesses_can_login(
+        self, client: TestClient, make_business, make_user, status: BusinessStatus
+    ) -> None:
+        make_user("ok@demo.mx", business=make_business("Shop", status=status))
+        login(client, "ok@demo.mx")
+
+    def test_open_session_is_cut_when_business_is_suspended(
+        self, client: TestClient, session: Session, two_businesses
+    ) -> None:
+        login(client, "employee.a@demo.mx")
+        assert client.get(ME_URL).status_code == 200
+
+        business = session.get(Business, two_businesses["business_a"].id)
+        business.status = BusinessStatus.SUSPENDED
+        session.add(business)
+        session.commit()
+
+        response = client.get(ME_URL)
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Business suspended"
+
+    def test_suspending_a_does_not_affect_b(
+        self, client: TestClient, session: Session, two_businesses
+    ) -> None:
+        business = session.get(Business, two_businesses["business_a"].id)
+        business.status = BusinessStatus.SUSPENDED
+        session.add(business)
+        session.commit()
+        login(client, "admin.b@demo.mx")
+        assert client.get("/api/v1/user/list").status_code == 200
+
+    def test_platform_owner_is_not_affected(
+        self, client: TestClient, session: Session, two_businesses
+    ) -> None:
+        for key in ("business_a", "business_b"):
+            business = session.get(Business, two_businesses[key].id)
+            business.status = BusinessStatus.SUSPENDED
+            session.add(business)
+        session.commit()
+        login(client, "owner@memberplus.mx")
+        assert client.get(ME_URL).status_code == 200
 
 
 class TestLogout:
