@@ -98,14 +98,17 @@ Ningún router es gordo: el router valida y delega. El cálculo (descuento, punt
 - Toda consulta filtra por `business_id`. Un recurso de otro negocio responde **404**.
 - RLS en la base como defensa en profundidad, además del filtro en la aplicación (lo pide el MVP).
 - Cada módulo nuevo incluye una prueba de que un negocio no ve datos de otro.
+- Los schemas de salida nunca exponen `hashed_password` ni tokens.
 
 ### Pruebas
 
 - Guía completa, fixtures y lista mínima por módulo: `docs/TESTING.md`.
-- Usar las fixtures de `tests/conftest.py` (`client`, `two_businesses`, `make_user`, `login()`); sin mocks.
-- Las pruebas deben pasar en SQLite y en PostgreSQL (`TEST_DATABASE_URL` hacia la base `memberplus_test`, nunca la de desarrollo).
-- Un problema encontrado y no corregido se registra como prueba `xfail(strict=True)` en `tests/api/test_known_issues.py` y en la tabla de hallazgos de `docs/TESTING.md`.
-- Los schemas de salida nunca exponen `hashed_password` ni tokens.
+- Usar las fixtures de `tests/conftest.py` (`client`, `two_businesses`, `make_user`, `login()`); sin
+  mocks.
+- Deben pasar en SQLite y en PostgreSQL (`TEST_DATABASE_URL` hacia la base `memberplus_test`, nunca la
+  de desarrollo).
+- Un problema encontrado y no corregido se registra como prueba `xfail(strict=True)` en
+  `tests/api/test_known_issues.py` y en la tabla de hallazgos de `docs/TESTING.md`.
 
 ## Documentación
 
