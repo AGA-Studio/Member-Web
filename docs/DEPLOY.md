@@ -80,6 +80,8 @@ Cada push a `develop` que genera imagen no despliega producción por sí solo: e
 | `CORS_ORIGINS` | `https://member.neyzt.org` | Lista separada por comas, sin barra final |
 | `ENVIRONMENT` | `production` | |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `480` | Turno completo de caja |
+| `LOGIN_MAX_ATTEMPTS` | `5` | Opcional. Intentos fallidos por email antes de bloquearlo (H4) |
+| `LOGIN_LOCKOUT_MINUTES` | `15` | Opcional. Cuánto dura el bloqueo; responde 429 con `Retry-After` |
 | `PORT` | `8000` | Lo lee el entrypoint; Coolify puede inyectarlo |
 
 Nada de esto va en el repo. `.env.example` documenta las claves con valores falsos.
