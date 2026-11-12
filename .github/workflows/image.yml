@@ -6,7 +6,7 @@ name: Image
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
     tags: ["v*"]
   workflow_dispatch:
 
@@ -39,7 +39,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # sha SIEMPRE (sirve para rollback pinneado), la rama para seguir develop,
+      # sha SIEMPRE (sirve para rollback pinneado), la rama para seguir main,
       # latest solo en la rama por defecto y la versión en los tags v*.
       - name: Calcular tags
         id: meta

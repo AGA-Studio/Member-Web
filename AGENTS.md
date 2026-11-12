@@ -64,9 +64,9 @@ uv add <paquete>                     # nueva dependencia (uv add --dev para desa
 - **Migraciones**: con **Alembic** (`migrations/`, guía en `docs/MIGRATIONS.md`). La app no crea
   tablas. Todo cambio en `models/` lleva su migración en el mismo commit
   (`uv run alembic revision --autogenerate -m "..."`), revisada a mano antes de subirla. Nunca editar
-  una migración que ya está en `develop`.
+  una migración que ya está en `main`.
 - **CI**: `.github/workflows/ci.yml` corre Ruff y pytest (SQLite y PostgreSQL) en cada PR y push a
-  `develop`/`main`; guía en `docs/CI.md`. Es un archivo compartido: avisa antes de modificarlo.
+  `main`; guía en `docs/CI.md`. Es un archivo compartido: avisa antes de modificarlo.
 - **Imagen**: `.github/workflows/image.yml` la construye y publica en GHCR, y avisa a Coolify;
   guía en `docs/DEPLOY.md`. También es compartido: si lo rompes, nadie despliega.
 - Si creas una carpeta nueva con código Python, agrega su `COPY` en el `Dockerfile`; si no, la
@@ -140,8 +140,10 @@ Ningún router es gordo: el router valida y delega. El cálculo (descuento, punt
 
 ## Git
 
-- `main` estable, `develop` integración. Trabajo nuevo en `feature/<descripcion-corta>` desde
-  `develop`, PR hacia `develop`. Nada de commits directos en `main` ni en `develop`.
+- `main` es la única rama de larga vida. Trabajo nuevo en `feature/<descripcion-corta>` (o
+  `fix/`, `docs/`, `chore/`) **desde `main`**, PR hacia `main`. Nada de commits directos en `main`.
+- Las versiones se marcan con **tags `v*` + release de GitHub**, no con ramas de release. Un tag
+  publicado no se mueve: si algo salió mal, se publica la siguiente versión.
 - No hacer push, merge ni tocar el remoto sin que el usuario lo pida.
 - Commits **pequeños**, uno por cambio lógico (un modelo, un endpoint, sus pruebas, su documentación),
   con `ruff` y `pytest` en verde. Formato: `<prefijo>: <verbo en infinitivo y minúscula> <qué>`, una
