@@ -2,6 +2,8 @@
 
 El API se despliega como **imagen Docker** construida en GitHub Actions y publicada en **GHCR**. Coolify no construye nada: solo hace `docker pull` y arranca el contenedor.
 
+**Estado actual (12 nov 2026).** Sirviendo en `https://memberplus.neyzt.org` — proyecto **Member+** de Coolify, imagen `ghcr.io/aga-studio/member-web:0.0.1`, base `memberplus` en el PostgreSQL del mismo proyecto. **El deploy es deliberado**: un merge a `main` publica imagen pero **no** despliega; para publicar se cambia el tag de la app y se redespliega.
+
 > Arquitectura: [ARCHITECTURE.md](ARCHITECTURE.md) · CI: [CI.md](CI.md) · Migraciones: [MIGRATIONS.md](MIGRATIONS.md)
 
 ## Índice
@@ -51,22 +53,36 @@ La imagen final no lleva `tests/`, ni `.git`, ni `.env`, ni el CLI de uv. Todo l
 | Evento | Tags en GHCR |
 |---|---|
 | push a `main` | `sha-<7>`, `latest` |
-| tag `v0.1-mvp` | `sha-<7>`, `v0.1-mvp`, `v0.1`, `v0.1.0` |
+| release `v0.0.1` | `sha-<7>`, `0.0.1`, `0.0` |
 | `workflow_dispatch` | `sha-<7>` |
 
-`sha-<7>` es el que se usa para rollback: es inmutable y apunta a un commit exacto. `latest` se mueve; **para producción conviene pinnear un `sha-` o el tag `v*` de la versión, no `latest`**.
+**El tag de la imagen no lleva la `v`.** `docker/metadata-action` con `pattern={{version}}` quita el prefijo: un release `v0.0.1` publica `0.0.1` y `0.0`, no `v0.0.1`. Verificado en GHCR.
 
-Cada push a `main` que genera imagen no despliega producción por sí solo: el webhook apunta a la app que tengas configurada. Un tag `v*` es el evento que sí corresponde a un despliegue deliberado.
+`sha-<7>` es el que se usa para rollback: es inmutable y apunta a un commit exacto. `latest` se mueve en cada push a `main`; **para producción se pinnea el tag de la versión (`0.0.1`), nunca `latest`**.
+
+**Despliegue deliberado.** La app de Coolify apunta a un tag de versión fijo, así que mergear a `main` o publicar una imagen nueva **no** cambia producción. El flujo es:
+
+```bash
+gh release create v0.0.2 --target main --generate-notes   # 1. publica la imagen
+# 2. en Coolify: cambiar el tag de la app a 0.0.2 y Redeploy
+```
+
+Rollback: mismo procedimiento hacia atrás con el tag anterior. Los tags `v*` de prerelease (`v0.1.0-rc.1`) generan imagen para probar, pero no se despliegan salvo que alguien mueva el tag a mano — que es justo lo que se quiere.
+
+El webhook automático (sección 4, paso 7) es **opcional** y solo tiene sentido con un tag móvil. Mientras el modelo sea deliberado, no hace falta.
 
 ---
 
 ## 4. Configurar Coolify (una vez)
 
 1. **Paquete público en GHCR.** El paquete nace privado aunque el repo sea público. En GitHub → *Packages* → `member-web` → *Package settings* → *Change visibility* → **Public**. Si prefieres dejarlo privado, agrega en Coolify una credencial de registro con un token de solo lectura (`read:packages`).
-2. **Postgres.** Crear el servicio PostgreSQL 18 en Coolify y anotar su URL interna. No uses el compose de desarrollo: ese es solo para tu máquina.
-3. **Aplicación.** Nuevo recurso → *Docker Image* → `ghcr.io/aga-studio/member-web:sha-<7>` (o `:latest` mientras no haya release). Puerto expuesto **8000**. Healthcheck en `/health`.
+2. **Postgres.** Crear el servicio PostgreSQL 18 en Coolify (sin puerto público) y anotar su URL **interna**. No uses el compose de desarrollo: ese es solo para tu máquina.
+   - **Crea una base propia**, en el terminal del recurso: `psql -U postgres -c "CREATE DATABASE memberplus;"`. La URL interna que entrega Coolify termina en `/postgres`; si se deja así, las tablas viven en la base por defecto y `memberplus` queda vacía (un `pg_dump` de ella saldría en blanco).
+3. **Aplicación.** Nuevo recurso → *Docker Image* → `ghcr.io/aga-studio/member-web:<versión>` (p. ej. `0.0.1`). Puerto expuesto **8000**.
+   - **Deja el healthcheck de Coolify apagado.** Para recursos de tipo *Docker Image*, Coolify lo implementa con `curl` o `wget` **dentro** del contenedor, y `python:3.14-slim` no trae ninguno de los dos: el contenedor quedaría `unhealthy` para siempre aunque la API responda, y el deploy se marcaría fallido. La imagen ya declara su propio `HEALTHCHECK` contra `/health` usando la stdlib, y Coolify muestra ese estado sin configurar nada. Si de todos modos quieres que Coolify lo evalúe, usa el tipo **`cmd`** con `python -c "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=3)"`, nunca `http`.
 4. **Variables** (ver sección 5). Como mínimo, `DATABASE_URL`, `SECRET_KEY`, `COOKIE_SECURE=true` y `CORS_ORIGINS`.
-5. **Dominio.** `memberplus.neyzt.org` (o el que se decida) sobre el wildcard `*.neyzt.org` que ya apunta al LXC. Traefik emite el router por app; no hay que abrir puertos.
+5. **Dominio.** `memberplus.neyzt.org` sobre el wildcard `*.neyzt.org` que ya apunta al LXC. Traefik emite el router por app; no hay que abrir puertos.
+   - Coolify **genera un dominio aleatorio** `<uuid>.<ip>.sslip.io` al crear la app: bórralo. `sslip.io` resuelve a la IP que lleva embebida — tu IP de WAN, donde no hay port forwarding al LXC — y Traefik fallaría el reto ACME para un nombre inalcanzable. El campo de dominio no lleva puerto ni barra final.
 6. **Datos de demo (una vez, después del primer despliegue).** En Coolify → la aplicación → *Terminal*, con `SEED_PASSWORD` definida en las variables:
 
    ```bash
@@ -74,7 +90,7 @@ Cada push a `main` que genera imagen no despliega producción por sí solo: el w
    ```
 
    Crea Café Aurora, Gimnasio Titán y sus usuarios (ver el README). Se puede repetir sin duplicar nada y nunca cambia la contraseña de un usuario que ya existe. Sin `SEED_PASSWORD` en producción, se niega a correr.
-7. **Webhook de deploy.** *Application → Webhooks* → copiar la URL de deploy y el token de API, y guardarlos en el repo como secretos `COOLIFY_WEBHOOK` y `COOLIFY_TOKEN` (Settings → Secrets → Actions). Con eso, cada imagen nueva se despliega sola.
+7. **Webhook de deploy (opcional).** Solo sirve si la app apunta a un tag **móvil**. *Application → Webhooks* → copiar la URL de deploy y el token de API, y guardarlos en el repo como secretos `COOLIFY_WEBHOOK` y `COOLIFY_TOKEN`. Con un tag de versión fijo, el webhook redespliega la misma imagen: no aporta nada al modelo deliberado.
 
 ---
 
@@ -82,7 +98,7 @@ Cada push a `main` que genera imagen no despliega producción por sí solo: el w
 
 | Variable | Ejemplo | Notas |
 |---|---|---|
-| `DATABASE_URL` | `postgresql+psycopg://user:pass@postgres:5432/memberplus` | La interna de Coolify, no `localhost` |
+| `DATABASE_URL` | `postgresql+psycopg://postgres:PASS@<host-interno>:5432/memberplus` | La interna de Coolify, no `localhost`. **Debe empezar con `postgresql+psycopg://`**: Coolify entrega la URL con `postgres://` y SQLAlchemy 2 lo rechaza. Si la contraseña trae `@`, `/`, `:` o `#`, hay que percent-codificarla |
 | `SECRET_KEY` | 64 caracteres aleatorios | `python -c "import secrets; print(secrets.token_urlsafe(64))"`; si cambia, se invalidan todas las sesiones |
 | `COOKIE_SECURE` | `true` | Obligatorio con HTTPS; en local va `false` |
 | `CORS_ORIGINS` | `https://member.neyzt.org` | Lista separada por comas, sin barra final |
@@ -161,3 +177,18 @@ El healthcheck consulta `http://127.0.0.1:$PORT/health` dentro del contenedor. S
 
 **La imagen no se actualiza en Coolify.**
 Coolify no adivina que hay imagen nueva: revisa que el webhook esté configurado (`COOLIFY_WEBHOOK` + `COOLIFY_TOKEN`) o redespliega a mano. Si el tag es `sha-`, cambia el tag: ese nunca se mueve.
+
+**`NoSuchModuleError: Can't load plugin: sqlalchemy.dialects:postgres`.**
+La `DATABASE_URL` empieza con `postgres://`. SQLAlchemy 2 eliminó ese alias en 1.4: cámbialo a `postgresql+psycopg://`. Es el error más común de la primera puesta en marcha, y el contenedor queda en `Restarting (1)`.
+
+**El contenedor se reinicia en bucle y el log se corta en `Aplicando migraciones...`.**
+Muere en Alembic, no en uvicorn. En orden: `DATABASE_URL` con esquema malo, host inalcanzable (usaste `localhost` en vez del host interno), contraseña con caracteres sin codificar, o esquema adelantado respecto a la imagen.
+
+**Coolify marca `unhealthy` pero `curl` al dominio responde 200.**
+Tienes el healthcheck de Coolify en tipo `http` y la imagen no trae `curl` ni `wget`. Apágalo (la imagen ya chequea sola) o cámbialo a tipo `cmd`.
+
+**El dominio `*.sslip.io` de Coolify no abre.**
+Es el default generado al crear la app y apunta a la IP pública del servidor, que aquí no tiene port forwarding. Reemplázalo por el dominio real sobre `*.neyzt.org`.
+
+**`/docs` y `/openapi.json` son públicos.**
+FastAPI los expone salvo que se desactiven. Decisión pendiente: cerrarlos cuando `ENVIRONMENT=production` o dejarlos abiertos a propósito. Hoy están abiertos, y así se documentó.
