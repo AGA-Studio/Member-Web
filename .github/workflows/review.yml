@@ -1,0 +1,61 @@
+name: review
+
+# Revisor automático de PRs contra la wiki y la documentación del repo.
+# Comenta lo que contradice docs/REVISION.md; no aprueba, no bloquea y no
+# cambia código. Si falla (sin cupo, sin red), el PR sigue su curso.
+
+on:
+  # Una sola revisión por PR: al abrirlo, al reabrirlo o cuando deja de ser
+  # borrador. Un push posterior no la repite (cuesta ~2.5 min y ~$0.003).
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, ready_for_review]
+  # Para volver a revisar a mano desde la pestaña Actions.
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Número del PR a revisar
+        required: true
+
+# Un push nuevo cancela la revisión anterior del mismo PR.
+concurrency:
+  group: review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    name: review
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # No es un check obligatorio: un revisor caído no puede frenar un merge.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Instalar uv
+        uses: astral-sh/setup-uv@v10.3.3
+        with:
+          version: "0.11.26"
+          python-version: "3.14"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Instalar dependencias
+        run: uv sync --locked
+
+      # Sin OPENCODE_API_KEY (PRs desde forks) el script no hace nada y sale 0.
+      - name: Revisar contra docs/REVISION.md
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >
+          uv run python -m scripts.review_pr
+          --repo "${{ github.repository }}"
+          --pr "${{ inputs.pr || github.event.pull_request.number }}"

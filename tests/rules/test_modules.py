@@ -48,6 +48,6 @@ def test_every_business_scoped_router_has_an_isolation_test() -> None:
         if "BusinessId" in sources[module] and f"/api/v1{prefix}" not in isolation
     ]
     assert not problems, (
-        "Every business-scoped module needs its isolation test (AGENTS.md §Aislamiento "
+        "Every business-scoped module needs its isolation test (AGENTS.md section Aislamiento "
         "multi-negocio, one of the MVP acceptance criteria):\n" + "\n".join(problems)
     )

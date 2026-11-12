@@ -1,7 +1,7 @@
 """DTO rules.
 
 `business_id` never comes from the request body, and credentials never go out.
-Both are stated in AGENTS.md §Aislamiento multi-negocio and are invisible to the
+Both are stated in AGENTS.md section Aislamiento multi-negocio and are invisible to the
 behaviour tests: a new input schema accepting `business_id` would still pass
 every test we have.
 """
