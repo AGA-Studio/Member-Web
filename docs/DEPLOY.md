@@ -67,7 +67,14 @@ Cada push a `main` que genera imagen no despliega producción por sí solo: el w
 3. **Aplicación.** Nuevo recurso → *Docker Image* → `ghcr.io/aga-studio/member-web:sha-<7>` (o `:latest` mientras no haya release). Puerto expuesto **8000**. Healthcheck en `/health`.
 4. **Variables** (ver sección 5). Como mínimo, `DATABASE_URL`, `SECRET_KEY`, `COOKIE_SECURE=true` y `CORS_ORIGINS`.
 5. **Dominio.** `memberplus.neyzt.org` (o el que se decida) sobre el wildcard `*.neyzt.org` que ya apunta al LXC. Traefik emite el router por app; no hay que abrir puertos.
-6. **Webhook de deploy.** *Application → Webhooks* → copiar la URL de deploy y el token de API, y guardarlos en el repo como secretos `COOLIFY_WEBHOOK` y `COOLIFY_TOKEN` (Settings → Secrets → Actions). Con eso, cada imagen nueva se despliega sola.
+6. **Datos de demo (una vez, después del primer despliegue).** En Coolify → la aplicación → *Terminal*, con `SEED_PASSWORD` definida en las variables:
+
+   ```bash
+   python -m scripts.seed
+   ```
+
+   Crea Café Aurora, Gimnasio Titán y sus usuarios (ver el README). Se puede repetir sin duplicar nada y nunca cambia la contraseña de un usuario que ya existe. Sin `SEED_PASSWORD` en producción, se niega a correr.
+7. **Webhook de deploy.** *Application → Webhooks* → copiar la URL de deploy y el token de API, y guardarlos en el repo como secretos `COOLIFY_WEBHOOK` y `COOLIFY_TOKEN` (Settings → Secrets → Actions). Con eso, cada imagen nueva se despliega sola.
 
 ---
 
@@ -83,6 +90,7 @@ Cada push a `main` que genera imagen no despliega producción por sí solo: el w
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `480` | Turno completo de caja |
 | `LOGIN_MAX_ATTEMPTS` | `5` | Opcional. Intentos fallidos por email antes de bloquearlo (H4) |
 | `LOGIN_LOCKOUT_MINUTES` | `15` | Opcional. Cuánto dura el bloqueo; responde 429 con `Retry-After` |
+| `SEED_PASSWORD` | 16+ caracteres aleatorios | Solo para correr `python -m scripts.seed`; contraseña de los usuarios de demo. Obligatoria en producción |
 | `PORT` | `8000` | Lo lee el entrypoint; Coolify puede inyectarlo |
 
 Nada de esto va en el repo. `.env.example` documenta las claves con valores falsos.

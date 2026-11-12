@@ -20,10 +20,22 @@ cp .env.example .env          # cambia SECRET_KEY
 uv sync
 docker compose up -d          # PostgreSQL en localhost:5433
 uv run alembic upgrade head   # crea o actualiza las tablas
+uv run python -m scripts.seed # datos de demo (se puede correr varias veces)
 uv run uvicorn main:app --reload
 ```
 
 Documentación de la API: <http://127.0.0.1:8000/docs>
+
+### Usuarios de demo
+
+En desarrollo, el seed usa la contraseña `demo12345` (o la de `SEED_PASSWORD` en el `.env`).
+
+| Usuario | Rol | Negocio |
+|---------|-----|---------|
+| `owner@memberplus.mx` | Dueño de plataforma | — |
+| `admin@cafe-aurora.mx` | Administrador | Café Aurora |
+| `caja@cafe-aurora.mx` | Empleado de caja | Café Aurora |
+| `admin@gimnasio-titan.mx` | Administrador | Gimnasio Titán |
 
 ## Pruebas
 

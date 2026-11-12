@@ -22,11 +22,11 @@ Documentación de la suite de pruebas automatizadas del backend: qué se prueba,
 | Métrica | Valor |
 |---------|-------|
 | Fecha de ejecución | 12 de noviembre de 2026 |
-| Pruebas | **195**, todas pasan (0 `xfail`) |
+| Pruebas | **217**, todas pasan (0 `xfail`) |
 | Fallas | **0** |
-| Cobertura de líneas y ramas | **100 %** (372 sentencias, 58 ramas), incluido `services/` |
+| Cobertura de líneas y ramas | **100 %** (435 sentencias, 78 ramas), incluidos `services/` y `scripts/` |
 | Bases de datos probadas | SQLite y **PostgreSQL 18.6** |
-| Tiempo | ~14 s en SQLite · ~38 s en PostgreSQL (equipo local) |
+| Tiempo | ~17 s en SQLite · ~42 s en PostgreSQL (equipo local) |
 | Criterio del MVP "0 filas de otro negocio" | ✅ Cumplido (7 pruebas de aislamiento) |
 | Migraciones (Alembic) | ✅ Suben, bajan, convierten datos y coinciden con los modelos (9 pruebas) |
 | Hallazgos | ✅ Los 7 corregidos (H1–H7) |
@@ -35,10 +35,11 @@ No quedan `xfail`: los 7 [hallazgos](#7-hallazgos) se corrigieron y sus pruebas 
 
 ```mermaid
 pie showData
-    title Pruebas por archivo (195)
+    title Pruebas por archivo (217)
     "test_user.py" : 53
     "test_auth.py" : 46
     "test_validators.py" : 24
+    "test_seed.py" : 22
     "test_security.py" : 17
     "test_login_limit.py" : 12
     "test_migrations.py" : 9
@@ -127,6 +128,10 @@ flowchart TB
         D1["test_migrations.py<br/>Alembic: upgrade · downgrade · sincronía"]
     end
 
+    subgraph SCT["Scripts — tests/scripts/ (22)"]
+        S1["test_seed.py<br/>datos de demo"]
+    end
+
     UNIT --> CODE["core/ · models/"]
     API --> HTTP["TestClient (HTTP real)"] --> APP["FastAPI completo:<br/>CORS → routers → dependencias → BD"]
     DBT --> ALE["alembic command.upgrade / downgrade<br/>sobre la base de prueba"]
@@ -202,8 +207,10 @@ tests/
     ├── test_isolation.py
     ├── test_login_limit.py
     └── test_known_issues.py
-└── db/
-    └── test_migrations.py
+├── db/
+│   └── test_migrations.py
+└── scripts/
+    └── test_seed.py
 ```
 
 ### Configuración (`tests/conftest.py`)
@@ -617,6 +624,36 @@ Differences: [('add_column', None, 'users', Column('phone', AutoString(), table=
 
 ---
 
+### 5.10 Seed de demo — `tests/scripts/test_seed.py` (22)
+
+`scripts/seed.py` crea Café Aurora y Gimnasio Titán (`active`) con 4 usuarios: dueño de plataforma, admin y empleado de Café Aurora, y admin de Gimnasio Titán.
+
+| Prueba | Verifica | Resultado |
+|--------|----------|-----------|
+| `test_creates_two_active_businesses` | Los dos negocios, en estado `active` | ✅ |
+| `test_creates_the_demo_users_with_their_roles` | Los 4 usuarios con su rol | ✅ |
+| `test_users_belong_to_the_right_business` | Cada usuario en su negocio; el dueño sin negocio | ✅ |
+| `test_passwords_are_hashed` | Contraseñas en Argon2id y verificables | ✅ |
+| `test_demo_names_follow_the_name_rule[...]` | Los nombres de demo cumplen `PersonName` (4 casos) | ✅ |
+| `test_second_run_creates_nothing` | Correrlo dos veces no duplica nada | ✅ |
+| `test_existing_password_is_never_changed` | Una segunda corrida con otra contraseña no cambia la existente | ✅ |
+| `test_completes_partial_data` | Si ya existe un negocio, crea solo lo que falta | ✅ |
+| `test_admin_a_sees_only_cafe_aurora` | El admin de Café Aurora ve solo a sus 2 usuarios | ✅ |
+| `test_admin_b_sees_nothing_of_a` | El admin de Gimnasio Titán no ve nada de Café Aurora | ✅ |
+| `test_every_demo_user_can_log_in` | Los 4 usuarios inician sesión con su rol | ✅ |
+| `test_development_uses_the_demo_password` | En desarrollo sin `SEED_PASSWORD` usa `demo12345` | ✅ |
+| `test_seed_password_wins` | `SEED_PASSWORD` tiene prioridad | ✅ |
+| `test_production_requires_seed_password` | En producción sin `SEED_PASSWORD` → error | ✅ |
+| `test_short_seed_password_is_rejected` | Menos de 8 caracteres → error | ✅ |
+| `test_main_seeds_and_prints` | El comando imprime lo creado y la contraseña de demo | ✅ |
+| `test_main_reports_existing_data` | En la segunda corrida reporta "exists" y no crea nada | ✅ |
+| `test_main_never_prints_a_custom_password` | Una `SEED_PASSWORD` propia nunca se imprime | ✅ |
+| `test_main_fails_without_password_in_production` | Sale con código 1 y mensaje "Seed aborted" | ✅ |
+
+También se probó dentro de la imagen Docker: crea los datos con `SEED_PASSWORD` y se niega a correr sin ella en producción.
+
+---
+
 ## 6. Resultados de la ejecución
 
 Ejecutado el 12 de noviembre de 2026.
@@ -638,18 +675,15 @@ Ejecutado el 12 de noviembre de 2026.
 ### SQLite
 
 ```text
-$ uv run pytest -q -rx
-........................................................................ [ 36%]
-........................................................................ [ 73%]
-...................................................                      [100%]
-195 passed in 13.89s
+$ uv run pytest -q
+217 passed in 17.35s
 ```
 
 ### PostgreSQL 18.6
 
 ```text
 $ TEST_DATABASE_URL=postgresql+psycopg://...@localhost:5433/memberplus_test uv run pytest -q
-195 passed in 38.13s
+217 passed in 42.45s
 ```
 
 Se ejecutó dos veces seguidas con el mismo resultado: las pruebas no dependen del orden ni dejan datos.
@@ -663,7 +697,7 @@ Name                            Stmts   Miss Branch BrPart  Cover
 api/v1/auth_api.py                 42      0      6      0   100%
 api/v1/dependencies.py             55      0     16      0   100%
 api/v1/user_api.py                 55      0     16      0   100%
-core/config.py                     30      0      2      0   100%
+core/config.py                     31      0      2      0   100%
 core/cors.py                        5      0      0      0   100%
 core/security.py                   17      0      0      0   100%
 db/database.py                     13      0      0      0   100%
@@ -677,9 +711,10 @@ models/user_model.py               18      0      0      0   100%
 schemas/token_schema.py             5      0      0      0   100%
 schemas/user_schema.py             14      0      0      0   100%
 schemas/validators.py              13      0      4      0   100%
+scripts/seed.py                    62      0     20      0   100%
 services/auth_service.py           44      0     12      0   100%
 -----------------------------------------------------------------
-TOTAL                             372      0     58      0   100%
+TOTAL                             435      0     78      0   100%
 ```
 
 El MVP pide ≥ 60 % de cobertura en `services/`. Hoy `services/auth_service.py` está al 100 %; la lógica de caja (hito H2) entrará en la misma carpeta.

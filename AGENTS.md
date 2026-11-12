@@ -50,6 +50,7 @@ FastAPI · SQLModel (síncrono) · PostgreSQL 18 · pwdlib (Argon2id) · PyJWT �
 uv sync                              # instalar dependencias
 docker compose up -d                 # PostgreSQL en localhost:5433
 uv run alembic upgrade head          # aplicar migraciones
+uv run python -m scripts.seed        # datos de demo: 2 negocios y sus usuarios (idempotente)
 uv run uvicorn main:app --reload     # API en http://127.0.0.1:8000/docs
 uv run pytest                        # pruebas (SQLite temporal)
 uv run ruff check . && uv run ruff format .
@@ -80,6 +81,7 @@ migrations/      Alembic: env.py y versions/ (una migración por cambio)
 models/          tablas SQLModel (table=True), una por archivo: <nombre>_model.py
 schemas/         DTOs Pydantic: <nombre>_schema.py (XCreate, XUpdate, XResponse)
 services/        lógica de negocio y cálculo (hoy: auth_service.py, revocación y límite de login)
+scripts/         scripts de terminal (`python -m scripts.<nombre>`); hoy: seed.py
 api/v1/          dependencies.py y un router por módulo: <nombre>_api.py
 tests/           pytest
 docs/            documentación con diagramas Mermaid

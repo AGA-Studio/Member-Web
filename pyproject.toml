@@ -38,9 +38,10 @@ pythonpath = ["."]
 filterwarnings = ["ignore:Using `httpx` with `starlette.testclient` is deprecated"]
 
 [tool.coverage.run]
-source = ["api", "core", "db", "models", "schemas", "services", "main"]
+source = ["api", "core", "db", "models", "schemas", "services", "scripts", "main"]
 branch = true
 
 [tool.coverage.report]
 show_missing = true
 skip_empty = true
+exclude_also = ["if __name__ == .__main__.:"]
