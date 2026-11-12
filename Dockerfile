@@ -28,10 +28,16 @@ COPY core/ ./core/
 COPY db/ ./db/
 COPY models/ ./models/
 COPY schemas/ ./schemas/
+COPY services/ ./services/
 COPY migrations/ ./migrations/
 COPY docker/ ./docker/
 
 RUN uv sync --locked --no-dev
+
+# Guard: importing the app fails if a package folder was not copied above
+# (it happened with services/). Better a failed build than a published image
+# that crashes on start. SECRET_KEY is a throwaway value, only to load settings.
+RUN SECRET_KEY=build-check-only /app/.venv/bin/python -c "import main"
 
 # ---------- Etapa 2: runtime ----------
 FROM python:3.14-slim AS runtime
