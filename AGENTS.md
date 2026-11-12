@@ -23,9 +23,8 @@ accesible con el MCP `outline`). Orden:
 3. **Requisitos de referencia** (RF/RNF) y **Pantallas**.
 - Diseño y marca (color, tipografía, tono, componentes): **Identidad de marca**, solo si tocas textos o UX.
 
-No usar como referencia: el **ERS**, el calendario y los responsables de la *Guía de desarrollo* (son
-de relleno) y `docs/00-auditoria-proyecto.md` (propone Supabase y reconocimiento facial, ambos
-descartados). La arquitectura vigente del repo es `docs/ARCHITECTURE.md`.
+No usar como referencia: el **ERS** ni el calendario y los responsables de la *Guía de desarrollo*
+(son de relleno). La arquitectura vigente del repo es `docs/ARCHITECTURE.md`.
 
 ### Decisiones cerradas
 
