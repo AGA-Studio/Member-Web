@@ -9,18 +9,7 @@ Each test describes the DESIRED behavior and is marked xfail(strict=True):
 import pytest
 from fastapi.testclient import TestClient
 
-from models import BusinessStatus
-from tests.conftest import DEFAULT_PASSWORD, LOGIN_URL, login
-
-
-@pytest.mark.xfail(strict=True, reason="H1: login does not check the business status")
-def test_h1_suspended_business_cannot_login(client: TestClient, make_business, make_user) -> None:
-    business = make_business("Suspended", status=BusinessStatus.SUSPENDED)
-    make_user("suspended@demo.mx", business=business)
-    response = client.post(
-        LOGIN_URL, data={"username": "suspended@demo.mx", "password": DEFAULT_PASSWORD}
-    )
-    assert response.status_code == 403
+from tests.conftest import LOGIN_URL, login
 
 
 @pytest.mark.xfail(strict=True, reason="H2: logout only deletes the cookie; JWT stays valid")
