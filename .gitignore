@@ -38,3 +38,7 @@ Thumbs.db
 
 # --- Logs ---
 *.log
+
+# Contexto local de agentes (no se versiona)
+.hermes/
+.hermes.md
