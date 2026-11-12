@@ -9,6 +9,8 @@ El API se despliega como **imagen Docker** construida en GitHub Actions y public
 | `memberplus.neyzt.org` | **Frontend** — reservado, todavía sin desplegar |
 | `api-memberplus.neyzt.org` | **API** — en producción desde el 12 nov 2026 |
 
+**El navegador no llama al API directo.** Pide `/api/*` en el host del frontend y Next lo reescribe hacia el API: así la cookie httpOnly es de primera parte (sin CORS en producción y sin `SameSite=None`). El único cliente que pega al API de frente es el lector ESP32, con su token de dispositivo.
+
 > Arquitectura: [ARCHITECTURE.md](ARCHITECTURE.md) · CI: [CI.md](CI.md) · Migraciones: [MIGRATIONS.md](MIGRATIONS.md)
 
 ## Índice
@@ -108,7 +110,7 @@ El webhook automático (sección 4, paso 7) es **opcional** y solo tiene sentido
 | `DATABASE_URL` | `postgresql+psycopg://postgres:PASS@<host-interno>:5432/memberplus` | La interna de Coolify, no `localhost`. **Debe empezar con `postgresql+psycopg://`**: Coolify entrega la URL con `postgres://` y SQLAlchemy 2 lo rechaza. Si la contraseña trae `@`, `/`, `:` o `#`, hay que percent-codificarla |
 | `SECRET_KEY` | 64 caracteres aleatorios | `python -c "import secrets; print(secrets.token_urlsafe(64))"`; si cambia, se invalidan todas las sesiones |
 | `COOKIE_SECURE` | `true` | Obligatorio con HTTPS; en local va `false` |
-| `CORS_ORIGINS` | `https://memberplus.neyzt.org` | El **frontend**, no la API. Lista separada por comas, sin barra final |
+| `CORS_ORIGINS` | `https://memberplus.neyzt.org` | Solo para **desarrollo local**. En producción el navegador llama `/api/*` en el host del frontend y Next lo reescribe hacia el API, así que no hay CORS ni `SameSite=None`. Lista separada por comas, sin barra final |
 | `ENVIRONMENT` | `production` | |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `480` | Turno completo de caja |
 | `LOGIN_MAX_ATTEMPTS` | `5` | Opcional. Intentos fallidos por email antes de bloquearlo (H4) |

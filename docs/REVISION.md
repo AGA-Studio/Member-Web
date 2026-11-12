@@ -36,7 +36,7 @@ Un PR no las contradice. Si de verdad hay que cambiarlas, se cambia primero la c
 | Migraciones | Alembic; la app no crea tablas | Cada cambio de modelo lleva su migración en el mismo commit |
 | Ramas | `main` es la única rama de integración | Sin `develop`; PR siempre contra `main` |
 | Despliegue | GHCR + `docker pull` en Coolify | Migraciones en el entrypoint: si fallan, la API no arranca |
-| Hostnames | App en `memberplus.neyzt.org`, API en `api.memberplus.neyzt.org` | Next reescribe `/api/*`: cookie de primera parte, sin CORS en producción |
+| Hostnames | App en `memberplus.neyzt.org`, API en `api-memberplus.neyzt.org` | Next reescribe `/api/*`: cookie de primera parte, sin CORS en producción. **Guion y no punto**: el SSL Universal de Cloudflare solo cubre un nivel de subdominio |
 | Dueño de los datos | El negocio; Member+ solo los procesa | Dos avisos de privacidad |
 | Respaldo | `pg_dump` diario + restic, restauración probada | — |
 
