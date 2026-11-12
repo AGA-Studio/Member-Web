@@ -1,11 +1,13 @@
 """Member+ API entry point.
 
 Development:
+    uv run alembic upgrade head             # create/update tables
     uv run uvicorn main:app --reload        # http://127.0.0.1:8000/docs
 
 Layout:
     core/     settings, CORS and security (Argon2id + JWT)
     db/       database engine and session
+    migrations/  Alembic migrations (schema changes)
     models/   tables (SQLModel, table=True)
     schemas/  input/output DTOs (Pydantic)
     api/v1/   versioned routers; register every new module in API_V1_ROUTERS
@@ -18,7 +20,7 @@ from fastapi import FastAPI
 from api.v1 import auth_api, user_api
 from core.config import settings
 from core.cors import setup_cors
-from db.database import create_db_and_tables
+from db.database import check_database_connection
 
 API_V1_PREFIX = "/api/v1"
 
@@ -34,8 +36,9 @@ API_V1_ROUTERS = [
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: create missing tables. To be replaced by migrations.
-    create_db_and_tables()
+    # Startup: make sure the database answers. Tables are created by
+    # `alembic upgrade head`, never by the app.
+    check_database_connection()
     yield
     # Shutdown: nothing to release yet.
 
