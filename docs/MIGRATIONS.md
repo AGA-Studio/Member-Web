@@ -162,9 +162,9 @@ uv run alembic upgrade head
 
 Para evitarlo:
 
-- Antes de generar una migración, actualizar la rama con `develop`.
+- Antes de generar una migración, actualizar la rama con `main`.
 - Una migración por PR, en el mismo PR que el modelo.
-- **Nunca editar una migración que ya está en `develop`**: se crea una nueva que corrija.
+- **Nunca editar una migración que ya está en `main`**: se crea una nueva que corrija.
 
 ---
 
@@ -310,6 +310,6 @@ Quien tenga una base local creada antes de Alembic debe hacer lo mismo **una sol
 
 - Todo cambio en `models/` lleva su migración **en el mismo commit**.
 - Las migraciones se revisan antes de subirlas (sobre todo `downgrade()` y los renombres).
-- Nunca editar ni borrar una migración que ya está en `develop` o `main`.
+- Nunca editar ni borrar una migración que ya está en `main`.
 - Nunca usar `create_all` en la app; solo lo usan las pruebas.
 - Mensajes de migración en inglés, en minúscula y descriptivos: `"add customers table"`, `"add phone to users"`.
