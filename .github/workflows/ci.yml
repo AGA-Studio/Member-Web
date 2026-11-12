@@ -1,0 +1,137 @@
+name: CI
+
+# Lint y pruebas en cada PR y en cada push a las ramas de integración.
+# setup-uv no publica tag mayor flotante: su versión va fija y se sube a mano
+# (revisar su release más reciente). checkout sí mantiene el suyo.
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+  workflow_dispatch:
+
+# Un push nuevo cancela el run anterior de la misma rama.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.14"
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Instalar uv
+        uses: astral-sh/setup-uv@v10.3.3
+        with:
+          version: "0.11.26"
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Instalar dependencias
+        run: uv sync --locked
+
+      - name: Ruff (lint)
+        run: uv run ruff check --output-format=github .
+
+      - name: Ruff (formato)
+        run: uv run ruff format --check .
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Instalar uv
+        uses: astral-sh/setup-uv@v10.3.3
+        with:
+          version: "0.11.26"
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Instalar dependencias
+        run: uv sync --locked
+
+      # conftest.py usa un SQLite temporal; no hace falta servicio de base de datos.
+      - name: Pytest
+        run: uv run pytest -q -rx
+
+  test-postgres:
+    name: test (postgres)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: memberplus
+          POSTGRES_PASSWORD: memberplus
+          POSTGRES_DB: memberplus_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U memberplus -d memberplus_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg://memberplus:memberplus@localhost:5432/memberplus_test
+      TEST_DATABASE_URL: postgresql+psycopg://memberplus:memberplus@localhost:5432/memberplus_test
+      SECRET_KEY: test-only-secret-key
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Instalar uv
+        uses: astral-sh/setup-uv@v10.3.3
+        with:
+          version: "0.11.26"
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Instalar dependencias
+        run: uv sync --locked
+
+      # Verifica driver y conexión reales contra el servicio, no solo que el YAML cargue.
+      - name: Probar conexión a PostgreSQL
+        run: |
+          uv run python -c "
+          from sqlmodel import Session, text
+          from db.database import engine
+
+          assert engine.url.drivername.startswith('postgresql'), engine.url
+          version = Session(engine).exec(text('select version()')).first()[0]
+          assert 'PostgreSQL' in version, version
+          print(version)
+          "
+
+      # conftest.py toma TEST_DATABASE_URL, así que la suite de este job corre
+      # contra el servicio, no contra SQLite.
+      - name: Pytest
+        run: uv run pytest -q -rx
+
+      # Si conftest.py volviera a fijar SQLite, la base del servicio quedaría
+      # vacía y este paso falla: impide una bandera verde que no probó Postgres.
+      - name: Verificar que la suite usó PostgreSQL
+        run: |
+          uv run python -c "
+          from sqlmodel import Session, text
+          from db.database import engine
+
+          table = Session(engine).exec(text(\"select to_regclass('public.users')\")).first()[0]
+          assert table is not None, 'La suite no creó tablas en PostgreSQL'
+          print('tabla creada por la suite:', table)
+          "
