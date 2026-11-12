@@ -22,7 +22,7 @@ from models import Business, Role, User
 from tests.conftest import _DEFAULT_HASH, login
 
 ROOT = Path(__file__).resolve().parents[2]
-APP_TABLES = {"businesses", "users"}
+APP_TABLES = {"businesses", "users", "revoked_tokens"}
 
 
 def alembic_config(connection: Connection | None = None) -> Config:

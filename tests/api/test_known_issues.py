@@ -9,16 +9,7 @@ Each test describes the DESIRED behavior and is marked xfail(strict=True):
 import pytest
 from fastapi.testclient import TestClient
 
-from tests.conftest import LOGIN_URL, login
-
-
-@pytest.mark.xfail(strict=True, reason="H2: logout only deletes the cookie; JWT stays valid")
-def test_h2_token_is_invalid_after_logout(client: TestClient, two_businesses) -> None:
-    token = login(client, "admin.a@demo.mx")
-    client.post("/api/v1/auth/logout")
-    client.cookies.clear()
-    response = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
-    assert response.status_code == 401
+from tests.conftest import LOGIN_URL
 
 
 @pytest.mark.xfail(strict=True, reason="H4: no rate limit on failed logins")
