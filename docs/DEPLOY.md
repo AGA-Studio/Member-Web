@@ -2,7 +2,12 @@
 
 El API se despliega como **imagen Docker** construida en GitHub Actions y publicada en **GHCR**. Coolify no construye nada: solo hace `docker pull` y arranca el contenedor.
 
-**Estado actual (12 nov 2026).** Sirviendo en `https://memberplus.neyzt.org` — proyecto **Member+** de Coolify, imagen `ghcr.io/aga-studio/member-web:0.0.1`, base `memberplus` en el PostgreSQL del mismo proyecto. **El deploy es deliberado**: un merge a `main` publica imagen pero **no** despliega; para publicar se cambia el tag de la app y se redespliega.
+**Estado actual (12 nov 2026).** Sirviendo en `https://api-memberplus.neyzt.org` — proyecto **Member+** de Coolify, imagen `ghcr.io/aga-studio/member-web:0.0.1`, base `memberplus` en el PostgreSQL del mismo proyecto. **El deploy es deliberado**: un merge a `main` publica imagen pero **no** despliega; para publicar se cambia el tag de la app y se redespliega.
+
+| Host | Qué sirve |
+|---|---|
+| `memberplus.neyzt.org` | **Frontend** — reservado, todavía sin desplegar |
+| `api-memberplus.neyzt.org` | **API** — en producción desde el 12 nov 2026 |
 
 > Arquitectura: [ARCHITECTURE.md](ARCHITECTURE.md) · CI: [CI.md](CI.md) · Migraciones: [MIGRATIONS.md](MIGRATIONS.md)
 
@@ -81,7 +86,9 @@ El webhook automático (sección 4, paso 7) es **opcional** y solo tiene sentido
 3. **Aplicación.** Nuevo recurso → *Docker Image* → `ghcr.io/aga-studio/member-web:<versión>` (p. ej. `0.0.1`). Puerto expuesto **8000**.
    - **Deja el healthcheck de Coolify apagado.** Para recursos de tipo *Docker Image*, Coolify lo implementa con `curl` o `wget` **dentro** del contenedor, y `python:3.14-slim` no trae ninguno de los dos: el contenedor quedaría `unhealthy` para siempre aunque la API responda, y el deploy se marcaría fallido. La imagen ya declara su propio `HEALTHCHECK` contra `/health` usando la stdlib, y Coolify muestra ese estado sin configurar nada. Si de todos modos quieres que Coolify lo evalúe, usa el tipo **`cmd`** con `python -c "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=3)"`, nunca `http`.
 4. **Variables** (ver sección 5). Como mínimo, `DATABASE_URL`, `SECRET_KEY`, `COOKIE_SECURE=true` y `CORS_ORIGINS`.
-5. **Dominio.** `memberplus.neyzt.org` sobre el wildcard `*.neyzt.org` que ya apunta al LXC. Traefik emite el router por app; no hay que abrir puertos.
+5. **Dominio.** `api-memberplus.neyzt.org` sobre el wildcard `*.neyzt.org` que ya apunta al LXC. Traefik emite el router por app; no hay que abrir puertos.
+   - **El backend NO va en `memberplus.neyzt.org`**: ese nombre es del frontend. El reparto es `memberplus.neyzt.org` → frontend y `api-memberplus.neyzt.org` → API.
+   - **Un solo nivel de subdominio.** `api.memberplus.neyzt.org` (dos niveles) resuelve en DNS pero **falla el handshake TLS**: el certificado Universal de Cloudflare solo cubre `neyzt.org` y `*.neyzt.org`. Para usar subdominios anidados hace falta Advanced Certificate Manager (de pago). Por eso el guion en vez del punto.
    - Coolify **genera un dominio aleatorio** `<uuid>.<ip>.sslip.io` al crear la app: bórralo. `sslip.io` resuelve a la IP que lleva embebida — tu IP de WAN, donde no hay port forwarding al LXC — y Traefik fallaría el reto ACME para un nombre inalcanzable. El campo de dominio no lleva puerto ni barra final.
 6. **Datos de demo (una vez, después del primer despliegue).** En Coolify → la aplicación → *Terminal*, con `SEED_PASSWORD` definida en las variables:
 
@@ -101,7 +108,7 @@ El webhook automático (sección 4, paso 7) es **opcional** y solo tiene sentido
 | `DATABASE_URL` | `postgresql+psycopg://postgres:PASS@<host-interno>:5432/memberplus` | La interna de Coolify, no `localhost`. **Debe empezar con `postgresql+psycopg://`**: Coolify entrega la URL con `postgres://` y SQLAlchemy 2 lo rechaza. Si la contraseña trae `@`, `/`, `:` o `#`, hay que percent-codificarla |
 | `SECRET_KEY` | 64 caracteres aleatorios | `python -c "import secrets; print(secrets.token_urlsafe(64))"`; si cambia, se invalidan todas las sesiones |
 | `COOKIE_SECURE` | `true` | Obligatorio con HTTPS; en local va `false` |
-| `CORS_ORIGINS` | `https://member.neyzt.org` | Lista separada por comas, sin barra final |
+| `CORS_ORIGINS` | `https://memberplus.neyzt.org` | El **frontend**, no la API. Lista separada por comas, sin barra final |
 | `ENVIRONMENT` | `production` | |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `480` | Turno completo de caja |
 | `LOGIN_MAX_ATTEMPTS` | `5` | Opcional. Intentos fallidos por email antes de bloquearlo (H4) |
@@ -189,6 +196,9 @@ Tienes el healthcheck de Coolify en tipo `http` y la imagen no trae `curl` ni `w
 
 **El dominio `*.sslip.io` de Coolify no abre.**
 Es el default generado al crear la app y apunta a la IP pública del servidor, que aquí no tiene port forwarding. Reemplázalo por el dominio real sobre `*.neyzt.org`.
+
+**`sslv3 alert handshake failure` en un subdominio recién puesto.**
+Tiene dos niveles (`api.algo.neyzt.org`). El certificado Universal de Cloudflare solo cubre `neyzt.org` y `*.neyzt.org`, un nivel; el DNS resuelve igual (la zona tiene catch-all), así que el síntoma parece un problema de Traefik y no lo es. Solución: un solo nivel con guion (`api-algo.neyzt.org`) o Advanced Certificate Manager.
 
 **`/docs` y `/openapi.json` son públicos.**
 FastAPI los expone salvo que se desactiven. Decisión pendiente: cerrarlos cuando `ENVIRONMENT=production` o dejarlos abiertos a propósito. Hoy están abiertos, y así se documentó.
