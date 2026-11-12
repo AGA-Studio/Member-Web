@@ -211,6 +211,13 @@ tests/
 │   └── test_migrations.py
 └── scripts/
     └── test_seed.py
+└── rules/
+    ├── helpers.py           Lectores de AST compartidos (no hay fixtures)
+    ├── test_schemas.py
+    ├── test_sync.py
+    ├── test_routes.py
+    ├── test_modules.py
+    └── test_docs.py
 ```
 
 ### Configuración (`tests/conftest.py`)
@@ -654,9 +661,46 @@ También se probó dentro de la imagen Docker: crea los datos con `SEED_PASSWORD
 
 ---
 
+### 5.11 Reglas de convención — `tests/rules/` (12)
+
+No prueban comportamiento: **leen el código fuente** (AST) y el árbol de archivos, y fallan cuando un módulo nuevo rompe una regla de `AGENTS.md` o contradice `ARCHITECTURE.md`. Las pruebas de los puntos 5.1–5.10 solo cubren lo que ya existe; estas atajan lo que alguien está por agregar mal.
+
+No usan fixtures ni base de datos, así que corren también en el job de PostgreSQL sin costo. Están dentro de `tests/`, de modo que `ci.yml` las recoge sin cambios: son parte de `pytest`.
+
+| Prueba | Verifica | Regla |
+|--------|----------|-------|
+| `test_input_schemas_never_accept_business_id` | Ningún `*Create` / `*Update` declara `business_id` | `business_id` sale del token |
+| `test_output_schemas_never_expose_credentials` | Ningún `*Response` expone `hashed_password`, `password`, `secret`, `api_key`… | Los DTO de salida no filtran credenciales |
+| `test_every_module_has_an_output_schema` | Existe al menos un `*Response` en `schemas/` | Un módulo declara lo que devuelve |
+| `test_no_async_functions_in_the_application` | No hay `async def` en `api/`, `core/`, `db/`, `models/`, `schemas/`, `scripts/`, `services/` | El proyecto es síncrono |
+| `test_every_route_matches_the_resource_action_shape` | Toda ruta es `/<recurso>/<acción>`, con la acción en lista cerrada | Convención de rutas |
+| `test_only_health_lives_outside_the_version_prefix` | Solo `/health` vive fuera de `/api/v1` | Todo lo demás va versionado |
+| `test_every_router_module_is_registered_in_main` | Todo `api/v1/*_api.py` está en `API_V1_ROUTERS` | Un router sin registrar es código muerto |
+| `test_every_registered_router_comes_from_a_module` | Todo router registrado tiene su módulo | Sin routers fantasma en `main.py` |
+| `test_every_business_scoped_router_has_an_isolation_test` | Todo router que usa `BusinessId` aparece en `tests/api/test_isolation*.py` | Criterio del MVP: 0 filas de otro negocio |
+| `test_every_model_table_is_in_the_er_diagram` | Toda tabla de `models/` está en el `erDiagram` de `ARCHITECTURE.md` | Doc actualizado en el mismo commit |
+| `test_every_documented_table_exists_in_the_models` | Ninguna tabla documentada sobra | El diagrama no miente |
+| `test_every_route_is_documented` | Toda ruta de la app aparece en la tabla de endpoints | Doc actualizado en el mismo commit |
+
+`main.py` queda fuera de la regla de `async` a propósito: FastAPI exige `async def lifespan`. Las rutas se leen del esquema de OpenAPI y no de `app.routes`, porque la versión instalada de FastAPI envuelve los routers incluidos y sus rutas no aparecen en esa lista.
+
+#### Comprobación de que sí fallan
+
+A una prueba que nunca falla no se le puede creer nada. Se inyectó una violación de cada tipo, se corrió la suite, se comprobó que **esa** prueba fallara y se restauró el archivo verificando que quedara idéntico:
+
+| Violación inyectada | Prueba que falló |
+|---------------------|------------------|
+| `business_id` agregado a `UserUpdate` | `test_input_schemas_never_accept_business_id` |
+| `customer_api.py` creado sin registrarlo en `main.py` | `test_every_router_module_is_registered_in_main` |
+| `async def ping()` al final de `db/database.py` | `test_no_async_functions_in_the_application` |
+| Ruta `/user/getAll` en lugar de `/user/list` | `test_every_route_matches_the_resource_action_shape` |
+| `login_attempts` renombrada a `login_attemptz` en el `erDiagram` | `test_every_model_table_is_in_the_er_diagram` |
+
+---
+
 ## 6. Resultados de la ejecución
 
-Ejecutado el 12 de noviembre de 2026.
+Ejecutado el 12 de noviembre de 2026. Conteos y tiempos vueltos a medir al agregar las pruebas de reglas (§5.11): 217 + 12 = 229. Se corrieron en el homeserver (Ubuntu, Intel i5-8500), más lento que la laptop de la tabla de entorno, así que los tiempos no son comparables con corridas anteriores.
 
 ### Entorno
 
@@ -676,14 +720,18 @@ Ejecutado el 12 de noviembre de 2026.
 
 ```text
 $ uv run pytest -q
-217 passed in 17.35s
+........................................................................ [ 94%]
+.............                                                            [100%]
+229 passed in 85.38s (0:01:25)
 ```
 
 ### PostgreSQL 18.6
 
 ```text
 $ TEST_DATABASE_URL=postgresql+psycopg://...@localhost:5433/memberplus_test uv run pytest -q
-217 passed in 42.45s
+........................................................................ [ 94%]
+.............                                                            [100%]
+229 passed in 32.97s
 ```
 
 Se ejecutó dos veces seguidas con el mismo resultado: las pruebas no dependen del orden ni dejan datos.
