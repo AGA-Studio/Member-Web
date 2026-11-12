@@ -89,14 +89,14 @@ uv run ruff check . && uv run ruff format --check . && uv run pytest
 
 ### En GitHub (CI)
 
-Lo mismo corre automáticamente en cada PR y en cada push a `develop` y `main` (jobs `lint`, `test` y `test (postgres)`), y los tres son obligatorios para fusionar. Detalle en [CI.md](CI.md).
+Lo mismo corre automáticamente en cada PR y en cada push a `main` (jobs `lint`, `test` y `test (postgres)`), y los tres son obligatorios para fusionar. Detalle en [CI.md](CI.md).
 
 -----|-----------|
 | `lint` | `ruff check` y `ruff format --check` |
 | `test` | La suite completa sobre SQLite |
 | `test (postgres)` | La suite completa sobre un servicio `postgres:18`, verifica que de verdad se crearon tablas en Postgres y, en una base aparte, aplica `alembic upgrade head` y `alembic check` (falla si los modelos y las migraciones no coinciden) |
 
-Los tres jobs son **obligatorios**: el ruleset `protect-develop-main` bloquea la fusión hacia `develop` o `main` si alguno no sale en verde o si la rama no está actualizada. Un push nuevo a la misma rama cancela el run anterior, así que un run *cancelled* seguido de uno en verde es normal.
+Los tres jobs son **obligatorios**: el ruleset `protect-main` bloquea la fusión hacia `main` si alguno no sale en verde o si la rama no está actualizada. Un push nuevo a la misma rama cancela el run anterior, así que un run *cancelled* seguido de uno en verde es normal.
 
 ---
 

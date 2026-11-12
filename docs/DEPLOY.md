@@ -48,14 +48,13 @@ La imagen final no lleva `tests/`, ni `.git`, ni `.env`, ni el CLI de uv. Todo l
 
 | Evento | Tags en GHCR |
 |---|---|
-| push a `develop` | `sha-<7>`, `develop` |
 | push a `main` | `sha-<7>`, `latest` |
 | tag `v0.1-mvp` | `sha-<7>`, `v0.1-mvp`, `v0.1`, `v0.1.0` |
 | `workflow_dispatch` | `sha-<7>` |
 
-`sha-<7>` es el que se usa para rollback: es inmutable y apunta a un commit exacto. `latest` y `develop` se mueven; **para producción conviene pinnear un `sha-`, no `latest`**.
+`sha-<7>` es el que se usa para rollback: es inmutable y apunta a un commit exacto. `latest` se mueve; **para producción conviene pinnear un `sha-` o el tag `v*` de la versión, no `latest`**.
 
-Cada push a `develop` que genera imagen no despliega producción por sí solo: el webhook apunta a la app que tengas configurada. Si más adelante hay un entorno de staging, se crea una segunda app en Coolify apuntando a `:develop`.
+Cada push a `main` que genera imagen no despliega producción por sí solo: el webhook apunta a la app que tengas configurada. Un tag `v*` es el evento que sí corresponde a un despliegue deliberado.
 
 ---
 

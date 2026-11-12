@@ -1,14 +1,14 @@
 name: CI
 
-# Lint y pruebas en cada PR y en cada push a las ramas de integración.
+# Lint y pruebas en cada PR y en cada push a main.
 # setup-uv no publica tag mayor flotante: su versión va fija y se sube a mano
 # (revisar su release más reciente). checkout sí mantiene el suyo.
 
 on:
   pull_request:
-    branches: [develop, main]
+    branches: [main]
   push:
-    branches: [develop, main]
+    branches: [main]
   workflow_dispatch:
 
 # Un push nuevo cancela el run anterior de la misma rama.

@@ -1,6 +1,6 @@
 # CI — Member-Web
 
-El proyecto se revisa en **GitHub Actions** con un solo archivo: [`.github/workflows/ci.yml`](../.github/workflows/ci.yml). Cada PR y cada push a `develop` o `main` corre lint y pruebas; nada de esto necesita secretos ni permisos de escritura.
+El proyecto se revisa en **GitHub Actions** con un solo archivo: [`.github/workflows/ci.yml`](../.github/workflows/ci.yml). Cada PR y cada push a `main` corre lint y pruebas; nada de esto necesita secretos ni permisos de escritura.
 
 > Arquitectura: [ARCHITECTURE.md](ARCHITECTURE.md) · Pruebas: [TESTING.md](TESTING.md) · Migraciones: [MIGRATIONS.md](MIGRATIONS.md)
 
@@ -50,8 +50,8 @@ Los nombres de los jobs son lo que se marca como *required check* en GitHub, as�
 
 ```mermaid
 flowchart LR
-    PR["pull_request<br/>hacia develop o main"] --> CI["CI"]
-    PUSH["push a<br/>develop o main"] --> CI
+    PR["pull_request<br/>hacia main"] --> CI["CI"]
+    PUSH["push a main"] --> CI
     MAN["workflow_dispatch<br/>(a mano)"] --> CI
     CI --> L["lint"]
     CI --> T["test (SQLite)"]
@@ -157,7 +157,7 @@ Reglas:
 | `dependabot.yml` | Las actions se actualizan a mano | `.github/dependabot.yml` |
 | `docker compose up` desde cero | Es un criterio del MVP (≤ 3 min) | Job aparte, ahora que existe el `Dockerfile` |
 | Pruebas de RLS | Se escribirán con las políticas, en su migración | Job `test (postgres)` |
-| Entorno de staging | Solo hay una app en Coolify; `develop` publica imagen pero nadie la sirve | Segunda app apuntando al tag `develop` |
+| Entorno de staging | Solo hay una app en Coolify; `main` publica imagen y es la que se sirve | Segunda app en Coolify apuntando a un tag fijo, cuando el MVP esté en producción |
 
 El despliegue ya no está en esta lista: lo cubre el workflow `image.yml` y está documentado en [DEPLOY.md](DEPLOY.md).
 
@@ -188,7 +188,7 @@ Probablemente se renombró un job y el *required check* apunta al nombre viejo. 
 
 ## 10. Reglas
 
-- `develop` y `main` están protegidas por el ruleset **`protect-develop-main`** (Settings → Rules → Rulesets), sin excepciones ni para administradores:
+- `main` está protegida por el ruleset **`protect-main`** (Settings → Rules → Rulesets), sin excepciones ni para administradores:
   - todo entra por PR (no hay push directo);
   - `lint`, `test` y `test (postgres)` deben salir en verde;
   - la rama debe estar al día con la base: si otro PR se fusiona antes, GitHub muestra **Update branch** y los checks vuelven a correr;
