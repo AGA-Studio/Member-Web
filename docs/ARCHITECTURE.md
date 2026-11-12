@@ -51,6 +51,7 @@ flowchart TB
     ROOT --> MOD["models/"]
     ROOT --> SCH["schemas/"]
     ROOT --> API["api/v1/"]
+    ROOT --> SRV["services/"]
     ROOT --> MIGR["migrations/"]
     ROOT --> TST["tests/"]
     ROOT --> CFG["pyproject.toml · uv.lock · alembic.ini<br/>docker-compose.yml · .env"]
@@ -64,6 +65,9 @@ flowchart TB
     MOD --> M1["business_model.py — Business, BusinessStatus"]
     MOD --> M2["user_model.py — User, Role"]
     MOD --> M3["enum_utils.py — enum_values (enums en minúscula)"]
+    MOD --> M4["revoked_token_model.py — RevokedToken"]
+    MOD --> M5["login_attempt_model.py — LoginAttempt"]
+    SRV --> SV1["auth_service.py — revocación de tokens · límite de login"]
     SCH --> S1["user_schema.py — UserCreate · UserUpdate · UserResponse"]
     SCH --> S2["token_schema.py — Token · TokenData"]
     SCH --> S3["validators.py — PersonName"]
@@ -98,7 +102,22 @@ erDiagram
         bool is_active
         datetime created_at
     }
+
+    revoked_tokens {
+        string jti PK "id único del JWT"
+        datetime expires_at "índice; se purga al pasar"
+        datetime revoked_at
+    }
+
+    login_attempts {
+        string email PK "también emails que no existen"
+        int failed_count
+        datetime last_failed_at "índice"
+        datetime locked_until "nullable"
+    }
 ```
+
+`revoked_tokens` (H2) y `login_attempts` (H4) son tablas de seguridad, no datos de un negocio: no llevan `business_id` ni se relacionan con `users`. Se limpian solas: un token revocado se borra cuando ya habría expirado, y un registro de intentos se borra al iniciar sesión bien o cuando pasa la ventana de bloqueo.
 
 ### Roles
 
@@ -135,8 +154,8 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | Método | Ruta | Rol requerido | Qué hace |
 |--------|------|---------------|----------|
 | GET | `/health` | — | Estado de la API |
-| POST | `/api/v1/auth/login` | — | Login con email y contraseña; deja cookie y devuelve el token |
-| POST | `/api/v1/auth/logout` | — | Borra la cookie de sesión |
+| POST | `/api/v1/auth/login` | — | Login con email y contraseña; deja cookie y devuelve el token. Tras 5 intentos fallidos por email responde 429 durante 15 min |
+| POST | `/api/v1/auth/logout` | — | Revoca el token de esta sesión (cookie o Bearer) y borra la cookie. Las demás sesiones del usuario siguen abiertas |
 | GET | `/api/v1/auth/me` | cualquier usuario activo | Usuario de la sesión |
 | GET | `/api/v1/user/list` | admin | Usuarios de su negocio |
 | POST | `/api/v1/user/create` | admin | Crea un admin o employee en su negocio |
@@ -163,7 +182,9 @@ flowchart LR
     USER --> UU["PATCH /{user_id}/update"]
 ```
 
-## 5. Inicio de sesión
+## 5. Inicio y cierre de sesión
+
+### Login
 
 ```mermaid
 sequenceDiagram
@@ -171,27 +192,81 @@ sequenceDiagram
     actor U as Usuario
     participant FE as Frontend
     participant API as auth_api.login
+    participant SVC as services/auth_service
     participant SEC as core/security
     participant DB as PostgreSQL
 
     U->>FE: email + contraseña
     FE->>API: POST /api/v1/auth/login (form: username, password)
+    API->>SVC: login_retry_after(email)
+    SVC->>DB: SELECT login_attempts
+    alt email bloqueado (5 fallos)
+        API-->>FE: 429 Too many failed login attempts + Retry-After
+    end
     API->>DB: SELECT user WHERE email = ?
-    DB-->>API: User | null
     API->>SEC: verify_password(password, hashed_password)
     alt credenciales incorrectas
+        API->>SVC: register_failed_login(email)
+        SVC->>DB: failed_count + 1 (bloquea al llegar a 5)
         API-->>FE: 401 Incorrect email or password
-    else usuario inactivo
-        API-->>FE: 403 Inactive user
-    else su negocio está suspendido
-        API->>DB: SELECT business
-        API-->>FE: 403 Business suspended
-    else correcto
-        API->>SEC: create_access_token(user_id, role, business_id)
-        SEC-->>API: JWT (HS256, expira en 480 min)
-        API-->>FE: 200 {access_token} + Set-Cookie access_token (httpOnly)
+    else contraseña correcta
+        API->>SVC: clear_failed_logins(email)
+        alt usuario inactivo
+            API-->>FE: 403 Inactive user
+        else su negocio está suspendido
+            API-->>FE: 403 Business suspended
+        else correcto
+            API->>SEC: create_access_token(user_id, role, business_id) + jti único
+            SEC-->>API: JWT (HS256, expira en 480 min)
+            API-->>FE: 200 {access_token} + Set-Cookie access_token (httpOnly)
+        end
     end
 ```
+
+### Límite de intentos (H4)
+
+```mermaid
+stateDiagram-v2
+    [*] --> Libre
+    Libre --> Contando: login fallido
+    Contando --> Contando: fallo 2 a 4 (401)
+    Contando --> Libre: login correcto (se borra el contador)
+    Contando --> Libre: pasan 15 min sin fallos
+    Contando --> Bloqueado: fallo 5 (401)
+    Bloqueado --> Bloqueado: cualquier intento (429)
+    Bloqueado --> Libre: pasan 15 min
+```
+
+- Es por email, en minúscula, y cuenta igual para emails que no existen, así que no revela cuáles existen.
+- Durante el bloqueo, ni la contraseña correcta entra; si no, el bloqueo no frenaría un ataque.
+- Configurable con `LOGIN_MAX_ATTEMPTS` (5) y `LOGIN_LOCKOUT_MINUTES` (15).
+- Contra: alguien que conozca un email puede bloquearlo 15 minutos a propósito. Se acepta para el MVP; la alternativa (contar por IP) no es confiable detrás del proxy de Cloudflare y Coolify.
+
+### Logout (H2)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as Cliente (frontend, lector o Swagger)
+    participant API as auth_api.logout
+    participant SVC as services/auth_service
+    participant DB as PostgreSQL
+
+    C->>API: POST /api/v1/auth/logout (cookie o Bearer)
+    alt token válido
+        API->>SVC: revoke_token(jti, exp)
+        SVC->>DB: DELETE revoked_tokens expirados
+        SVC->>DB: INSERT revoked_tokens (jti, expires_at)
+    else sin token, inválido o vencido
+        Note over API: nada que revocar
+    end
+    API-->>C: 204 + borra la cookie
+    C->>API: GET /api/v1/auth/me con el mismo token
+    API->>DB: ¿jti en revoked_tokens?
+    API-->>C: 401
+```
+
+Un JWT no se puede "borrar": sigue siendo válido hasta su `exp`. Por eso cada token lleva un `jti` único y el logout lo guarda en `revoked_tokens`. Solo se cierra **esa** sesión; si el usuario entró desde otro equipo, esa otra sesión sigue abierta. Los tokens emitidos antes de este cambio no tienen `jti` y se rechazan: hay que volver a iniciar sesión una vez.
 
 ## 6. Petición autenticada y aislamiento entre negocios
 
@@ -207,7 +282,8 @@ sequenceDiagram
 
     C->>DEP: GET /api/v1/user/7 (cookie o Bearer)
     DEP->>DEP: get_token_data: decodifica el JWT
-    alt sin token o token inválido
+    DEP->>DB: ¿jti en revoked_tokens?
+    alt sin token, token inválido o revocado
         DEP-->>C: 401
     end
     DEP->>DB: get_current_user: SELECT user por id
@@ -233,12 +309,14 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-    T["get_token_data<br/>cookie o Bearer → TokenData"] --> CU["get_current_user<br/>User desde la BD"]
+    RT["get_request_token<br/>cookie o Bearer"] --> T
+    T["get_token_data<br/>JWT → TokenData<br/>401 si el jti está revocado"] --> CU["get_current_user<br/>User desde la BD"]
     CU --> CA["get_current_active_user<br/>= CurrentUser<br/>ensure_user_can_access:<br/>403 si inactivo o negocio suspendido"]
     CA --> RR["require_roles(...)<br/>403 si el rol no coincide"]
     CA --> BI["get_business_id<br/>= BusinessId"]
     SD["get_session<br/>= SessionDep"] --> CU
     SD --> CA
+    SD --> T
     LOGIN["auth_api.login"] -. "misma regla" .-> CA
 ```
 
