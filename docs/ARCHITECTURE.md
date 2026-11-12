@@ -52,6 +52,7 @@ flowchart TB
     ROOT --> SCH["schemas/"]
     ROOT --> API["api/v1/"]
     ROOT --> SRV["services/"]
+    ROOT --> SCR["scripts/"]
     ROOT --> MIGR["migrations/"]
     ROOT --> TST["tests/"]
     ROOT --> CFG["pyproject.toml · uv.lock · alembic.ini<br/>docker-compose.yml · .env"]
@@ -68,6 +69,7 @@ flowchart TB
     MOD --> M4["revoked_token_model.py — RevokedToken"]
     MOD --> M5["login_attempt_model.py — LoginAttempt"]
     SRV --> SV1["auth_service.py — revocación de tokens · límite de login"]
+    SCR --> SC1["seed.py — 2 negocios demo y sus usuarios"]
     SCH --> S1["user_schema.py — UserCreate · UserUpdate · UserResponse"]
     SCH --> S2["token_schema.py — Token · TokenData"]
     SCH --> S3["validators.py — PersonName"]
@@ -78,7 +80,7 @@ flowchart TB
 
 ## 3. Modelo de datos actual
 
-Solo existen las tablas necesarias para autenticación. Clientes, tarjetas, niveles, compras y movimientos se agregan en los hitos H1 y H2 del MVP.
+Solo existen las tablas necesarias para autenticación; `python -m scripts.seed` las llena con dos negocios de demo (Café Aurora y Gimnasio Titán) y sus usuarios. Clientes, tarjetas, niveles, compras y movimientos se agregan en los hitos H1 y H2 del MVP.
 
 ```mermaid
 erDiagram
