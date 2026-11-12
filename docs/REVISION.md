@@ -20,6 +20,7 @@ Un PR no las contradice. Si de verdad hay que cambiarlas, se cambia primero la c
 | Negocio al entrar | Por el usuario: el token lleva su negocio | Sin subdominios en el prototipo |
 | Lector | Pertenece a un negocio, por código y token propio revocable | El login del empleado no sirve para el lector |
 | Compra | Monto y concepto libre | Sin catálogo, sin inventario, sin artículos |
+| Puntos | Historial de movimientos, no una columna del cliente | El saldo se calcula sumando movimientos (cerrada el 12 nov 2026) |
 | Orden del cálculo | Descuento primero; puntos y cashback sobre lo ya descontado | Ver el ejemplo de §4 |
 | Beneficios simultáneos | Los tres aplican a la vez si el negocio los habilita | Descuento, puntos y cashback en la misma compra |
 | Cashback | Se acumula y se aplica en la compra siguiente con aprobación del cliente | Saldo de cashback separado del de puntos |
@@ -53,13 +54,12 @@ Un PR no las contradice. Si de verdad hay que cambiarlas, se cambia primero la c
 
 ## 2. Decisiones abiertas
 
-**Seis casillas sin marcar.** Un PR no las resuelve: si el cambio las toca, se pide la decisión y no se asume. Lo que sigue entre paréntesis es lo que el MVP asume hoy, para que el código no se contradiga, no una decisión tomada.
+**Cinco casillas sin marcar.** Un PR no las resuelve: si el cambio las toca, se pide la decisión y no se asume. Lo que sigue entre paréntesis es lo que el MVP asume hoy, para que el código no se contradiga, no una decisión tomada.
 
 | Abierta | Lo que asume el MVP |
 |---------|---------------------|
 | Alta de negocio | Por script o seed; sin formulario público ni aprobación en pantalla |
 | Planes y cobro | Fuera del prototipo, sin pasarela |
-| Puntos: campo o historial | Historial de movimientos, con el saldo calculado. Lo asume el MVP y `AGENTS.md` lo escribe como decidido, pero **la casilla de la wiki sigue sin marcar**: un PR no debe cambiarlo en silencio en ninguna dirección |
 | Frontend Next como cliente puro | Sí: sin rutas API propias en Next |
 | Placa ESP32-S3 exacta | N16R8 con cámara, por confirmar antes de comprar |
 | Wi-Fi, energía y montaje | Portal cautivo, fuente de 5 V 2 A, carcasa |
