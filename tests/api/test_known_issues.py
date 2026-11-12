@@ -27,13 +27,3 @@ def test_h4_repeated_failed_logins_are_throttled(client: TestClient, two_busines
         client.post(LOGIN_URL, data={"username": "admin.a@demo.mx", "password": "wrong"})
     response = client.post(LOGIN_URL, data={"username": "admin.a@demo.mx", "password": "wrong"})
     assert response.status_code == 429
-
-
-@pytest.mark.xfail(strict=True, reason="H5: names made only of spaces pass validation")
-def test_h5_blank_name_is_rejected(client: TestClient, two_businesses) -> None:
-    login(client, "admin.a@demo.mx")
-    response = client.post(
-        "/api/v1/user/create",
-        json={"name": "   ", "email": "blank@demo.mx", "password": "password123"},
-    )
-    assert response.status_code == 422

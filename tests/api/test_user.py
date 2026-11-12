@@ -16,7 +16,7 @@ def all_endpoints(user_id: int) -> list[tuple[str, str, dict | None]]:
         ("GET", f"{BASE}/list", None),
         ("POST", f"{BASE}/create", NEW_USER),
         ("GET", f"{BASE}/{user_id}", None),
-        ("PATCH", f"{BASE}/{user_id}/update", {"name": "X"}),
+        ("PATCH", f"{BASE}/{user_id}/update", {"name": "Xavier"}),
     ]
 
 
@@ -145,6 +145,22 @@ class TestCreateUser:
         response = client.post(f"{BASE}/create", json={**NEW_USER, field: value})
         assert response.status_code == 422
 
+    def test_name_is_normalized(self, client: TestClient, two_businesses) -> None:
+        # H5: spaces are trimmed and collapsed before saving.
+        login(client, "admin.a@demo.mx")
+        response = client.post(f"{BASE}/create", json={**NEW_USER, "name": "  José   Luis "})
+        assert response.status_code == 201
+        assert response.json()["name"] == "José Luis"
+
+    @pytest.mark.parametrize("name", ["   ", "A", "Ana2", "@@@"])
+    def test_invalid_names_are_rejected(
+        self, client: TestClient, two_businesses, name: str
+    ) -> None:
+        # H5: at least 2 letters; only letters, spaces, hyphens and apostrophes.
+        login(client, "admin.a@demo.mx")
+        response = client.post(f"{BASE}/create", json={**NEW_USER, "name": name})
+        assert response.status_code == 422
+
     @pytest.mark.parametrize("missing", ["name", "email", "password"])
     def test_required_fields(self, client: TestClient, two_businesses, missing: str) -> None:
         login(client, "admin.a@demo.mx")
@@ -242,6 +258,11 @@ class TestUpdateUser:
         )
         assert response.json()["business_id"] == two_businesses["business_a"].id
 
+    def test_blank_name_is_rejected_on_update(self, client: TestClient, two_businesses) -> None:
+        login(client, "admin.a@demo.mx")
+        response = client.patch(self.url(two_businesses["employee_a"]), json={"name": "   "})
+        assert response.status_code == 422
+
     def test_short_password_is_rejected(self, client: TestClient, two_businesses) -> None:
         login(client, "admin.a@demo.mx")
         response = client.patch(self.url(two_businesses["employee_a"]), json={"password": "short"})
@@ -249,7 +270,7 @@ class TestUpdateUser:
 
     def test_nonexistent_user(self, client: TestClient, two_businesses) -> None:
         login(client, "admin.a@demo.mx")
-        assert client.patch(f"{BASE}/999999/update", json={"name": "X"}).status_code == 404
+        assert client.patch(f"{BASE}/999999/update", json={"name": "Xavier"}).status_code == 404
 
     def test_admin_can_update_self(self, client: TestClient, two_businesses) -> None:
         login(client, "admin.a@demo.mx")
