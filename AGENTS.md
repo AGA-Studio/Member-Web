@@ -21,6 +21,7 @@ accesible con el MCP `outline`). Orden:
    pendiente de aprobación del equipo**: si choca con una casilla ✅, gana la casilla; avisa la
    contradicción en vez de elegir en silencio.
 3. **Requisitos de referencia** (RF/RNF) y **Pantallas**.
+- Diseño y marca (color, tipografía, tono, componentes): **Identidad de marca**, solo si tocas textos o UX.
 
 No usar como referencia: el **ERS**, el calendario y los responsables de la *Guía de desarrollo* (son
 de relleno) y `docs/00-auditoria-proyecto.md` (propone Supabase y reconocimiento facial, ambos
