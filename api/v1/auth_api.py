@@ -19,7 +19,12 @@ from core.security import create_access_token, decode_access_token, verify_passw
 from models.user_model import User
 from schemas.token_schema import Token
 from schemas.user_schema import UserResponse
-from services.auth_service import revoke_token
+from services.auth_service import (
+    clear_failed_logins,
+    login_retry_after,
+    register_failed_login,
+    revoke_token,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -35,13 +40,27 @@ def login(
     Sets the JWT in an httpOnly cookie for the frontend and also returns it in the
     body for Swagger and the cashier reader.
     """
-    user = session.exec(select(User).where(User.email == form.username.lower())).first()
+    email = form.username.lower()
+
+    # H4: after `login_max_attempts` failures the email is locked, even for the right
+    # password; otherwise the lock would not stop a brute-force attack.
+    retry_after = login_retry_after(session, email)
+    if retry_after is not None:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many failed login attempts. Try again later.",
+            headers={"Retry-After": str(retry_after)},
+        )
+
+    user = session.exec(select(User).where(User.email == email)).first()
     if user is None or not verify_password(form.password, user.hashed_password):
+        register_failed_login(session, email)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    clear_failed_logins(session, email)
     ensure_user_can_access(session, user)
 
     token = create_access_token(user_id=user.id, role=user.role, business_id=user.business_id)
