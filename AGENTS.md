@@ -143,6 +143,9 @@ Ningún router es gordo: el router valida y delega. El cálculo (descuento, punt
   `fix/`, `docs/`, `chore/`) **desde `main`**, PR hacia `main`. Nada de commits directos en `main`.
 - Las versiones se marcan con **tags `v*` + release de GitHub**, no con ramas de release. Un tag
   publicado no se mueve: si algo salió mal, se publica la siguiente versión.
+- **Despliegue deliberado**: mergear a `main` publica imagen en GHCR pero **no** despliega. Se
+  publica con `gh release create vX.Y.Z` y cambiando el tag de la app en Coolify. Guía completa en
+  `docs/DEPLOY.md`.
 - No hacer push, merge ni tocar el remoto sin que el usuario lo pida.
 - Commits **pequeños**, uno por cambio lógico (un modelo, un endpoint, sus pruebas, su documentación),
   con `ruff` y `pytest` en verde. Formato: `<prefijo>: <verbo en infinitivo y minúscula> <qué>`, una
