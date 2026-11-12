@@ -37,3 +37,4 @@ uv run ruff check .
 - Arquitectura, modelo de datos y flujos: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - Pruebas, resultados y hallazgos: [docs/TESTING.md](docs/TESTING.md)
 - Migraciones de base de datos: [docs/MIGRATIONS.md](docs/MIGRATIONS.md)
+- Integración continua (GitHub Actions): [docs/CI.md](docs/CI.md)

@@ -65,7 +65,7 @@ uv add <paquete>                     # nueva dependencia (uv add --dev para desa
   (`uv run alembic revision --autogenerate -m "..."`), revisada a mano antes de subirla. Nunca editar
   una migración que ya está en `develop`.
 - **CI**: `.github/workflows/ci.yml` corre Ruff y pytest (SQLite y PostgreSQL) en cada PR y push a
-  `develop`/`main`. Es un archivo compartido: avisa antes de modificarlo.
+  `develop`/`main`; guía en `docs/CI.md`. Es un archivo compartido: avisa antes de modificarlo.
 
 ## Estructura
 
