@@ -38,3 +38,4 @@ uv run ruff check .
 - Pruebas, resultados y hallazgos: [docs/TESTING.md](docs/TESTING.md)
 - Migraciones de base de datos: [docs/MIGRATIONS.md](docs/MIGRATIONS.md)
 - Integración continua (GitHub Actions): [docs/CI.md](docs/CI.md)
+- Despliegue (imagen en GHCR y Coolify): [docs/DEPLOY.md](docs/DEPLOY.md)
