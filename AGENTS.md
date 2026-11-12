@@ -68,6 +68,8 @@ uv add <paquete>                     # nueva dependencia (uv add --dev para desa
   `develop`/`main`; guía en `docs/CI.md`. Es un archivo compartido: avisa antes de modificarlo.
 - **Imagen**: `.github/workflows/image.yml` la construye y publica en GHCR, y avisa a Coolify;
   guía en `docs/DEPLOY.md`. También es compartido: si lo rompes, nadie despliega.
+- Si creas una carpeta nueva con código Python, agrega su `COPY` en el `Dockerfile`; si no, la
+  construcción de la imagen falla en el paso `import main`.
 
 ## Estructura
 
