@@ -154,7 +154,6 @@ Reglas:
 | Falta | Por qué importa | Dónde va |
 |-------|-----------------|----------|
 | Umbral de cobertura (`--cov-fail-under=60`) | `pytest-cov` ya está instalado y el MVP pide 60 %; hoy solo se mide a mano | Una línea en el job `test` |
-| *Required checks* y bloqueo de push directo | Hoy el CI informa, pero no impide fusionar en rojo | Settings → Branches (lo configura el dueño del repo) |
 | Despliegue a Coolify | El deploy sigue siendo manual | Workflow `deploy.yml` con el webhook de Coolify |
 | `dependabot.yml` | Las actions se actualizan a mano | `.github/dependabot.yml` |
 | `docker compose up` desde cero | Es un criterio del MVP (≤ 3 min) | Job aparte, cuando exista el `Dockerfile` |
@@ -186,6 +185,11 @@ Probablemente se renombró un job y el *required check* apunta al nombre viejo. 
 
 ## 10. Reglas
 
+- `develop` y `main` están protegidas por el ruleset **`protect-develop-main`** (Settings → Rules → Rulesets), sin excepciones ni para administradores:
+  - todo entra por PR (no hay push directo);
+  - `lint`, `test` y `test (postgres)` deben salir en verde;
+  - la rama debe estar al día con la base: si otro PR se fusiona antes, GitHub muestra **Update branch** y los checks vuelven a correr;
+  - no se pueden borrar las ramas ni hacer *force push*.
 - El CI **no se salta**: un PR en rojo no se fusiona, ni con "es solo documentación".
 - Si el CI falla por el entorno del runner y no por el código, se arregla el workflow en el mismo PR; no se deja el rojo para después.
 - Los pasos que verifican algo (conexión, tablas, migraciones) **fallan** cuando no se cumple; nunca solo imprimen un aviso.
