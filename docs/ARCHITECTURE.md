@@ -51,13 +51,16 @@ flowchart TB
     ROOT --> MOD["models/"]
     ROOT --> SCH["schemas/"]
     ROOT --> API["api/v1/"]
+    ROOT --> MIGR["migrations/"]
     ROOT --> TST["tests/"]
-    ROOT --> CFG["pyproject.toml · uv.lock<br/>docker-compose.yml · .env"]
+    ROOT --> CFG["pyproject.toml · uv.lock · alembic.ini<br/>docker-compose.yml · .env"]
 
     CORE --> C1["config.py — Settings (lee .env)"]
     CORE --> C2["cors.py — setup_cors(app)"]
     CORE --> C3["security.py — Argon2id + JWT"]
-    DBF --> D1["database.py — engine · create_db_and_tables · get_session"]
+    DBF --> D1["database.py — engine · check_database_connection · get_session"]
+    MIGR --> MG1["env.py — conecta Alembic con settings y models"]
+    MIGR --> MG2["versions/ — una migración por cambio"]
     MOD --> M1["business_model.py — Business, BusinessStatus"]
     MOD --> M2["user_model.py — User, Role"]
     SCH --> S1["user_schema.py — UserCreate · UserUpdate · UserResponse"]
@@ -223,14 +226,17 @@ flowchart LR
 
 ```mermaid
 flowchart TB
+    MIG["alembic upgrade head<br/>(antes de arrancar)"] -.-> START
     START["uvicorn main:app"] --> CFG["core/config.py<br/>Settings lee .env"]
     CFG --> ENG["db/database.py<br/>crea engine (Postgres o SQLite)"]
     ENG --> APP["create_app()"]
     APP --> CORS["setup_cors(app)"]
     APP --> ROUT["include_router por cada API_V1_ROUTERS<br/>con prefijo /api/v1"]
-    APP --> LS["lifespan: create_db_and_tables()"]
+    APP --> LS["lifespan: check_database_connection()<br/>SELECT 1"]
     LS --> READY["API lista en :8000"]
 ```
+
+La app **no crea tablas**: el esquema lo maneja Alembic. Detalle en [MIGRATIONS.md](MIGRATIONS.md).
 
 ## 8. Cómo agregar un módulo nuevo
 
@@ -240,7 +246,8 @@ flowchart LR
     B --> C["3. schemas/x_schema.py<br/>XCreate · XUpdate · XResponse"]
     C --> D["4. api/v1/x_api.py<br/>router /x con BusinessId"]
     D --> E["5. main.py<br/>agregar a API_V1_ROUTERS"]
-    E --> F["6. tests/<br/>incluye prueba de aislamiento"]
+    E --> MG["6. alembic revision --autogenerate<br/>y alembic upgrade head"]
+    MG --> F["7. tests/<br/>incluye prueba de aislamiento"]
 ```
 
 Reglas para todos los módulos:
