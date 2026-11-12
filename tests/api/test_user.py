@@ -256,6 +256,36 @@ class TestUpdateUser:
         response = client.patch(self.url(two_businesses["admin_a"]), json={"name": "Me"})
         assert response.status_code == 200
 
+    def test_admin_cannot_deactivate_self(self, client: TestClient, two_businesses) -> None:
+        # H3: an admin locking themselves out could leave the business without an admin.
+        login(client, "admin.a@demo.mx")
+        response = client.patch(self.url(two_businesses["admin_a"]), json={"is_active": False})
+        assert response.status_code == 400
+        assert response.json()["detail"] == "You cannot deactivate your own account"
+        assert client.get("/api/v1/auth/me").json()["is_active"] is True
+
+    def test_admin_can_send_is_active_true_for_self(
+        self, client: TestClient, two_businesses
+    ) -> None:
+        login(client, "admin.a@demo.mx")
+        response = client.patch(self.url(two_businesses["admin_a"]), json={"is_active": True})
+        assert response.status_code == 200
+
+    def test_admin_can_deactivate_another_admin(self, client: TestClient, two_businesses) -> None:
+        login(client, "admin.a@demo.mx")
+        other = client.post(
+            f"{BASE}/create",
+            json={
+                "name": "Second Admin",
+                "email": "admin2@demo.mx",
+                "password": "password123",
+                "role": "admin",
+            },
+        ).json()
+        response = client.patch(f"{BASE}/{other['id']}/update", json={"is_active": False})
+        assert response.status_code == 200
+        assert response.json()["is_active"] is False
+
 
 def test_admin_without_business_is_rejected(client: TestClient, make_user) -> None:
     """Inconsistent data guard: an admin must belong to a business (dependency BusinessId)."""

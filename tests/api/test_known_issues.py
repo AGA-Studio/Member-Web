@@ -21,15 +21,6 @@ def test_h2_token_is_invalid_after_logout(client: TestClient, two_businesses) ->
     assert response.status_code == 401
 
 
-@pytest.mark.xfail(strict=True, reason="H3: an admin can deactivate their own account")
-def test_h3_admin_cannot_deactivate_self(client: TestClient, two_businesses) -> None:
-    login(client, "admin.a@demo.mx")
-    response = client.patch(
-        f"/api/v1/user/{two_businesses['admin_a'].id}/update", json={"is_active": False}
-    )
-    assert response.status_code in (400, 403, 409)
-
-
 @pytest.mark.xfail(strict=True, reason="H4: no rate limit on failed logins")
 def test_h4_repeated_failed_logins_are_throttled(client: TestClient, two_businesses) -> None:
     for _ in range(10):
