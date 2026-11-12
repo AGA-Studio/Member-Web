@@ -86,10 +86,9 @@ uv run ruff check . && uv run ruff format --check . && uv run pytest
 
 ### En GitHub (CI)
 
-`.github/workflows/ci.yml` corre lo mismo automáticamente en cada PR y en cada push a `develop` y `main`:
+Lo mismo corre automáticamente en cada PR y en cada push a `develop` y `main` (jobs `lint`, `test` y `test (postgres)`), y los tres son obligatorios para fusionar. Detalle en [CI.md](CI.md).
 
-| Job | Qué corre |
-|-----|-----------|
+-----|-----------|
 | `lint` | `ruff check` y `ruff format --check` |
 | `test` | La suite completa sobre SQLite |
 | `test (postgres)` | La suite completa sobre un servicio `postgres:18`, verifica que de verdad se crearon tablas en Postgres y, en una base aparte, aplica `alembic upgrade head` y `alembic check` (falla si los modelos y las migraciones no coinciden) |
