@@ -581,10 +581,10 @@ También se observó, sin prueba automatizada porque requiere concurrencia:
 ```mermaid
 stateDiagram-v2
     [*] --> Detectado: se encuentra al probar
-    Detectado --> Documentado: prueba xfail(strict=True)<br/>+ fila en esta tabla
+    Detectado --> Documentado: prueba xfail strict y fila en esta tabla
     Documentado --> Corregido: se arregla el código
-    Corregido --> XPASS: la prueba ahora pasa<br/>y strict la marca como falla
-    XPASS --> Cerrado: se quita el xfail<br/>y se mueve a la suite normal
+    Corregido --> XPASS: la prueba pasa y strict la marca como falla
+    XPASS --> Cerrado: se quita el xfail y pasa a la suite normal
     Cerrado --> [*]
 ```
 
