@@ -92,9 +92,9 @@ uv run ruff check . && uv run ruff format --check . && uv run pytest
 |-----|-----------|
 | `lint` | `ruff check` y `ruff format --check` |
 | `test` | La suite completa sobre SQLite |
-| `test (postgres)` | La suite completa sobre un servicio `postgres:18`, y verifica que de verdad se crearon tablas en Postgres |
+| `test (postgres)` | La suite completa sobre un servicio `postgres:18`, verifica que de verdad se crearon tablas en Postgres y, en una base aparte, aplica `alembic upgrade head` y `alembic check` (falla si los modelos y las migraciones no coinciden) |
 
-Si un job sale en rojo, el PR no debe fusionarse. Un push nuevo a la misma rama cancela el run anterior, así que un run *cancelled* seguido de uno en verde es normal.
+Los tres jobs son **obligatorios**: el ruleset `protect-develop-main` bloquea la fusión hacia `develop` o `main` si alguno no sale en verde o si la rama no está actualizada. Un push nuevo a la misma rama cancela el run anterior, así que un run *cancelled* seguido de uno en verde es normal.
 
 ---
 
