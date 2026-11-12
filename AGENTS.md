@@ -64,8 +64,8 @@ uv add <paquete>                     # nueva dependencia (uv add --dev para desa
   tablas. Todo cambio en `models/` lleva su migración en el mismo commit
   (`uv run alembic revision --autogenerate -m "..."`), revisada a mano antes de subirla. Nunca editar
   una migración que ya está en `develop`.
-- **CI**: el MVP pide Ruff + pytest en cada PR. `.github/workflows/` todavía no existe; si lo creas,
-  es un archivo compartido: avisa antes.
+- **CI**: `.github/workflows/ci.yml` corre Ruff y pytest (SQLite y PostgreSQL) en cada PR y push a
+  `develop`/`main`. Es un archivo compartido: avisa antes de modificarlo.
 
 ## Estructura
 
