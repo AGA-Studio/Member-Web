@@ -133,3 +133,53 @@ def test_app_works_on_migrated_schema(empty_database, client: TestClient) -> Non
     )
     assert response.status_code == 201
     assert len(client.get("/api/v1/user/list").json()) == 2
+
+
+def raw_enum_values() -> tuple[set[str], set[str]]:
+    with engine.connect() as connection:
+        roles = {row[0] for row in connection.execute(text("SELECT role FROM users"))}
+        statuses = {row[0] for row in connection.execute(text("SELECT status FROM businesses"))}
+    return roles, statuses
+
+
+def test_lowercase_enum_migration_converts_existing_rows(empty_database) -> None:
+    """H7: rows written by the first migration (uppercase) become lowercase."""
+    run("upgrade", "f689e0ec2cd6")
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO businesses (name, status, created_at) "
+                "VALUES ('Old', 'SUSPENDED', CURRENT_TIMESTAMP)"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO users (business_id, name, email, hashed_password, role, is_active, "
+                "created_at) VALUES (1, 'Old', 'old@demo.mx', 'h', 'ADMIN', true, "
+                "CURRENT_TIMESTAMP)"
+            )
+        )
+
+    run("upgrade", "head")
+    assert raw_enum_values() == ({"admin"}, {"suspended"})
+
+    run("downgrade", "f689e0ec2cd6")
+    assert raw_enum_values() == ({"ADMIN"}, {"SUSPENDED"})
+
+
+def test_app_stores_lowercase_enum_values(empty_database) -> None:
+    run("upgrade", "head")
+    with Session(engine) as session:
+        business = Business(name="New")
+        session.add(business)
+        session.commit()
+        session.add(
+            User(
+                business_id=business.id,
+                name="Emp",
+                email="emp@new.mx",
+                hashed_password=_DEFAULT_HASH,
+            )
+        )
+        session.commit()
+    assert raw_enum_values() == ({"employee"}, {"trial"})
