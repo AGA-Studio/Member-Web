@@ -6,7 +6,7 @@ Every operation is scoped to the token's business (`BusinessId`).
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import select
 
-from api.v1.dependencies import BusinessId, SessionDep, require_roles
+from api.v1.dependencies import BusinessId, CurrentUser, SessionDep, require_roles
 from core.security import hash_password
 from models.user_model import Role, User
 from schemas.user_schema import UserCreate, UserResponse, UserUpdate
@@ -62,10 +62,20 @@ def get_user(user_id: int, session: SessionDep, business_id: BusinessId) -> User
 
 @router.patch("/{user_id}/update", response_model=UserResponse)
 def update_user(
-    user_id: int, data: UserUpdate, session: SessionDep, business_id: BusinessId
+    user_id: int,
+    data: UserUpdate,
+    session: SessionDep,
+    business_id: BusinessId,
+    current_user: CurrentUser,
 ) -> User:
     user = _get_business_user(session, user_id, business_id)
     changes = data.model_dump(exclude_unset=True)
+    # An admin locking themselves out could leave the business without an admin.
+    if user.id == current_user.id and changes.get("is_active") is False:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You cannot deactivate your own account",
+        )
     if "email" in changes:
         changes["email"] = changes["email"].lower()
         if changes["email"] != user.email:

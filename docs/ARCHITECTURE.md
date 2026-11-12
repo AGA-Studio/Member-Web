@@ -63,9 +63,11 @@ flowchart TB
     MIGR --> MG2["versions/ — una migración por cambio"]
     MOD --> M1["business_model.py — Business, BusinessStatus"]
     MOD --> M2["user_model.py — User, Role"]
+    MOD --> M3["enum_utils.py — enum_values (enums en minúscula)"]
     SCH --> S1["user_schema.py — UserCreate · UserUpdate · UserResponse"]
     SCH --> S2["token_schema.py — Token · TokenData"]
-    API --> A1["dependencies.py — CurrentUser · require_roles · BusinessId"]
+    SCH --> S3["validators.py — PersonName"]
+    API --> A1["dependencies.py — CurrentUser · require_roles · BusinessId<br/>ensure_user_can_access"]
     API --> A2["auth_api.py — /auth"]
     API --> A3["user_api.py — /user"]
 ```
@@ -118,6 +120,14 @@ stateDiagram-v2
     trial --> suspended: suspender
 ```
 
+| Estado | ¿Sus usuarios pueden entrar? |
+|--------|------------------------------|
+| `trial` | Sí |
+| `active` | Sí |
+| `suspended` | **No**: 403 `Business suspended` en el login y en cualquier petición, aunque ya tengan sesión abierta |
+
+En la base los valores de los `ENUM` se guardan en minúscula (`'admin'`, `'suspended'`), igual que en la API. Ver [MIGRATIONS.md](MIGRATIONS.md#7-migraciones-existentes).
+
 ## 4. Endpoints
 
 Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/docs`.
@@ -131,7 +141,9 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | GET | `/api/v1/user/list` | admin | Usuarios de su negocio |
 | POST | `/api/v1/user/create` | admin | Crea un admin o employee en su negocio |
 | GET | `/api/v1/user/{user_id}` | admin | Detalle de un usuario de su negocio |
-| PATCH | `/api/v1/user/{user_id}/update` | admin | Edita nombre, email, contraseña o `is_active` |
+| PATCH | `/api/v1/user/{user_id}/update` | admin | Edita nombre, email, contraseña o `is_active`. Un admin no puede desactivarse a sí mismo (400) |
+
+**Validación de nombres** (`PersonName`, `schemas/validators.py`): se quitan los espacios sobrantes; solo letras (con acentos y ñ), espacios, guion y apóstrofo; mínimo 2 letras y máximo 120 caracteres. Si no se cumple → 422.
 
 **Convención de rutas:** `/<recurso en singular>/<acción>` (`/user/create`, `/user/list`, `/user/{id}/update`). Los módulos nuevos siguen la misma forma, por ejemplo `/customer/create`.
 
@@ -171,6 +183,9 @@ sequenceDiagram
         API-->>FE: 401 Incorrect email or password
     else usuario inactivo
         API-->>FE: 403 Inactive user
+    else su negocio está suspendido
+        API->>DB: SELECT business
+        API-->>FE: 403 Business suspended
     else correcto
         API->>SEC: create_access_token(user_id, role, business_id)
         SEC-->>API: JWT (HS256, expira en 480 min)
@@ -196,7 +211,10 @@ sequenceDiagram
         DEP-->>C: 401
     end
     DEP->>DB: get_current_user: SELECT user por id
-    DEP->>DEP: get_current_active_user: is_active
+    DEP->>DB: get_current_active_user: is_active y estado del negocio
+    alt usuario inactivo o negocio suspendido
+        DEP-->>C: 403
+    end
     DEP->>DEP: require_roles(admin)
     alt rol sin permiso
         DEP-->>C: 403 Permission denied
@@ -216,10 +234,12 @@ sequenceDiagram
 ```mermaid
 flowchart LR
     T["get_token_data<br/>cookie o Bearer → TokenData"] --> CU["get_current_user<br/>User desde la BD"]
-    CU --> CA["get_current_active_user<br/>= CurrentUser"]
+    CU --> CA["get_current_active_user<br/>= CurrentUser<br/>ensure_user_can_access:<br/>403 si inactivo o negocio suspendido"]
     CA --> RR["require_roles(...)<br/>403 si el rol no coincide"]
     CA --> BI["get_business_id<br/>= BusinessId"]
     SD["get_session<br/>= SessionDep"] --> CU
+    SD --> CA
+    LOGIN["auth_api.login"] -. "misma regla" .-> CA
 ```
 
 ## 7. Arranque de la aplicación
@@ -256,3 +276,5 @@ Reglas para todos los módulos:
 - `business_id` nunca aparece en un schema de entrada (`XCreate`, `XUpdate`).
 - Un recurso de otro negocio responde 404.
 - Los schemas de salida nunca exponen campos sensibles (`hashed_password`, tokens).
+- Los nombres de personas (clientes incluidos) usan `PersonName`.
+- Todo `Enum` de un modelo se declara con `sa_type=sa.Enum(X, name="x", values_callable=enum_values)` para guardarse en minúscula.

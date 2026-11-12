@@ -21,29 +21,31 @@ Documentación de la suite de pruebas automatizadas del backend: qué se prueba,
 
 | Métrica | Valor |
 |---------|-------|
-| Fecha de ejecución | 11 de noviembre de 2026 |
-| Pruebas | **124** (119 pasan + 5 `xfail` esperados) |
+| Fecha de ejecución | 12 de noviembre de 2026 |
+| Pruebas | **163** (161 pasan + 2 `xfail` esperados) |
 | Fallas | **0** |
-| Cobertura de líneas y ramas | **100 %** (254 sentencias, 32 ramas) |
+| Cobertura de líneas y ramas | **100 %** (282 sentencias, 40 ramas) |
 | Bases de datos probadas | SQLite y **PostgreSQL 18.6** |
-| Tiempo | ~8 s en SQLite · ~23 s en PostgreSQL |
+| Tiempo | ~25 s en SQLite · ~60 s en PostgreSQL (equipo local) |
 | Criterio del MVP "0 filas de otro negocio" | ✅ Cumplido (7 pruebas de aislamiento) |
-| Migraciones (Alembic) | ✅ Suben, bajan y coinciden con los modelos (7 pruebas) |
+| Migraciones (Alembic) | ✅ Suben, bajan, convierten datos y coinciden con los modelos (9 pruebas) |
+| Hallazgos corregidos | ✅ H1, H3, H5 y H7 · pendientes H2, H4 y H6 |
 
-Los 5 `xfail` no son fallas: son [hallazgos](#7-hallazgos) documentados como pruebas del comportamiento deseado, que hoy fallan a propósito.
+Los 2 `xfail` no son fallas: son [hallazgos](#7-hallazgos) documentados como pruebas del comportamiento deseado, que hoy fallan a propósito.
 
 ```mermaid
 pie showData
-    title Pruebas por archivo (124)
-    "test_user.py" : 40
-    "test_auth.py" : 30
+    title Pruebas por archivo (163)
+    "test_user.py" : 49
+    "test_auth.py" : 37
+    "test_validators.py" : 24
     "test_security.py" : 16
+    "test_migrations.py" : 9
     "test_system.py" : 8
     "test_isolation.py" : 7
-    "test_migrations.py" : 7
     "test_config.py" : 7
-    "test_known_issues.py" : 5
     "test_models.py" : 4
+    "test_known_issues.py" : 2
 ```
 
 ---
@@ -103,13 +105,14 @@ Los tres jobs son **obligatorios**: el ruleset `protect-develop-main` bloquea la
 
 ```mermaid
 flowchart TB
-    subgraph UNIT["Unitarias — tests/unit/ (27)"]
+    subgraph UNIT["Unitarias — tests/unit/ (51)"]
         U1["test_security.py<br/>Argon2id y JWT"]
         U2["test_config.py<br/>Settings y .env"]
         U3["test_models.py<br/>defaults y restricciones"]
+        U4["test_validators.py<br/>nombres de persona"]
     end
 
-    subgraph API["De API / integración — tests/api/ (90)"]
+    subgraph API["De API / integración — tests/api/ (103)"]
         A1["test_system.py<br/>/health · OpenAPI · CORS"]
         A2["test_auth.py<br/>login · sesión · tokens"]
         A3["test_user.py<br/>/user: permisos y reglas"]
@@ -117,7 +120,7 @@ flowchart TB
         A5["test_known_issues.py<br/>hallazgos (xfail)"]
     end
 
-    subgraph DBT["De base de datos — tests/db/ (7)"]
+    subgraph DBT["De base de datos — tests/db/ (9)"]
         D1["test_migrations.py<br/>Alembic: upgrade · downgrade · sincronía"]
     end
 
@@ -138,8 +141,8 @@ flowchart TB
 | Autenticación | Sin token → 401 en **todos** los endpoints protegidos |
 | Autorización por rol | `employee` y `platform` → 403 en `/user/*` |
 | Aislamiento | Recurso de otro negocio → 404, igual que uno inexistente |
-| Validación | Email inválido, contraseña corta o nombre vacío → 422 |
-| Reglas de negocio | Email único, `business_id` del token, rol no editable |
+| Validación | Email inválido, contraseña corta o nombre con menos de 2 letras → 422 |
+| Reglas de negocio | Email único, `business_id` del token, rol no editable, negocio suspendido sin acceso, un admin no se desactiva a sí mismo |
 | Seguridad de la respuesta | Nunca aparece `hashed_password` |
 | Efecto real | Después de cambiar la contraseña, la vieja ya no sirve |
 
@@ -155,7 +158,9 @@ flowchart TD
     U -- no --> E401c["401"]
     U -- sí --> ACT{"¿is_active?"}
     ACT -- no --> E403a["403 Inactive user"]
-    ACT -- sí --> R{"¿role = admin?<br/>(rol leído de la BD)"}
+    ACT -- sí --> SUS{"¿Su negocio está<br/>suspendido?"}
+    SUS -- sí --> E403s["403 Business suspended"]
+    SUS -- no --> R{"¿role = admin?<br/>(rol leído de la BD)"}
     R -- no --> E403b["403 Permission denied"]
     R -- sí --> B{"¿Tiene business_id?"}
     B -- no --> E403c["403 does not belong to a business"]
@@ -163,7 +168,9 @@ flowchart TD
     BODY -- no --> E422["422"]
     BODY -- sí --> OWN{"¿El recurso es<br/>de su negocio?"}
     OWN -- no --> E404["404 User not found"]
-    OWN -- sí --> OK["200 / 201"]
+    OWN -- sí --> SELF{"¿Se desactiva<br/>a sí mismo?"}
+    SELF -- sí --> E400["400 cannot deactivate<br/>your own account"]
+    SELF -- no --> OK["200 / 201"]
 ```
 
 Cada rama del diagrama tiene al menos una prueba.
@@ -180,7 +187,8 @@ tests/
 ├── unit/
 │   ├── test_security.py
 │   ├── test_config.py
-│   └── test_models.py
+│   ├── test_models.py
+│   └── test_validators.py
 └── api/
     ├── test_system.py
     ├── test_auth.py
@@ -331,6 +339,17 @@ Columna **Resultado**: ✅ pasa en SQLite y PostgreSQL · ⚠️ `xfail` esperad
 | `test_email_unique_constraint` | La base rechaza emails duplicados (`IntegrityError`) | ✅ |
 | `test_enum_values` | Valores exactos de `Role` y `BusinessStatus` | ✅ |
 
+### 5.3b Nombres de persona — `tests/unit/test_validators.py` (24)
+
+Regla de H5 (`schemas/validators.py`, tipo `PersonName`): quita espacios al inicio y al final y junta los dobles; solo letras de cualquier alfabeto (con acentos y ñ), espacios, guion y apóstrofo; **mínimo 2 letras**; máximo 120 caracteres.
+
+| Prueba | Verifica | Resultado |
+|--------|----------|-----------|
+| `test_valid_names_are_normalized[...]` | Acepta `Ana`, `Iván`, `José Luis`, `María-José`, `O'Connor`, `D’Angelo`, `Ñandú`, `Bo`; `"  José   Luis  "` → `"José Luis"`; un tabulador cuenta como espacio (10 casos) | ✅ |
+| `test_invalid_names_are_rejected[...]` | Rechaza vacío, solo espacios, una letra, solo guiones o apóstrofos, dígitos, símbolos, punto, guion bajo y emoji (12 casos) | ✅ |
+| `test_max_length` | 120 caracteres sí, 121 no | ✅ |
+| `test_error_messages` | Mensajes `at least 2 letters` y `only contain letters` | ✅ |
+
 ### 5.4 Sistema y CORS — `tests/api/test_system.py` (8)
 
 | Prueba | Verifica | Resultado |
@@ -344,7 +363,7 @@ Columna **Resultado**: ✅ pasa en SQLite y PostgreSQL · ⚠️ `xfail` esperad
 | `TestCors::test_preflight_from_unknown_origin_is_not_allowed` | Otro origen no recibe `allow-origin` | ✅ |
 | `TestCors::test_simple_request_from_allowed_origin` | Petición simple con origen permitido | ✅ |
 
-### 5.5 Autenticación — `tests/api/test_auth.py` (30)
+### 5.5 Autenticación — `tests/api/test_auth.py` (37)
 
 **Login (`POST /api/v1/auth/login`)**
 
@@ -379,6 +398,17 @@ Columna **Resultado**: ✅ pasa en SQLite y PostgreSQL · ⚠️ `xfail` esperad
 | `test_user_deactivated_after_login` | Desactivado con sesión abierta → 403 en la siguiente petición | ✅ |
 | `test_role_comes_from_database_not_from_token` | El rol se lee de la BD: un cambio de rol aplica sin volver a iniciar sesión | ✅ |
 
+**Negocio suspendido (H1)**
+
+| Prueba | Verifica | Resultado |
+|--------|----------|-----------|
+| `test_suspended_business_cannot_login` | Login → 403 `Business suspended`, sin cookie | ✅ |
+| `test_suspended_business_message_needs_valid_password` | Con contraseña incorrecta sigue siendo 401: no revela el estado del negocio a quien no sabe la contraseña | ✅ |
+| `test_trial_and_active_businesses_can_login[trial / active]` | `trial` y `active` sí entran (2 casos) | ✅ |
+| `test_open_session_is_cut_when_business_is_suspended` | Al suspender el negocio, la sesión ya abierta recibe 403 en la siguiente petición | ✅ |
+| `test_suspending_a_does_not_affect_b` | Suspender A no afecta a B | ✅ |
+| `test_platform_owner_is_not_affected` | El dueño de plataforma (sin negocio) sigue entrando aunque todos estén suspendidos | ✅ |
+
 **Logout (`POST /api/v1/auth/logout`)**
 
 | Prueba | Verifica | Resultado |
@@ -386,7 +416,7 @@ Columna **Resultado**: ✅ pasa en SQLite y PostgreSQL · ⚠️ `xfail` esperad
 | `test_logout_clears_cookie` | 204, cookie con `Max-Age=0` y `/me` → 401 | ✅ |
 | `test_logout_without_session` | Sin sesión también responde 204 | ✅ |
 
-### 5.6 Usuarios — `tests/api/test_user.py` (40)
+### 5.6 Usuarios — `tests/api/test_user.py` (49)
 
 **Permisos**
 
@@ -419,6 +449,8 @@ Columna **Resultado**: ✅ pasa en SQLite y PostgreSQL · ⚠️ `xfail` esperad
 | `test_duplicate_email_ignores_case` | `EMPLOYEE.A@demo.mx` también → 409 | ✅ |
 | `test_email_is_unique_across_businesses` | Un email de B no se puede usar en A → 409 | ✅ |
 | `test_validation_errors[...]` | Email inválido, contraseña < 8 o > 128, nombre vacío o > 120, rol inexistente → 422 (6 casos) | ✅ |
+| `test_name_is_normalized` | `"  José   Luis "` se guarda como `"José Luis"` (H5) | ✅ |
+| `test_invalid_names_are_rejected[...]` | `"   "`, `"A"`, `"Ana2"`, `"@@@"` → 422 (4 casos, H5) | ✅ |
 | `test_required_fields[name / email / password]` | Falta un campo obligatorio → 422 (3 casos) | ✅ |
 
 **Consultar (`GET /user/{user_id}`)**
@@ -442,9 +474,13 @@ Columna **Resultado**: ✅ pasa en SQLite y PostgreSQL · ⚠️ `xfail` esperad
 | `test_deactivate_user_blocks_login` | `is_active=false` → ya no puede iniciar sesión | ✅ |
 | `test_role_cannot_be_changed` | Mandar `role` no cambia el rol | ✅ |
 | `test_business_cannot_be_changed` | Mandar `business_id` no cambia el negocio | ✅ |
+| `test_blank_name_is_rejected_on_update` | Nombre de solo espacios al editar → 422 (H5) | ✅ |
 | `test_short_password_is_rejected` | Contraseña corta → 422 | ✅ |
 | `test_nonexistent_user` | 404 | ✅ |
 | `test_admin_can_update_self` | Un admin puede editar su propio nombre | ✅ |
+| `test_admin_cannot_deactivate_self` | `is_active=false` sobre sí mismo → 400, y sigue activo (H3) | ✅ |
+| `test_admin_can_send_is_active_true_for_self` | Mandar `is_active=true` sobre sí mismo sí se permite | ✅ |
+| `test_admin_can_deactivate_another_admin` | Un admin sí puede desactivar a otro admin de su negocio | ✅ |
 
 ### 5.7 Aislamiento multi-negocio — `tests/api/test_isolation.py` (7)
 
@@ -486,19 +522,18 @@ sequenceDiagram
 | `test_user_created_by_a_is_invisible_to_b` | Lo que crea A no aparece para B | ✅ |
 | `test_forged_business_id_in_token_body_has_no_effect` | Un JWT válido con `business_id` alterado no da acceso: el negocio se toma del usuario en la BD | ✅ |
 
-### 5.8 Hallazgos conocidos — `tests/api/test_known_issues.py` (5)
+### 5.8 Hallazgos conocidos — `tests/api/test_known_issues.py` (2)
 
 Cada una describe el comportamiento **deseado** y hoy falla a propósito. Detalle en la [sección 7](#7-hallazgos).
 
 | Prueba | Comportamiento deseado | Resultado |
 |--------|------------------------|-----------|
-| `test_h1_suspended_business_cannot_login` | Un negocio suspendido no puede iniciar sesión | ⚠️ xfail |
 | `test_h2_token_is_invalid_after_logout` | El token deja de servir al cerrar sesión | ⚠️ xfail |
-| `test_h3_admin_cannot_deactivate_self` | Un admin no puede desactivarse a sí mismo | ⚠️ xfail |
 | `test_h4_repeated_failed_logins_are_throttled` | Tras 10 intentos fallidos → 429 | ⚠️ xfail |
-| `test_h5_blank_name_is_rejected` | Un nombre de solo espacios → 422 | ⚠️ xfail |
 
-### 5.9 Migraciones — `tests/db/test_migrations.py` (7)
+H1, H3 y H5 empezaron aquí como `xfail`. Al corregirlos, `strict=True` hizo fallar sus pruebas (`XPASS(strict)`), tal como estaba previsto, y se movieron a `test_auth.py`, `test_user.py` y `test_validators.py` con más casos.
+
+### 5.9 Migraciones — `tests/db/test_migrations.py` (9)
 
 Usan su propia fixture `empty_database`, que deja la base sin ninguna tabla (ni `alembic_version`) y ejecutan Alembic con una conexión abierta. Detalle en [MIGRATIONS.md](MIGRATIONS.md#8-pruebas-de-las-migraciones).
 
@@ -511,6 +546,8 @@ Usan su propia fixture `empty_database`, que deja la base sin ninguna tabla (ni 
 | `test_upgrade_after_downgrade` | Se puede bajar y volver a subir | ✅ |
 | `test_database_is_stamped_at_head` | `alembic_version` queda en la última revisión | ✅ |
 | `test_app_works_on_migrated_schema` | Login y alta de usuario sobre tablas creadas por Alembic | ✅ |
+| `test_lowercase_enum_migration_converts_existing_rows` | Filas con `'ADMIN'`/`'SUSPENDED'` de la primera migración quedan en `'admin'`/`'suspended'`, y el `downgrade` las regresa (H7) | ✅ |
+| `test_app_stores_lowercase_enum_values` | La app guarda `'employee'` y `'trial'` en la base (H7) | ✅ |
 
 Para comprobar que la prueba de sincronía sirve, se agregó temporalmente `phone: str | None` a `User` sin generar migración. La prueba falló como se esperaba:
 
@@ -522,7 +559,7 @@ Differences: [('add_column', None, 'users', Column('phone', AutoString(), table=
 
 ## 6. Resultados de la ejecución
 
-Ejecutado el 11 de noviembre de 2026.
+Ejecutado el 12 de noviembre de 2026.
 
 ### Entorno
 
@@ -542,21 +579,19 @@ Ejecutado el 11 de noviembre de 2026.
 
 ```text
 $ uv run pytest -q -rx
-.....................................xxxxx.............................. [ 58%]
-....................................................                     [100%]
-XFAIL tests/api/test_known_issues.py::test_h1_suspended_business_cannot_login - H1: login does not check the business status
+............................................xx.......................... [ 44%]
+........................................................................ [ 88%]
+...................                                                      [100%]
 XFAIL tests/api/test_known_issues.py::test_h2_token_is_invalid_after_logout - H2: logout only deletes the cookie; JWT stays valid
-XFAIL tests/api/test_known_issues.py::test_h3_admin_cannot_deactivate_self - H3: an admin can deactivate their own account
 XFAIL tests/api/test_known_issues.py::test_h4_repeated_failed_logins_are_throttled - H4: no rate limit on failed logins
-XFAIL tests/api/test_known_issues.py::test_h5_blank_name_is_rejected - H5: names made only of spaces pass validation
-119 passed, 5 xfailed in 7.73s
+161 passed, 2 xfailed in 25.19s
 ```
 
 ### PostgreSQL 18.6
 
 ```text
 $ TEST_DATABASE_URL=postgresql+psycopg://...@localhost:5433/memberplus_test uv run pytest -q
-119 passed, 5 xfailed in 22.83s
+161 passed, 2 xfailed in 61.35s (0:01:01)
 ```
 
 Se ejecutó dos veces seguidas con el mismo resultado: las pruebas no dependen del orden ni dejan datos.
@@ -567,21 +602,23 @@ Se ejecutó dos veces seguidas con el mismo resultado: las pruebas no dependen d
 $ uv run pytest --cov
 Name                       Stmts   Miss Branch BrPart  Cover
 ------------------------------------------------------------
-api/v1/auth_api.py            27      0      4      0   100%
-api/v1/dependencies.py        43      0     10      0   100%
-api/v1/user_api.py            48      0     14      0   100%
+api/v1/auth_api.py            26      0      2      0   100%
+api/v1/dependencies.py        50      0     14      0   100%
+api/v1/user_api.py            50      0     16      0   100%
 core/config.py                28      0      2      0   100%
 core/cors.py                   5      0      0      0   100%
 core/security.py              16      0      0      0   100%
 db/database.py                13      0      0      0   100%
 main.py                       22      0      2      0   100%
 models/__init__.py             3      0      0      0   100%
-models/business_model.py      14      0      0      0   100%
-models/user_model.py          16      0      0      0   100%
+models/business_model.py      16      0      0      0   100%
+models/enum_utils.py           3      0      0      0   100%
+models/user_model.py          18      0      0      0   100%
 schemas/token_schema.py        5      0      0      0   100%
 schemas/user_schema.py        14      0      0      0   100%
+schemas/validators.py         13      0      4      0   100%
 ------------------------------------------------------------
-TOTAL                        254      0     32      0   100%
+TOTAL                        282      0     40      0   100%
 ```
 
 El MVP pide ≥ 60 % de cobertura en `services/`. Esa carpeta todavía no existe; se medirá cuando llegue la lógica de caja (hito H2).
@@ -589,11 +626,11 @@ El MVP pide ≥ 60 % de cobertura en `services/`. Esa carpeta todavía no existe
 ### Pruebas más lentas
 
 ```text
-1.74s  test_h4_repeated_failed_logins_are_throttled   (11 logins con Argon2id)
-0.65s  TestUpdateUser::test_update_password
-0.61s  test_user_created_by_a_is_invisible_to_b
-0.50s  TestCreateUser::test_created_user_can_login
-0.39s  TestCreateUser::test_email_is_normalized_to_lowercase
+0.73s  test_h4_repeated_failed_logins_are_throttled   (11 logins con Argon2id)
+0.71s  TestUpdateUser::test_update_password
+0.63s  test_user_created_by_a_is_invisible_to_b
+0.41s  TestCurrentUser::test_cookie_has_priority_over_bearer
+0.39s  TestUpdateUser::test_deactivate_user_blocks_login
 ```
 
 Lo lento es Argon2id, que está hecho para ser costoso: verificar una contraseña tarda ~66 ms en promedio (medido con 20 verificaciones). Queda muy por debajo del criterio del MVP (login → panel en ≤ 2 s).
@@ -602,22 +639,17 @@ Lo lento es Argon2id, que está hecho para ser costoso: verificar una contraseñ
 
 ## 7. Hallazgos
 
-Problemas encontrados durante las pruebas. Ninguno rompe lo que ya está hecho, pero conviene resolverlos antes de la demo. Cada uno tiene su prueba `xfail` en `tests/api/test_known_issues.py`.
+Problemas encontrados durante las pruebas. Las decisiones de cómo resolverlos se tomaron con el equipo el 12 de noviembre de 2026 y están registradas en la wiki (*Decisiones por validar*).
 
-| ID | Hallazgo | Severidad | Propuesta |
-|----|----------|-----------|-----------|
-| H1 | Un usuario de un negocio **suspendido** puede iniciar sesión y operar | Alta | En `login` y en `get_current_active_user`, rechazar con 403 si `business.status == suspended` |
-| H2 | **Logout no invalida el token**: solo borra la cookie. Una copia del JWT (Bearer) sigue sirviendo hasta que expire (8 h) | Media | Aceptable para el MVP. Si se quiere cerrar: guardar una versión de sesión en `users` y compararla en cada petición, o bajar la expiración |
-| H3 | Un admin puede **desactivarse a sí mismo** y dejar al negocio sin administrador | Media | En `/user/{id}/update`, rechazar `is_active=false` si `user_id` es el del admin actual |
-| H4 | **Sin límite de intentos** de login: permite fuerza bruta | Media | Limitar por IP y email (por ejemplo `slowapi`) o un bloqueo temporal tras N fallos |
-| H5 | Un **nombre de solo espacios** (`"   "`) pasa la validación | Baja | `str_strip_whitespace=True` en el `model_config` de los schemas de entrada |
-
-También se observó, sin prueba automatizada (H6 requiere concurrencia; H7 es una decisión de diseño):
-
-| ID | Hallazgo | Severidad | Propuesta |
-|----|----------|-----------|-----------|
-| H6 | Si dos peticiones crean el **mismo email al mismo tiempo**, ambas pasan la verificación y la segunda falla en la base con `IntegrityError` → **500** en vez de 409 | Baja | Capturar `IntegrityError` en `create_user` y `update_user` y responder 409 |
-| H7 | Los `ENUM` se guardan en la base con el **nombre** del miembro (`'ADMIN'`, `'TRIAL'`) y la API usa el **valor** (`"admin"`, `"trial"`). No es un error, pero confunde al escribir SQL a mano (el `seed.sql` del MVP) | Baja | Decidir antes de que haya datos reales: guardar los valores en minúscula (`sa_column=Column(Enum(Role, values_callable=...))` + migración) o documentar que el SQL usa mayúsculas (ya está en [MIGRATIONS.md](MIGRATIONS.md#7-migraciones-existentes)) |
+| ID | Hallazgo | Severidad | Estado | Cómo quedó |
+|----|----------|-----------|--------|------------|
+| H1 | Un usuario de un negocio **suspendido** podía iniciar sesión y operar | Alta | ✅ Corregido | `ensure_user_can_access()` en `api/v1/dependencies.py` responde 403 `Business suspended` en el login **y** en cada petición, así que suspender corta también las sesiones abiertas. `trial` y `active` entran; el dueño de plataforma no se ve afectado |
+| H2 | **Logout no invalida el token**: solo borra la cookie. Una copia del JWT (Bearer) sigue sirviendo hasta que expire (8 h) | Media | ⚠️ Pendiente (`xfail`) | Aceptable para el MVP. Si se quiere cerrar: guardar una versión de sesión en `users` y compararla en cada petición, o bajar la expiración |
+| H3 | Un admin podía **desactivarse a sí mismo** y dejar al negocio sin administrador | Media | ✅ Corregido | `/user/{id}/update` responde 400 `You cannot deactivate your own account`. Un admin sí puede desactivar a otro admin |
+| H4 | **Sin límite de intentos** de login: permite fuerza bruta | Media | ⚠️ Pendiente (`xfail`) | Limitar por IP y email (por ejemplo `slowapi`) o un bloqueo temporal tras N fallos |
+| H5 | Un **nombre de solo espacios** (`"   "`) pasaba la validación | Baja | ✅ Corregido | Tipo `PersonName` en `schemas/validators.py`: normaliza espacios, solo letras, espacios, guion y apóstrofo, **mínimo 2 letras** (se descartó "mínimo 5" porque rechaza nombres reales como Ana, Luis o Iván) |
+| H6 | Si dos peticiones crean el **mismo email al mismo tiempo**, la segunda falla en la base con `IntegrityError` → **500** en vez de 409 | Baja | ⚠️ Pendiente (sin prueba: requiere concurrencia) | Capturar `IntegrityError` en `create_user` y `update_user` y responder 409 |
+| H7 | Los `ENUM` se guardaban con el **nombre** del miembro (`'ADMIN'`) y la API usa el **valor** (`"admin"`) | Baja | ✅ Corregido | Los modelos guardan el valor (`values_callable`, `models/enum_utils.py`) y la migración `c9e2d3e6ee70` convierte las etiquetas y los datos existentes a minúscula |
 
 ### Ciclo de vida de un hallazgo
 
