@@ -19,6 +19,7 @@ FastAPI · SQLModel · PostgreSQL 18 · Argon2id · JWT · Python 3.14 · uv
 cp .env.example .env          # cambia SECRET_KEY
 uv sync
 docker compose up -d          # PostgreSQL en localhost:5433
+uv run alembic upgrade head   # crea o actualiza las tablas
 uv run uvicorn main:app --reload
 ```
 
@@ -35,3 +36,4 @@ uv run ruff check .
 
 - Arquitectura, modelo de datos y flujos: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - Pruebas, resultados y hallazgos: [docs/TESTING.md](docs/TESTING.md)
+- Migraciones de base de datos: [docs/MIGRATIONS.md](docs/MIGRATIONS.md)
