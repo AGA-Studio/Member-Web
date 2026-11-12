@@ -1,6 +1,6 @@
 # CI — Member-Web
 
-El proyecto se revisa en **GitHub Actions** con un solo archivo: [`.github/workflows/ci.yml`](../.github/workflows/ci.yml). Cada PR y cada push a `main` corre lint y pruebas; nada de esto necesita secretos ni permisos de escritura.
+El proyecto se revisa en **GitHub Actions** con dos archivos: [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) corre lint y pruebas en cada PR y cada push a `main`, sin secretos; [`.github/workflows/review.yml`](../.github/workflows/review.yml) comenta el PR contra la documentación (sección 11) y no bloquea.
 
 > Arquitectura: [ARCHITECTURE.md](ARCHITECTURE.md) · Pruebas: [TESTING.md](TESTING.md) · Migraciones: [MIGRATIONS.md](MIGRATIONS.md)
 
@@ -16,6 +16,7 @@ El proyecto se revisa en **GitHub Actions** con un solo archivo: [`.github/workf
 8. [Qué no cubre todavía](#8-qué-no-cubre-todavía)
 9. [Problemas comunes](#9-problemas-comunes)
 10. [Reglas](#10-reglas)
+11. [Revisor automático de PRs](#11-revisor-automático-de-prs)
 
 ---
 
@@ -190,10 +191,60 @@ Probablemente se renombró un job y el *required check* apunta al nombre viejo. 
 
 - `main` está protegida por el ruleset **`protect-main`** (Settings → Rules → Rulesets), sin excepciones ni para administradores:
   - todo entra por PR (no hay push directo);
-  - `lint`, `test` y `test (postgres)` deben salir en verde;
+  - `lint`, `test` y `test (postgres)` deben salir en verde. El job `review` **no** es obligatorio: comenta, no decide;
   - la rama debe estar al día con la base: si otro PR se fusiona antes, GitHub muestra **Update branch** y los checks vuelven a correr;
   - no se pueden borrar las ramas ni hacer *force push*.
 - El CI **no se salta**: un PR en rojo no se fusiona, ni con "es solo documentación".
 - Si el CI falla por el entorno del runner y no por el código, se arregla el workflow en el mismo PR; no se deja el rojo para después.
 - Los pasos que verifican algo (conexión, tablas, migraciones) **fallan** cuando no se cumple; nunca solo imprimen un aviso.
 - Documentar aquí cualquier job nuevo: qué hace, cuánto tarda y qué previene.
+
+---
+
+## 11. Revisor automático de PRs
+
+Workflow aparte: [`.github/workflows/review.yml`](../.github/workflows/review.yml). No es parte de `ci.yml` porque necesita un secreto y permiso de escritura, y porque **no debe bloquear**: si el revisor se cae, el PR sigue su curso.
+
+### Qué hace
+
+En cada PR hacia `main` (abierto, actualizado o listo para revisión; nunca en borrador):
+
+1. Lee `docs/REVISION.md`, que es el resumen de las decisiones de la wiki, más `AGENTS.md`.
+2. Lee el diff y el cuerpo del PR.
+3. Pide una revisión al modelo y publica **un comentario**.
+
+El comentario se **actualiza en su lugar** si ya existe uno del revisor: un PR con cinco pushes tiene un comentario, no cinco.
+
+### Qué reporta y qué no
+
+Solo cinco clases de problema, todas de criterio, no de estilo:
+
+| Reporta | No reporta |
+|---|---|
+| Contradice una decisión cerrada de la wiki | Estilo, formato o nombres (eso es Ruff) |
+| Resuelve una decisión **abierta** sin decirlo | `business_id` en schemas, `async`, forma de rutas (eso es `tests/rules/`) |
+| Implementa algo fuera del MVP | Cobertura de pruebas, rendimiento, refactors |
+| Toca un archivo compartido sin mencionarlo | Cualquier cosa que no esté en `docs/REVISION.md` |
+
+Si no encuentra nada, lo dice en una línea. Nunca aprueba ni pide cambios formalmente: es un aviso para quien revisa, y su criterio manda.
+
+### El secreto
+
+Necesita `OPENCODE_API_KEY` en **Settings → Secrets and variables → Actions** del repositorio (o de la organización). Es la llave de OpenCode Go, la misma que usa el equipo para el modelo `deepseek-v4.1-flash`.
+
+- Sin el secreto —por ejemplo en un PR desde un fork— el script no hace nada y sale con 0: el job queda verde sin comentario.
+- El costo de una revisión ronda **$0.001–0.003** del cupo mensual de Go (unas 11 mil tokens de entrada). Diez PRs al día no llegan a dos centavos al mes.
+
+### Probar en local
+
+```bash
+gh pr diff 22 > /tmp/pr22.diff
+export OPENCODE_API_KEY=...
+uv run python -m scripts.review_pr --diff-file /tmp/pr22.diff --title "probar el revisor"
+```
+
+Imprime el comentario que publicaría, sin tocar GitHub.
+
+### Cuando un hallazgo está mal
+
+Gana el criterio de quien revisa. Si el revisor se equivoca dos veces con la misma regla, el error está en `docs/REVISION.md`: se corrige ahí y el siguiente PR ya lo ve. Si el error es del código, es un hallazgo real.
