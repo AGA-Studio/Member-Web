@@ -1,8 +1,12 @@
-"""Database connection: engine, table creation and per-request session."""
+"""Database connection: engine, connectivity check and per-request session.
+
+The schema is managed by Alembic (migrations/), not by the app.
+"""
 
 from collections.abc import Generator
 
-from sqlmodel import Session, SQLModel, create_engine
+from sqlalchemy import text
+from sqlmodel import Session, create_engine
 
 from core.config import settings
 
@@ -14,11 +18,10 @@ connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite")
 engine = create_engine(DATABASE_URL, connect_args=connect_args, pool_pre_ping=True)
 
 
-def create_db_and_tables() -> None:
-    # Importing the models registers their tables in SQLModel.metadata.
-    import models  # noqa: F401
-
-    SQLModel.metadata.create_all(engine)
+def check_database_connection() -> None:
+    """Fail fast at startup if the database is unreachable."""
+    with engine.connect() as connection:
+        connection.execute(text("SELECT 1"))
 
 
 def get_session() -> Generator[Session]:

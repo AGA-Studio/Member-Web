@@ -4,9 +4,10 @@ Every operation is scoped to the token's business (`BusinessId`).
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import select
 
-from api.v1.dependencies import BusinessId, SessionDep, require_roles
+from api.v1.dependencies import BusinessId, CurrentUser, SessionDep, require_roles
 from core.security import hash_password
 from models.user_model import Role, User
 from schemas.user_schema import UserCreate, UserResponse, UserUpdate
@@ -26,9 +27,29 @@ def _get_business_user(session: SessionDep, user_id: int, business_id: int) -> U
     return user
 
 
+_email_in_use = HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already in use")
+
+
 def _ensure_email_available(session: SessionDep, email: str) -> None:
     if session.exec(select(User).where(User.email == email)).first():
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already in use")
+        raise _email_in_use
+
+
+def _save(session: SessionDep, user: User) -> User:
+    """Commit the user; a unique-email race that slips past the check above is a 409.
+
+    `_ensure_email_available` answers fast in the normal case, but two requests can
+    both pass it before either commits. The unique index on `users.email` stops the
+    second one; without this it would surface as a 500.
+    """
+    session.add(user)
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        raise _email_in_use from None
+    session.refresh(user)
+    return user
 
 
 @router.get("/list", response_model=list[UserResponse])
@@ -49,10 +70,7 @@ def create_user(data: UserCreate, session: SessionDep, business_id: BusinessId) 
         hashed_password=hash_password(data.password),
         role=data.role,
     )
-    session.add(user)
-    session.commit()
-    session.refresh(user)
-    return user
+    return _save(session, user)
 
 
 @router.get("/{user_id}", response_model=UserResponse)
@@ -62,10 +80,20 @@ def get_user(user_id: int, session: SessionDep, business_id: BusinessId) -> User
 
 @router.patch("/{user_id}/update", response_model=UserResponse)
 def update_user(
-    user_id: int, data: UserUpdate, session: SessionDep, business_id: BusinessId
+    user_id: int,
+    data: UserUpdate,
+    session: SessionDep,
+    business_id: BusinessId,
+    current_user: CurrentUser,
 ) -> User:
     user = _get_business_user(session, user_id, business_id)
     changes = data.model_dump(exclude_unset=True)
+    # An admin locking themselves out could leave the business without an admin.
+    if user.id == current_user.id and changes.get("is_active") is False:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You cannot deactivate your own account",
+        )
     if "email" in changes:
         changes["email"] = changes["email"].lower()
         if changes["email"] != user.email:
@@ -74,7 +102,4 @@ def update_user(
         user.hashed_password = hash_password(changes.pop("password"))
     for field, value in changes.items():
         setattr(user, field, value)
-    session.add(user)
-    session.commit()
-    session.refresh(user)
-    return user
+    return _save(session, user)

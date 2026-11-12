@@ -1,0 +1,93 @@
+name: Image
+
+# Construye la imagen del API y la publica en GHCR. Coolify solo hace pull.
+# El build corre en GitHub, no en el servidor: el LXC no gasta CPU y la imagen
+# que se despliega es la misma que validaron lint y pruebas.
+
+on:
+  push:
+    branches: [main, develop]
+    tags: ["v*"]
+  workflow_dispatch:
+
+concurrency:
+  group: image-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Entrar a GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # sha SIEMPRE (sirve para rollback pinneado), la rama para seguir develop,
+      # latest solo en la rama por defecto y la versión en los tags v*.
+      - name: Calcular tags
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,format=short,prefix=sha-
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Construir y publicar
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Coolify no puede adivinar que hay imagen nueva: se le avisa con su
+      # webhook de deploy. Si el secreto no está configurado, el paso no falla
+      # (repo recién clonado o fork), solo avisa.
+      - name: Pedir deploy a Coolify
+        env:
+          COOLIFY_WEBHOOK: ${{ secrets.COOLIFY_WEBHOOK }}
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+        run: |
+          if [ -z "$COOLIFY_WEBHOOK" ]; then
+            echo "::notice::Sin COOLIFY_WEBHOOK configurado: la imagen quedó publicada y el deploy es manual."
+            exit 0
+          fi
+          code=$(curl -sS -o /tmp/coolify.out -w '%{http_code}' --max-time 30 \
+            -H "Authorization: Bearer $COOLIFY_TOKEN" "$COOLIFY_WEBHOOK")
+          echo "Coolify respondió HTTP $code"
+          cat /tmp/coolify.out
+          [ "$code" -ge 200 ] && [ "$code" -lt 300 ]
+
+      - name: Resumen
+        run: |
+          {
+            echo "### Imagen publicada"
+            echo '```'
+            echo "${{ steps.meta.outputs.tags }}"
+            echo '```'
+            echo "Coolify debe estar apuntando a uno de esos tags (o a \`latest\`)."
+          } >> "$GITHUB_STEP_SUMMARY"

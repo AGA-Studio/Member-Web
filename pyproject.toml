@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Backend (API) de Member+: SaaS multi-negocio de membresías."
 requires-python = ">=3.14"
 dependencies = [
+    "alembic>=1.20.1",
     "email-validator>=2.3.0",
     "fastapi>=0.162.4",
     "psycopg[binary]>=3.3.8",
@@ -19,6 +20,7 @@ dependencies = [
 dev = [
     "httpx>=0.28.1",
     "pytest>=9.2.0",
+    "pytest-cov>=7.1.0",
     "ruff>=0.17.4",
 ]
 
@@ -32,3 +34,13 @@ ignore = ["B008"]  # Depends() en argumentos por defecto es el patrón de FastAP
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
+filterwarnings = ["ignore:Using `httpx` with `starlette.testclient` is deprecated"]
+
+[tool.coverage.run]
+source = ["api", "core", "db", "models", "schemas", "services", "main"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true

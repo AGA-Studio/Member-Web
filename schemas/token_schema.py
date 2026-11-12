@@ -16,3 +16,4 @@ class TokenData(BaseModel):
     user_id: int
     role: Role
     business_id: int | None
+    jti: str

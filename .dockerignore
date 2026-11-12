@@ -1,0 +1,30 @@
+# Lo que no entra al contexto de build: la imagen solo lleva el API.
+.git
+.gitignore
+.github
+.venv
+.env
+.env.*
+!.env.example
+
+# No van al runtime
+tests
+docs
+CLAUDE.md
+AGENTS.md
+README.md
+docker-compose.yml
+.pytest_cache
+.ruff_cache
+.mypy_cache
+htmlcov
+.coverage
+
+# Basura de Python y bases locales
+__pycache__
+*.py[cod]
+*.egg-info
+*.db
+*.sqlite3
+*.log
+.DS_Store
