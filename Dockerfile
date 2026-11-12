@@ -29,6 +29,7 @@ COPY db/ ./db/
 COPY models/ ./models/
 COPY schemas/ ./schemas/
 COPY services/ ./services/
+COPY scripts/ ./scripts/
 COPY migrations/ ./migrations/
 COPY docker/ ./docker/
 

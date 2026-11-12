@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     login_max_attempts: int = Field(default=5, ge=1)
     login_lockout_minutes: int = Field(default=15, ge=1)
 
+    # Password for the demo users created by scripts/seed.py. Empty = known demo
+    # password, allowed only in development.
+    seed_password: str = ""
+
     # Session cookie
     cookie_name: str = "access_token"
     cookie_secure: bool = False
