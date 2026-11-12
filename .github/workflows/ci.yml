@@ -135,3 +135,23 @@ jobs:
           assert table is not None, 'La suite no creó tablas en PostgreSQL'
           print('tabla creada por la suite:', table)
           "
+
+      # Las migraciones se aplican en una base vacía y aparte, para que el paso
+      # anterior siga comprobando que fue la suite (create_all) la que creó tablas.
+      - name: Aplicar migraciones en una base limpia
+        env:
+          MIGRATE_URL: postgresql+psycopg://memberplus:memberplus@localhost:5432/memberplus_migrate
+        run: |
+          uv run python -c "
+          import psycopg
+
+          with psycopg.connect('postgresql://memberplus:memberplus@localhost:5432/memberplus_test', autocommit=True) as connection:
+              connection.execute('create database memberplus_migrate')
+          "
+          DATABASE_URL=$MIGRATE_URL uv run alembic upgrade head
+
+      # Falla si models/ y migrations/ divergen: autogenerate detecta diferencias.
+      - name: Verificar que modelos y migraciones coinciden
+        env:
+          MIGRATE_URL: postgresql+psycopg://memberplus:memberplus@localhost:5432/memberplus_migrate
+        run: DATABASE_URL=$MIGRATE_URL uv run alembic check
