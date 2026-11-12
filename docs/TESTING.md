@@ -84,6 +84,18 @@ $env:TEST_DATABASE_URL="postgresql+psycopg://memberplus:memberplus@localhost:543
 uv run ruff check . && uv run ruff format --check . && uv run pytest
 ```
 
+### En GitHub (CI)
+
+`.github/workflows/ci.yml` corre lo mismo automáticamente en cada PR y en cada push a `develop` y `main`:
+
+| Job | Qué corre |
+|-----|-----------|
+| `lint` | `ruff check` y `ruff format --check` |
+| `test` | La suite completa sobre SQLite |
+| `test (postgres)` | La suite completa sobre un servicio `postgres:18`, y verifica que de verdad se crearon tablas en Postgres |
+
+Si un job sale en rojo, el PR no debe fusionarse. Un push nuevo a la misma rama cancela el run anterior, así que un run *cancelled* seguido de uno en verde es normal.
+
 ---
 
 ## 3. Estrategia
