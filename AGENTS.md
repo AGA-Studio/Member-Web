@@ -83,7 +83,7 @@ schemas/         DTOs Pydantic: <nombre>_schema.py (XCreate, XUpdate, XResponse)
 services/        lógica de negocio y cálculo (hoy: auth_service.py, revocación y límite de login)
 scripts/         scripts de terminal (`python -m scripts.<nombre>`); hoy: seed.py
 api/v1/          dependencies.py y un router por módulo: <nombre>_api.py
-tests/           pytest
+tests/           pytest; tests/rules/ valida las convenciones leyendo el código (TESTING.md §5.11)
 docs/            documentación con diagramas Mermaid
 ```
 
