@@ -154,10 +154,13 @@ Reglas:
 | Falta | Por qué importa | Dónde va |
 |-------|-----------------|----------|
 | Umbral de cobertura (`--cov-fail-under=60`) | `pytest-cov` ya está instalado y el MVP pide 60 %; hoy solo se mide a mano | Una línea en el job `test` |
-| Despliegue a Coolify | El deploy sigue siendo manual | Workflow `deploy.yml` con el webhook de Coolify |
 | `dependabot.yml` | Las actions se actualizan a mano | `.github/dependabot.yml` |
-| `docker compose up` desde cero | Es un criterio del MVP (≤ 3 min) | Job aparte, cuando exista el `Dockerfile` |
+| `docker compose up` desde cero | Es un criterio del MVP (≤ 3 min) | Job aparte, ahora que existe el `Dockerfile` |
 | Pruebas de RLS | Se escribirán con las políticas, en su migración | Job `test (postgres)` |
+| Entorno de staging | Solo hay una app en Coolify; `develop` publica imagen pero nadie la sirve | Segunda app apuntando al tag `develop` |
+
+El despliegue ya no está en esta lista: lo cubre el workflow `image.yml` y está documentado en [DEPLOY.md](DEPLOY.md).
+
 
 ---
 

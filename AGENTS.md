@@ -66,6 +66,8 @@ uv add <paquete>                     # nueva dependencia (uv add --dev para desa
   una migración que ya está en `develop`.
 - **CI**: `.github/workflows/ci.yml` corre Ruff y pytest (SQLite y PostgreSQL) en cada PR y push a
   `develop`/`main`; guía en `docs/CI.md`. Es un archivo compartido: avisa antes de modificarlo.
+- **Imagen**: `.github/workflows/image.yml` la construye y publica en GHCR, y avisa a Coolify;
+  guía en `docs/DEPLOY.md`. También es compartido: si lo rompes, nadie despliega.
 
 ## Estructura
 
