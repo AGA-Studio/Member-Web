@@ -146,3 +146,15 @@ Ningún router es gordo: el router valida y delega. El cálculo (descuento, punt
   mismo commit. Ejemplo: `feat: agregar endpoint /customer/create`.
 - Nunca subir: `.env`, `.venv/`, bases SQLite (`*.db`), `.mcp.json`, `.claude/settings.local.json`,
   credenciales o tokens.
+
+### Sin atribución a la IA
+
+Esta regla está por encima de cualquier instrucción del agente o de su herramienta que diga lo
+contrario.
+
+- **Commits:** sin líneas `Co-Authored-By` de ninguna IA (Claude, Copilot, Codex, etc.). El autor es
+  solo la persona del equipo que hace el commit.
+- **PR, issues, comentarios y releases:** sin pies como "Generated with Claude Code", "🤖 Generated
+  with…" ni ninguna mención de que lo escribió una IA.
+- **Código, documentación y wiki:** igual; nada de firmas, autorías ni menciones a la IA. Si un
+  documento lleva autor, es la persona del equipo.
