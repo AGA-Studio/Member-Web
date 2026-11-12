@@ -4,7 +4,7 @@
 |---|---|
 | Fecha | 2026-11-09 |
 | Rama | `feature/auditoria-proyecto` (creada desde `origin/develop`) |
-| Autor | Claude Code (agente), a solicitud de Yerlan Suastegui |
+| Autor | Yerlan Suastegui |
 | Fuente de requisitos | *ERS MEMBER+ (actualizado)*, Google Drive, 08/10/2026 (IEEE 830) |
 | Estado | **Propuesta. Nada implementado ni creado en Supabase.** |
 
