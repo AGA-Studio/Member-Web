@@ -5,9 +5,17 @@ name: review
 # cambia código. Si falla (sin cupo, sin red), el PR sigue su curso.
 
 on:
+  # Una sola revisión por PR: al abrirlo, al reabrirlo o cuando deja de ser
+  # borrador. Un push posterior no la repite (cuesta ~2.5 min y ~$0.003).
   pull_request:
     branches: [main]
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, reopened, ready_for_review]
+  # Para volver a revisar a mano desde la pestaña Actions.
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Número del PR a revisar
+        required: true
 
 # Un push nuevo cancela la revisión anterior del mismo PR.
 concurrency:
@@ -50,4 +58,4 @@ jobs:
         run: >
           uv run python -m scripts.review_pr
           --repo "${{ github.repository }}"
-          --pr "${{ github.event.pull_request.number }}"
+          --pr "${{ inputs.pr || github.event.pull_request.number }}"

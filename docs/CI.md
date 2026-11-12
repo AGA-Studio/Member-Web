@@ -207,13 +207,16 @@ Workflow aparte: [`.github/workflows/review.yml`](../.github/workflows/review.ym
 
 ### Qué hace
 
-En cada PR hacia `main` (abierto, actualizado o listo para revisión; nunca en borrador):
+En cada PR hacia `main`, **una sola vez**: al abrirlo, al reabrirlo o cuando pasa de borrador a listo para revisión. Un push posterior no la repite —cuesta ~2.5 min y ~$0.003—, y la revisión se queda con la versión del PR que se revisó.
 
-1. Lee `docs/REVISION.md`, que es el resumen de las decisiones de la wiki, más `AGENTS.md`.
-2. Lee el diff y el cuerpo del PR.
-3. Pide una revisión al modelo y publica **un comentario**.
+Para volver a revisar a mano:
 
-El comentario se **actualiza en su lugar** si ya existe uno del revisor: un PR con cinco pushes tiene un comentario, no cinco.
+```bash
+# Cerrar y reabrir el PR, o desde Actions → review → Run workflow (pide el número de PR)
+gh workflow run review.yml --field pr=23
+```
+
+El comentario se **actualiza en su lugar** si ya existe uno del revisor: reabrir un PR o correrlo a mano deja un comentario, no dos.
 
 ### Qué reporta y qué no
 
