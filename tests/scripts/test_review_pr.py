@@ -113,3 +113,48 @@ class TestReadDoc:
 
     def test_revision_doc_matches_the_model_default(self) -> None:
         assert review_pr.MODEL == "deepseek-v4.1-flash"
+
+
+def answer(content: str, finish: str = "stop") -> dict:
+    return {
+        "choices": [{"finish_reason": finish, "message": {"content": content}}],
+        "usage": {"completion_tokens_details": {"reasoning_tokens": 1234}},
+    }
+
+
+class TestCallModel:
+    def test_retries_with_a_bigger_budget_when_reasoning_eats_the_answer(self, monkeypatch) -> None:
+        budgets: list[int] = []
+
+        def fake_post(payload: dict, api_key: str) -> dict:
+            budgets.append(payload["max_tokens"])
+            if len(budgets) == 1:
+                # Lo que pasó en CI: todo el presupuesto se fue en razonar.
+                return answer("", finish="length")
+            return answer("- un hallazgo")
+
+        monkeypatch.setattr(review_pr, "post_model", fake_post)
+        result = review_pr.call_model([], api_key="k", model="m")
+
+        assert result == "- un hallazgo"
+        assert budgets == list(review_pr.TOKEN_BUDGETS)
+
+    def test_gives_up_after_the_last_budget(self, monkeypatch) -> None:
+        monkeypatch.setattr(
+            review_pr, "post_model", lambda payload, api_key: answer("", finish="length")
+        )
+        with pytest.raises(ReviewError, match="no devolvió texto"):
+            review_pr.call_model([], api_key="k", model="m")
+
+    def test_asks_for_low_reasoning_effort(self, monkeypatch) -> None:
+        seen: dict = {}
+
+        def fake_post(payload: dict, api_key: str) -> dict:
+            seen.update(payload)
+            return answer("SIN HALLAZGOS")
+
+        monkeypatch.setattr(review_pr, "post_model", fake_post)
+        review_pr.call_model([], api_key="k", model="m")
+
+        assert seen["reasoning_effort"] == review_pr.REASONING_EFFORT
+        assert seen["temperature"] == 0.2

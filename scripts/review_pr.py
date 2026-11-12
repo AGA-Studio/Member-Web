@@ -38,6 +38,9 @@ GITHUB_API = "https://api.github.com"
 MAX_DIFF_CHARS = 60_000
 MAX_FINDINGS = 5
 TIMEOUT = 180
+# El razonamiento consume `max_tokens`: se empieza bajo y se sube si no alcanza.
+TOKEN_BUDGETS = (6000, 12_000)
+REASONING_EFFORT = "low"
 
 RULES = f"""\
 Eres el revisor automático del backend de Member+, un SaaS multi-negocio de membresías.
@@ -185,15 +188,7 @@ def http_text(url: str, *, token: str, accept: str) -> str:
         raise ReviewError(f"no se pudo conectar a {url}: {error.reason}") from error
 
 
-def call_model(messages: list[dict[str, str]], *, api_key: str, model: str) -> str:
-    payload = {
-        "model": model,
-        "messages": messages,
-        # El modelo razona antes de responder y ese razonamiento consume
-        # `max_tokens`: con menos de 4000 el contenido sale vacío.
-        "max_tokens": 4000,
-        "temperature": 0.2,
-    }
+def post_model(payload: dict[str, Any], api_key: str) -> dict[str, Any]:
     request = urllib.request.Request(API_URL, data=json.dumps(payload).encode("utf-8"))
     request.add_header("Authorization", f"Bearer {api_key}")
     request.add_header("Content-Type", "application/json")
@@ -202,25 +197,45 @@ def call_model(messages: list[dict[str, str]], *, api_key: str, model: str) -> s
     request.add_header("x-opencode-session", f"review-{os.getpid()}")
     try:
         with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
-            data = json.loads(response.read().decode("utf-8"))
+            return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as error:
         detail = error.read().decode("utf-8", "replace")[:500]
-        raise ReviewError(f"modelo {model} -> {error.code}: {detail}") from error
+        raise ReviewError(f"modelo {payload.get('model')} -> {error.code}: {detail}") from error
     except urllib.error.URLError as error:
         raise ReviewError(f"no se pudo conectar al modelo: {error.reason}") from error
 
-    try:
-        content = data["choices"][0]["message"]["content"]
-    except (KeyError, IndexError) as error:
-        raise ReviewError(f"respuesta inesperada del modelo: {data}") from error
-    if not content:
-        finish = data["choices"][0].get("finish_reason")
-        usage = data.get("usage", {})
-        raise ReviewError(
-            f"el modelo no devolvió texto (finish_reason={finish}, usage={usage}); "
-            "suele ser max_tokens insuficiente para el razonamiento"
+
+def call_model(messages: list[dict[str, str]], *, api_key: str, model: str) -> str:
+    """Pide la revisión, subiendo el presupuesto si el razonamiento se lo come.
+
+    El razonamiento del modelo consume el mismo `max_tokens` que la respuesta y
+    su largo varía con el diff: con un tope fijo, un PR grande puede quedarse sin
+    texto. Por eso se intenta dos veces antes de rendirse.
+    """
+    detail = "sin intentos"
+    for max_tokens in TOKEN_BUDGETS:
+        data = post_model(
+            {
+                "model": model,
+                "messages": messages,
+                "max_tokens": max_tokens,
+                # Sin esto el modelo razona de más y gasta el presupuesto.
+                "reasoning_effort": REASONING_EFFORT,
+                "temperature": 0.2,
+            },
+            api_key,
         )
-    return content
+        try:
+            choice = data["choices"][0]
+            content = choice["message"]["content"]
+        except (KeyError, IndexError) as error:
+            raise ReviewError(f"respuesta inesperada del modelo: {data}") from error
+        if content:
+            return content
+        usage = data.get("usage", {})
+        detail = f"max_tokens={max_tokens} finish={choice.get('finish_reason')} usage={usage}"
+
+    raise ReviewError(f"el modelo no devolvió texto en {len(TOKEN_BUDGETS)} intentos ({detail})")
 
 
 def review_pull_request(
