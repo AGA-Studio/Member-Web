@@ -40,3 +40,25 @@ def test_logout_purges_old_rows(session: Session) -> None:
     session.commit()
     revoke_token(session, "new", future())
     assert {row.jti for row in session.exec(select(RevokedToken)).all()} == {"new"}
+
+
+def test_failed_login_rows_outside_the_window_are_purged(session: Session) -> None:
+    from models import LoginAttempt
+    from services.auth_service import register_failed_login
+
+    session.add(
+        LoginAttempt(
+            email="stale@demo.mx",
+            failed_count=3,
+            last_failed_at=datetime.now(UTC) - timedelta(days=1),
+        )
+    )
+    session.commit()
+    register_failed_login(session, "fresh@demo.mx")
+    assert {row.email for row in session.exec(select(LoginAttempt)).all()} == {"fresh@demo.mx"}
+
+
+def test_clear_failed_logins_without_row_is_harmless(session: Session) -> None:
+    from services.auth_service import clear_failed_logins
+
+    clear_failed_logins(session, "nobody@demo.mx")
