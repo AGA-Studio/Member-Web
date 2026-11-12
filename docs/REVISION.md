@@ -21,7 +21,7 @@ Un PR no las contradice. Si de verdad hay que cambiarlas, se cambia primero la c
 | Lector | Pertenece a un negocio, por código y token propio revocable | El login del empleado no sirve para el lector |
 | Compra | Monto y concepto libre | Sin catálogo, sin inventario, sin artículos |
 | Puntos | Historial de movimientos, no una columna del cliente | El saldo se calcula sumando movimientos (cerrada el 12 nov 2026) |
-| Orden del cálculo | Descuento primero; puntos y cashback sobre lo ya descontado | Ver el ejemplo de §4 |
+| Orden del cálculo | Descuento primero; puntos y cashback sobre lo ya descontado | Ver el ejemplo de la sección 4 |
 | Beneficios simultáneos | Los tres aplican a la vez si el negocio los habilita | Descuento, puntos y cashback en la misma compra |
 | Cashback | Se acumula y se aplica en la compra siguiente con aprobación del cliente | Saldo de cashback separado del de puntos |
 | Subir de nivel | Por cobro | Mejor nivel = más beneficio y más costo |

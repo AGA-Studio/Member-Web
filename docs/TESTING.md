@@ -700,7 +700,7 @@ A una prueba que nunca falla no se le puede creer nada. Se inyectó una violaci�
 
 ## 6. Resultados de la ejecución
 
-Ejecutado el 12 de noviembre de 2026. Conteos y tiempos vueltos a medir al agregar las pruebas de reglas (§5.11): 217 + 12 = 229. Se corrieron en el homeserver (Ubuntu, Intel i5-8500), más lento que la laptop de la tabla de entorno, así que los tiempos no son comparables con corridas anteriores.
+Ejecutado el 12 de noviembre de 2026. Conteos y tiempos vueltos a medir al agregar las pruebas de reglas (sección 5.11): 217 + 12 = 229. Se corrieron en el homeserver (Ubuntu, Intel i5-8500), más lento que la laptop de la tabla de entorno, así que los tiempos no son comparables con corridas anteriores.
 
 ### Entorno
 

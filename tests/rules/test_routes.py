@@ -1,6 +1,6 @@
 """Route shape: `/<resource>/<action>`, with the action from a closed list.
 
-AGENTS.md §Convenciones de código and docs/ARCHITECTURE.md §rutas.
+AGENTS.md, section Convenciones de código, and docs/ARCHITECTURE.md, section rutas.
 
 Paths come from the OpenAPI schema, not from `app.routes`: the installed FastAPI
 wraps included routers, so `app.routes` does not list their paths at all.
@@ -53,7 +53,7 @@ def test_every_route_matches_the_resource_action_shape() -> None:
                 )
 
     assert not problems, (
-        "Routes follow `/<resource>/<action>` (docs/ARCHITECTURE.md §rutas):\n"
+        "Routes follow `/<resource>/<action>` (docs/ARCHITECTURE.md, section rutas):\n"
         + "\n".join(problems)
     )
 

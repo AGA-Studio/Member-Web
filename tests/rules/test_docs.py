@@ -1,6 +1,6 @@
 """The repository docs stay current.
 
-AGENTS.md §Documentación: every change to models or endpoints is reflected in
+AGENTS.md, section Documentación: every change to models or endpoints is reflected in
 `docs/ARCHITECTURE.md` in the same commit or the next one. Until now that was a
 promise; these tests make it checkable.
 """
@@ -46,7 +46,7 @@ def api_paths() -> list[str]:
 def test_every_model_table_is_in_the_er_diagram() -> None:
     missing = model_tables() - documented_tables()
     assert not missing, (
-        f"docs/ARCHITECTURE.md §erDiagram is missing {sorted(missing)}. "
+        f"docs/ARCHITECTURE.md, section erDiagram is missing {sorted(missing)}. "
         "A models/ change ships with its doc update."
     )
 
@@ -62,6 +62,6 @@ def test_every_route_is_documented() -> None:
     documented = documented_paths()
     missing = [path for path in api_paths() if path not in documented]
     assert not missing, (
-        "docs/ARCHITECTURE.md §endpoints does not list these routes "
+        "docs/ARCHITECTURE.md, section endpoints does not list these routes "
         f"(write them as `{API_PREFIX}/...` in the table): {missing}"
     )

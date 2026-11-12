@@ -1,4 +1,4 @@
-"""The project is synchronous by decision (AGENTS.md §Stack y comandos).
+"""The project is synchronous by decision (AGENTS.md, section Stack y comandos).
 
 `main.py` is outside the scanned packages on purpose: FastAPI's lifespan
 protocol requires `async def lifespan`.
