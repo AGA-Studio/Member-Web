@@ -50,6 +50,7 @@ FastAPI · SQLModel (síncrono) · PostgreSQL 18 · pwdlib (Argon2id) · PyJWT �
 ```bash
 uv sync                              # instalar dependencias
 docker compose up -d                 # PostgreSQL en localhost:5433
+uv run alembic upgrade head          # aplicar migraciones
 uv run uvicorn main:app --reload     # API en http://127.0.0.1:8000/docs
 uv run pytest                        # pruebas (SQLite temporal)
 uv run ruff check . && uv run ruff format .
@@ -59,8 +60,10 @@ uv add <paquete>                     # nueva dependencia (uv add --dev para desa
 - Las dependencias se manejan **solo** con `pyproject.toml` + `uv.lock`. No crear `requirements.txt`.
   El equipo trabaja en Linux, macOS y Windows; `uv.lock` siempre se sube.
 - El proyecto es **síncrono**. No conviertas nada a `async` sin preguntar.
-- **Migraciones**: hoy las tablas se crean con `create_db_and_tables` en el `lifespan`. El MVP exige
-  una migración inicial y **la herramienta no está decidida**: no elijas una por tu cuenta.
+- **Migraciones**: con **Alembic** (`migrations/`, guía en `docs/MIGRATIONS.md`). La app no crea
+  tablas. Todo cambio en `models/` lleva su migración en el mismo commit
+  (`uv run alembic revision --autogenerate -m "..."`), revisada a mano antes de subirla. Nunca editar
+  una migración que ya está en `develop`.
 - **CI**: el MVP pide Ruff + pytest en cada PR. `.github/workflows/` todavía no existe; si lo creas,
   es un archivo compartido: avisa antes.
 
@@ -69,7 +72,8 @@ uv add <paquete>                     # nueva dependencia (uv add --dev para desa
 ```
 main.py          create_app, lifespan, CORS, API_V1_ROUTERS
 core/            config.py (Settings/.env), cors.py, security.py (Argon2id + JWT)
-db/database.py   engine, create_db_and_tables, get_session
+db/database.py   engine, check_database_connection, get_session
+migrations/      Alembic: env.py y versions/ (una migración por cambio)
 models/          tablas SQLModel (table=True), una por archivo: <nombre>_model.py
 schemas/         DTOs Pydantic: <nombre>_schema.py (XCreate, XUpdate, XResponse)
 services/        lógica de negocio y cálculo; se crea con el primer módulo que la necesite
@@ -87,8 +91,8 @@ Ningún router es gordo: el router valida y delega. El cálculo (descuento, punt
   wiki escribe `negocio_id`; en código es `business_id`: es lo mismo.
 - Rutas con la forma `/<recurso en singular>/<acción>`: `/user/create`, `/user/list`, `/user/{id}`,
   `/user/{id}/update`.
-- Cada módulo nuevo: modelo → importarlo en `models/__init__.py` → schemas → servicio → router →
-  agregarlo a `API_V1_ROUTERS` en `main.py` → pruebas.
+- Cada módulo nuevo: modelo → importarlo en `models/__init__.py` → migración → schemas → servicio →
+  router → agregarlo a `API_V1_ROUTERS` en `main.py` → pruebas.
 
 ### Aislamiento multi-negocio (obligatorio)
 

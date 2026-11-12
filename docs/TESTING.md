@@ -22,23 +22,25 @@ Documentación de la suite de pruebas automatizadas del backend: qué se prueba,
 | Métrica | Valor |
 |---------|-------|
 | Fecha de ejecución | 11 de noviembre de 2026 |
-| Pruebas | **117** (112 pasan + 5 `xfail` esperados) |
+| Pruebas | **124** (119 pasan + 5 `xfail` esperados) |
 | Fallas | **0** |
-| Cobertura de líneas y ramas | **100 %** (253 sentencias, 32 ramas) |
+| Cobertura de líneas y ramas | **100 %** (254 sentencias, 32 ramas) |
 | Bases de datos probadas | SQLite y **PostgreSQL 18.6** |
-| Tiempo | ~13 s en SQLite · ~22 s en PostgreSQL |
+| Tiempo | ~8 s en SQLite · ~23 s en PostgreSQL |
 | Criterio del MVP "0 filas de otro negocio" | ✅ Cumplido (7 pruebas de aislamiento) |
+| Migraciones (Alembic) | ✅ Suben, bajan y coinciden con los modelos (7 pruebas) |
 
 Los 5 `xfail` no son fallas: son [hallazgos](#7-hallazgos) documentados como pruebas del comportamiento deseado, que hoy fallan a propósito.
 
 ```mermaid
 pie showData
-    title Pruebas por archivo (117)
+    title Pruebas por archivo (124)
     "test_user.py" : 40
     "test_auth.py" : 30
     "test_security.py" : 16
     "test_system.py" : 8
     "test_isolation.py" : 7
+    "test_migrations.py" : 7
     "test_config.py" : 7
     "test_known_issues.py" : 5
     "test_models.py" : 4
@@ -104,11 +106,17 @@ flowchart TB
         A5["test_known_issues.py<br/>hallazgos (xfail)"]
     end
 
+    subgraph DBT["De base de datos — tests/db/ (7)"]
+        D1["test_migrations.py<br/>Alembic: upgrade · downgrade · sincronía"]
+    end
+
     UNIT --> CODE["core/ · models/"]
     API --> HTTP["TestClient (HTTP real)"] --> APP["FastAPI completo:<br/>CORS → routers → dependencias → BD"]
+    DBT --> ALE["alembic command.upgrade / downgrade<br/>sobre la base de prueba"]
 ```
 
 - **Unitarias:** funciones aisladas (`hash_password`, `create_access_token`, `Settings`), sin HTTP.
+- **De base de datos:** aplican y revierten las migraciones de Alembic y comparan el esquema resultante con los modelos.
 - **De API:** peticiones HTTP reales con `TestClient` contra la app completa: middleware de CORS, routers, dependencias de autenticación y base de datos real (SQLite o PostgreSQL). No se usan *mocks*: lo que se prueba es lo que corre en producción.
 
 ### Qué se verifica en cada endpoint
@@ -168,6 +176,8 @@ tests/
     ├── test_user.py
     ├── test_isolation.py
     └── test_known_issues.py
+└── db/
+    └── test_migrations.py
 ```
 
 ### Configuración (`tests/conftest.py`)
@@ -202,7 +212,7 @@ flowchart LR
 
 | Fixture | Qué hace |
 |---------|----------|
-| `_clean_database` | Se ejecuta antes de **cada** prueba: borra y recrea las tablas y cierra el pool de conexiones. Ninguna prueba depende de otra. |
+| `_clean_database` | Se ejecuta antes de **cada** prueba: borra y recrea las tablas con `create_all` (más rápido que migrar en cada caso) y cierra el pool de conexiones. Ninguna prueba depende de otra. Que `create_all` y las migraciones producen el mismo esquema lo garantiza `test_models_and_migrations_are_in_sync`. |
 | `session` | Sesión de base de datos para preparar datos o revisar el estado final. |
 | `client` | `TestClient` sobre la app completa; conserva cookies entre peticiones como un navegador. |
 | `make_business` | Crea un negocio (por defecto `active`). |
@@ -477,6 +487,26 @@ Cada una describe el comportamiento **deseado** y hoy falla a propósito. Detall
 | `test_h4_repeated_failed_logins_are_throttled` | Tras 10 intentos fallidos → 429 | ⚠️ xfail |
 | `test_h5_blank_name_is_rejected` | Un nombre de solo espacios → 422 | ⚠️ xfail |
 
+### 5.9 Migraciones — `tests/db/test_migrations.py` (7)
+
+Usan su propia fixture `empty_database`, que deja la base sin ninguna tabla (ni `alembic_version`) y ejecutan Alembic con una conexión abierta. Detalle en [MIGRATIONS.md](MIGRATIONS.md#8-pruebas-de-las-migraciones).
+
+| Prueba | Verifica | Resultado |
+|--------|----------|-----------|
+| `test_there_is_a_single_head` | Una sola cabeza: no hay migraciones paralelas sin fusionar | ✅ |
+| `test_upgrade_creates_all_tables` | `upgrade head` crea `businesses`, `users` y `alembic_version` | ✅ |
+| `test_models_and_migrations_are_in_sync` | Los modelos y las migraciones coinciden (detecta migraciones olvidadas) | ✅ |
+| `test_downgrade_removes_tables_and_enums` | `downgrade base` borra tablas y, en PostgreSQL, los tipos `ENUM` | ✅ |
+| `test_upgrade_after_downgrade` | Se puede bajar y volver a subir | ✅ |
+| `test_database_is_stamped_at_head` | `alembic_version` queda en la última revisión | ✅ |
+| `test_app_works_on_migrated_schema` | Login y alta de usuario sobre tablas creadas por Alembic | ✅ |
+
+Para comprobar que la prueba de sincronía sirve, se agregó temporalmente `phone: str | None` a `User` sin generar migración. La prueba falló como se esperaba:
+
+```text
+Differences: [('add_column', None, 'users', Column('phone', AutoString(), table=<users>))]
+```
+
 ---
 
 ## 6. Resultados de la ejecución
@@ -494,27 +524,28 @@ Ejecutado el 11 de noviembre de 2026.
 | SQLModel | 0.0.48 |
 | psycopg | 3.3.8 |
 | pytest | 9.2.0 |
+| Alembic | 1.20.1 |
 | PostgreSQL | 18.6 (imagen `postgres:18` de Docker) |
 
 ### SQLite
 
 ```text
 $ uv run pytest -q -rx
-.....................................xxxxx.............................. [ 61%]
-.............................................                            [100%]
+.....................................xxxxx.............................. [ 58%]
+....................................................                     [100%]
 XFAIL tests/api/test_known_issues.py::test_h1_suspended_business_cannot_login - H1: login does not check the business status
 XFAIL tests/api/test_known_issues.py::test_h2_token_is_invalid_after_logout - H2: logout only deletes the cookie; JWT stays valid
 XFAIL tests/api/test_known_issues.py::test_h3_admin_cannot_deactivate_self - H3: an admin can deactivate their own account
 XFAIL tests/api/test_known_issues.py::test_h4_repeated_failed_logins_are_throttled - H4: no rate limit on failed logins
 XFAIL tests/api/test_known_issues.py::test_h5_blank_name_is_rejected - H5: names made only of spaces pass validation
-112 passed, 5 xfailed in 13.22s
+119 passed, 5 xfailed in 7.73s
 ```
 
 ### PostgreSQL 18.6
 
 ```text
 $ TEST_DATABASE_URL=postgresql+psycopg://...@localhost:5433/memberplus_test uv run pytest -q
-112 passed, 5 xfailed in 22.19s
+119 passed, 5 xfailed in 22.83s
 ```
 
 Se ejecutó dos veces seguidas con el mismo resultado: las pruebas no dependen del orden ni dejan datos.
@@ -531,7 +562,7 @@ api/v1/user_api.py            48      0     14      0   100%
 core/config.py                28      0      2      0   100%
 core/cors.py                   5      0      0      0   100%
 core/security.py              16      0      0      0   100%
-db/database.py                12      0      0      0   100%
+db/database.py                13      0      0      0   100%
 main.py                       22      0      2      0   100%
 models/__init__.py             3      0      0      0   100%
 models/business_model.py      14      0      0      0   100%
@@ -539,7 +570,7 @@ models/user_model.py          16      0      0      0   100%
 schemas/token_schema.py        5      0      0      0   100%
 schemas/user_schema.py        14      0      0      0   100%
 ------------------------------------------------------------
-TOTAL                        253      0     32      0   100%
+TOTAL                        254      0     32      0   100%
 ```
 
 El MVP pide ≥ 60 % de cobertura en `services/`. Esa carpeta todavía no existe; se medirá cuando llegue la lógica de caja (hito H2).
@@ -570,11 +601,12 @@ Problemas encontrados durante las pruebas. Ninguno rompe lo que ya está hecho, 
 | H4 | **Sin límite de intentos** de login: permite fuerza bruta | Media | Limitar por IP y email (por ejemplo `slowapi`) o un bloqueo temporal tras N fallos |
 | H5 | Un **nombre de solo espacios** (`"   "`) pasa la validación | Baja | `str_strip_whitespace=True` en el `model_config` de los schemas de entrada |
 
-También se observó, sin prueba automatizada porque requiere concurrencia:
+También se observó, sin prueba automatizada (H6 requiere concurrencia; H7 es una decisión de diseño):
 
 | ID | Hallazgo | Severidad | Propuesta |
 |----|----------|-----------|-----------|
 | H6 | Si dos peticiones crean el **mismo email al mismo tiempo**, ambas pasan la verificación y la segunda falla en la base con `IntegrityError` → **500** en vez de 409 | Baja | Capturar `IntegrityError` en `create_user` y `update_user` y responder 409 |
+| H7 | Los `ENUM` se guardan en la base con el **nombre** del miembro (`'ADMIN'`, `'TRIAL'`) y la API usa el **valor** (`"admin"`, `"trial"`). No es un error, pero confunde al escribir SQL a mano (el `seed.sql` del MVP) | Baja | Decidir antes de que haya datos reales: guardar los valores en minúscula (`sa_column=Column(Enum(Role, values_callable=...))` + migración) o documentar que el SQL usa mayúsculas (ya está en [MIGRATIONS.md](MIGRATIONS.md#7-migraciones-existentes)) |
 
 ### Ciclo de vida de un hallazgo
 
@@ -618,5 +650,6 @@ def test_admin_creates_customer(client: TestClient, two_businesses) -> None:
 - [ ] **Aislamiento:** el negocio A ve 0 filas de B, y consultar o editar un recurso de B → 404.
 - [ ] Mandar `business_id` en el cuerpo no tiene efecto.
 - [ ] La respuesta no expone campos sensibles.
+- [ ] Si cambió un modelo: migración generada y `test_models_and_migrations_are_in_sync` en verde.
 - [ ] Corre en SQLite **y** en PostgreSQL.
 - [ ] Actualizar las tablas de la [sección 5](#5-casos-de-prueba) y los resultados de la [sección 6](#6-resultados-de-la-ejecución).
