@@ -194,12 +194,16 @@ El `&&` garantiza que la API nunca arranque con un esquema viejo. Antes de una m
 |----------|---------|----------|
 | `f689e0ec2cd6` | `2026_11_12_0340-f689e0ec2cd6_create_businesses_and_users.py` | Crea `businesses` y `users`, los tipos `businessstatus` y `role`, el índice de `users.business_id` y el índice único de `users.email`. El `downgrade` borra todo, incluidos los tipos `ENUM`. |
 | `c9e2d3e6ee70` | `2026_11_12_0504-c9e2d3e6ee70_store_enum_values_in_lowercase.py` | Escrita a mano (H7). Pasa los `ENUM` a minúscula: en PostgreSQL renombra las etiquetas (`ALTER TYPE ... RENAME VALUE`), y las filas existentes cambian solas; en SQLite actualiza las filas con `lower()`. El `downgrade` hace lo contrario. |
+| `e6a9197f57e7` | `2026_11_12_0749-e6a9197f57e7_add_revoked_tokens.py` | Crea `revoked_tokens` (llave `jti`, índice en `expires_at`) para invalidar tokens al cerrar sesión (H2). |
+| `fef05f6754ea` | `2026_11_12_0751-fef05f6754ea_add_login_attempts.py` | Crea `login_attempts` (llave `email`, índice en `last_failed_at`) para el límite de intentos de login (H4). |
 
 ```mermaid
 flowchart LR
     BASE(["base"]) --> R1["f689e0ec2cd6<br/>create businesses and users"]
     R1 --> R2["c9e2d3e6ee70<br/>store enum values in lowercase"]
-    R2 --> HEAD(["head"])
+    R2 --> R3["e6a9197f57e7<br/>add revoked tokens"]
+    R3 --> R4["fef05f6754ea<br/>add login attempts"]
+    R4 --> HEAD(["head"])
 ```
 
 SQL de la primera migración en PostgreSQL (`uv run alembic upgrade f689e0ec2cd6 --sql`). Crea los `ENUM` en mayúscula; la segunda migración los renombra:
@@ -257,7 +261,7 @@ ALTER TYPE businessstatus RENAME VALUE 'SUSPENDED' TO 'suspended';
 | Prueba | Verifica |
 |--------|----------|
 | `test_there_is_a_single_head` | Hay una sola cabeza: nadie dejó migraciones paralelas sin fusionar |
-| `test_upgrade_creates_all_tables` | `upgrade head` en una base vacía crea `businesses`, `users` y `alembic_version` |
+| `test_upgrade_creates_all_tables` | `upgrade head` en una base vacía crea `businesses`, `users`, `revoked_tokens`, `login_attempts` y `alembic_version` |
 | `test_models_and_migrations_are_in_sync` | **Los modelos y las migraciones coinciden.** Falla si alguien cambió un modelo y olvidó generar la migración, y el mensaje le dice qué comando correr |
 | `test_downgrade_removes_tables_and_enums` | `downgrade base` borra las tablas y, en PostgreSQL, los tipos `ENUM` |
 | `test_upgrade_after_downgrade` | Se puede bajar y volver a subir sin errores |
