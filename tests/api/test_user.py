@@ -315,3 +315,47 @@ def test_admin_without_business_is_rejected(client: TestClient, make_user) -> No
     response = client.get("/api/v1/user/list")
     assert response.status_code == 403
     assert response.json()["detail"] == "This user does not belong to a business"
+
+
+class TestEmailRace:
+    """H6: two requests that pass the email check at the same time.
+
+    The pre-check is disabled to reproduce the race deterministically: only the
+    unique index on users.email stops the duplicate, and the API must answer 409.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _skip_email_precheck(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("api.v1.user_api._ensure_email_available", lambda *_: None)
+
+    def test_create_duplicate_returns_409_not_500(self, client: TestClient, two_businesses) -> None:
+        login(client, "admin.a@demo.mx")
+        response = client.post(f"{BASE}/create", json={**NEW_USER, "email": "employee.a@demo.mx"})
+        assert response.status_code == 409
+        assert response.json()["detail"] == "Email already in use"
+
+    def test_update_to_taken_email_returns_409_not_500(
+        self, client: TestClient, two_businesses
+    ) -> None:
+        login(client, "admin.a@demo.mx")
+        response = client.patch(
+            f"{BASE}/{two_businesses['employee_a'].id}/update", json={"email": "admin.b@demo.mx"}
+        )
+        assert response.status_code == 409
+
+    def test_failed_update_leaves_user_unchanged(self, client: TestClient, two_businesses) -> None:
+        login(client, "admin.a@demo.mx")
+        user_id = two_businesses["employee_a"].id
+        client.patch(
+            f"{BASE}/{user_id}/update", json={"name": "Changed", "email": "admin.b@demo.mx"}
+        )
+        body = client.get(f"{BASE}/{user_id}").json()
+        assert body["email"] == "employee.a@demo.mx"
+        assert body["name"] == "Test User"
+
+    def test_api_keeps_working_after_the_conflict(self, client: TestClient, two_businesses) -> None:
+        # The session is rolled back, so the next request is not stuck in a failed transaction.
+        login(client, "admin.a@demo.mx")
+        client.post(f"{BASE}/create", json={**NEW_USER, "email": "employee.a@demo.mx"})
+        response = client.post(f"{BASE}/create", json=NEW_USER)
+        assert response.status_code == 201
