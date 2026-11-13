@@ -30,6 +30,7 @@ APP_TABLES = {
     "tiers",
     "customers",
     "purchases",
+    "card_deliveries",
 }
 
 
