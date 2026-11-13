@@ -22,7 +22,7 @@ Documentación de la suite de pruebas automatizadas del backend: qué se prueba,
 | Métrica | Valor |
 |---------|-------|
 | Fecha de ejecución | 12 de noviembre de 2026 |
-| Pruebas | **535**, todas pasan (0 `xfail`); conteo del 13 nov 2026 con niveles, clientes, caja y movimientos |
+| Pruebas | **554**, todas pasan (0 `xfail`); conteo del 13 nov 2026 con niveles, clientes, caja, movimientos y plataforma |
 | Fallas | **0** |
 | Cobertura de líneas y ramas | **100 %** en `api/`, `core/`, `models/`, `schemas/`, `services/` y `scripts/seed.py`. `scripts/review_pr.py` (revisor del CI) queda en 60 %, por eso el total marca 92 % |
 | Bases de datos probadas | SQLite y **PostgreSQL 18.6** |
@@ -215,6 +215,7 @@ tests/
     ├── test_isolation_checkout.py
     ├── test_movement.py
     ├── test_isolation_movement.py
+    ├── test_platform.py
     ├── test_login_limit.py
     ├── test_error_codes.py
     └── test_known_issues.py
@@ -764,6 +765,16 @@ Contrato del frontend, sección 6. Las compras se registran con `/checkout/creat
 | `test_filtering_by_a_customer_of_the_other_business_finds_nothing` | `customer_id` o `q` de un cliente de B → lista vacía | ✅ |
 | `test_export_has_zero_rows_of_the_other_business` | El CSV de A no trae filas de B, ni filtrando por su cliente | ✅ |
 
+### 5.7k Plataforma — `tests/api/test_platform.py` (19)
+
+Contrato del frontend, sección 7. No usa `BusinessId`, así que no lleva prueba de aislamiento entre negocios. En su lugar, `TestPrivacy` comprueba que no sale ningún dato de clientes.
+
+| Clase | Qué verifica | Resultado |
+|-------|--------------|-----------|
+| `TestList` | Forma exacta del negocio; todos los negocios por nombre; `customers_count` no cuenta tarjetas canceladas; filtro por `status`; `q` busca en el nombre sin distinguir mayúsculas y no en los clientes; página fuera de rango → la última; parámetros inválidos → 422 | ✅ |
+| `TestPrivacy` | La respuesta no trae nombres, códigos, correos, puntos ni cashback de clientes; solo las 5 llaves del contrato | ✅ |
+| `TestPermissions` | `admin` y `employee` → 403; sin sesión → 401 | ✅ |
+
 ### 5.8 Hallazgos conocidos — `tests/api/test_known_issues.py` (0)
 
 Hoy no hay hallazgos abiertos. El archivo se conserva vacío para registrar los siguientes como `xfail(strict=True)`.
@@ -856,7 +867,7 @@ No usan fixtures ni base de datos, así que corren también en el job de Postgre
 | `test_output_schemas_never_expose_credentials` | Ningún `*Response` expone `hashed_password`, `password`, `secret`, `api_key`… | Los DTO de salida no filtran credenciales |
 | `test_every_module_has_an_output_schema` | Existe al menos un `*Response` en `schemas/` | Un módulo declara lo que devuelve |
 | `test_no_async_functions_in_the_application` | No hay `async def` en `api/`, `core/`, `db/`, `models/`, `schemas/`, `scripts/`, `services/` | El proyecto es síncrono |
-| `test_every_route_matches_the_resource_action_shape` | Toda ruta es `/<recurso>/<acción>`, con la acción en lista cerrada | Convención de rutas |
+| `test_every_route_matches_the_resource_action_shape` | Toda ruta es `/<recurso>/<acción>`, con la acción en lista cerrada; `SUB_RESOURCES` permite `business` en `/platform/business/list` | Convención de rutas |
 | `test_only_health_lives_outside_the_version_prefix` | Solo `/health` vive fuera de `/api/v1` | Todo lo demás va versionado |
 | `test_every_router_module_is_registered_in_main` | Todo `api/v1/*_api.py` está en `API_V1_ROUTERS` | Un router sin registrar es código muerto |
 | `test_every_registered_router_comes_from_a_module` | Todo router registrado tiene su módulo | Sin routers fantasma en `main.py` |
