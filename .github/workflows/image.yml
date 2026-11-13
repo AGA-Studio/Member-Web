@@ -87,8 +87,12 @@ jobs:
           if [ -n "$COOLIFY_TOKEN" ]; then
             auth=(-H "Authorization: Bearer $COOLIFY_TOKEN")
           fi
+          # POST, no GET: el endpoint de deploy de Coolify responde
+          # 405 {"message":"This endpoint has changed to a POST request."}
+          # si se llama con GET. El uuid y force viajan en la URL del webhook.
           code=$(curl -sS -o /tmp/coolify.out -w '%{http_code}' --max-time 30 \
-            "${auth[@]}" "$COOLIFY_WEBHOOK")
+            -X POST "${auth[@]}" -H "Content-Type: application/json" -d '{}' \
+            "$COOLIFY_WEBHOOK")
           echo "Coolify respondió HTTP $code"
           cat /tmp/coolify.out
           [ "$code" -ge 200 ] && [ "$code" -lt 300 ]
