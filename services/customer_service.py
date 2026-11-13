@@ -14,13 +14,14 @@ Rules:
   active cards that expire within `EXPIRING_DAYS`.
 - A customer moves to another tier when the admin assigns it (tiers are paid,
   not earned with points).
-- Points and cashback balances are computed from the movements; until the
-  checkout module exists they are 0 and `last_purchase_at` is null.
+- Points and cashback balances are never stored on the customer: they are the
+  sum of the customer's purchases (`balances`), in one query per page.
 """
 
 import calendar
 import math
 import secrets
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from fastapi import status
@@ -30,6 +31,7 @@ from sqlmodel import Session, select
 
 from core.errors import ApiError, ErrorCode
 from models.customer_model import Customer
+from models.purchase_model import Purchase
 from models.tier_model import Tier
 from schemas.customer_schema import (
     BenefitsResponse,
@@ -85,20 +87,20 @@ def generate_code() -> str:
 # --- Status -------------------------------------------------------------------
 
 
-def _aware(moment: datetime) -> datetime:
+def as_utc(moment: datetime) -> datetime:
     return moment if moment.tzinfo else moment.replace(tzinfo=UTC)
 
 
 def customer_status(customer: Customer, now: datetime) -> CustomerStatus:
     if customer.cancelled_at is not None:
         return CustomerStatus.CANCELLED
-    if _aware(customer.valid_until) <= now:
+    if as_utc(customer.valid_until) <= now:
         return CustomerStatus.EXPIRED
     return CustomerStatus.ACTIVE
 
 
 def is_expiring_soon(customer: Customer, now: datetime) -> bool:
-    return customer_status(customer, now) == CustomerStatus.ACTIVE and _aware(
+    return customer_status(customer, now) == CustomerStatus.ACTIVE and as_utc(
         customer.valid_until
     ) <= now + timedelta(days=EXPIRING_DAYS)
 
@@ -117,10 +119,52 @@ def _status_condition(wanted: CustomerStatusFilter, now: datetime) -> ColumnElem
             return and_(not_cancelled, Customer.valid_until > now)
 
 
+# --- Balances -----------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Balance:
+    points: int = 0
+    cashback_cents: int = 0
+    last_purchase_at: datetime | None = None
+
+
+NO_BALANCE = Balance()
+
+
+def balances(session: Session, business_id: int, customer_ids: list[int]) -> dict[int, Balance]:
+    """Points and cashback of several customers, summed from their purchases in one query."""
+    if not customer_ids:
+        return {}
+    query = (
+        select(
+            Purchase.customer_id,
+            func.sum(Purchase.points_earned),
+            func.sum(Purchase.cashback_earned_cents - Purchase.cashback_used_cents),
+            func.max(Purchase.created_at),
+        )
+        .where(Purchase.business_id == business_id, Purchase.customer_id.in_(customer_ids))  # type: ignore[attr-defined]
+        .group_by(Purchase.customer_id)
+    )
+    return {
+        customer_id: Balance(int(points or 0), int(cashback or 0), last and as_utc(last))
+        for customer_id, points, cashback, last in session.exec(query).all()
+    }
+
+
+def balance_of(session: Session, business_id: int, customer_id: int) -> Balance:
+    return balances(session, business_id, [customer_id]).get(customer_id, NO_BALANCE)
+
+
 # --- Responses ----------------------------------------------------------------
 
 
-def to_response(customer: Customer, tier: Tier, now: datetime | None = None) -> CustomerResponse:
+def to_response(
+    customer: Customer,
+    tier: Tier,
+    now: datetime | None = None,
+    balance: Balance = NO_BALANCE,
+) -> CustomerResponse:
     now = now or utc_now()
     return CustomerResponse(
         id=customer.id,
@@ -131,20 +175,20 @@ def to_response(customer: Customer, tier: Tier, now: datetime | None = None) -> 
         level=TierSummaryResponse(id=tier.id, name=tier.name, finish=tier.finish),
         status=customer_status(customer, now),
         expiring_soon=is_expiring_soon(customer, now),
-        issued_at=_aware(customer.issued_at),
-        valid_until=_aware(customer.valid_until),
-        points_balance=0,
-        cashback_balance_cents=0,
+        issued_at=as_utc(customer.issued_at),
+        valid_until=as_utc(customer.valid_until),
+        points_balance=balance.points,
+        cashback_balance_cents=balance.cashback_cents,
         benefits=BenefitsResponse(
             discount_percent=tier.discount_percent,
             points_per_ten=tier.points_per_ten,
             cashback_percent=tier.cashback_percent,
         ),
-        last_purchase_at=None,
+        last_purchase_at=balance.last_purchase_at,
     )
 
 
-def _with_tier(business_id: int):
+def with_tier(business_id: int):
     return (
         select(Customer, Tier)
         .join(Tier, Customer.tier_id == Tier.id)
@@ -185,14 +229,18 @@ def list_customers(
     last_page = max(1, math.ceil(total / page_size))
     page = min(page, last_page)
     rows = session.exec(
-        _with_tier(business_id)
+        with_tier(business_id)
         .where(*conditions)
         .order_by(Customer.full_name, Customer.id)
         .offset((page - 1) * page_size)
         .limit(page_size)
     ).all()
+    found = balances(session, business_id, [customer.id for customer, _ in rows])
     return PageResponse[CustomerResponse](
-        items=[to_response(customer, tier, now) for customer, tier in rows],
+        items=[
+            to_response(customer, tier, now, found.get(customer.id, NO_BALANCE))
+            for customer, tier in rows
+        ],
         total=total,
         page=page,
         page_size=page_size,
@@ -230,22 +278,28 @@ def counts_by_tier(session: Session, business_id: int) -> dict[int, int]:
 
 
 def _get_row(session: Session, business_id: int, customer_id: int) -> tuple[Customer, Tier]:
-    row = session.exec(_with_tier(business_id).where(Customer.id == customer_id)).first()
+    row = session.exec(with_tier(business_id).where(Customer.id == customer_id)).first()
     if row is None:
         raise _not_found
     return row
 
 
+def _response(
+    session: Session, business_id: int, customer: Customer, tier: Tier
+) -> CustomerResponse:
+    return to_response(customer, tier, balance=balance_of(session, business_id, customer.id))
+
+
 def get_customer(session: Session, business_id: int, customer_id: int) -> CustomerResponse:
-    return to_response(*_get_row(session, business_id, customer_id))
+    return _response(session, business_id, *_get_row(session, business_id, customer_id))
 
 
 def lookup(session: Session, business_id: int, code: str) -> CustomerResponse:
     """Card read at the counter. Expired and cancelled cards are returned too."""
-    row = session.exec(_with_tier(business_id).where(Customer.code == normalize_code(code))).first()
+    row = session.exec(with_tier(business_id).where(Customer.code == normalize_code(code))).first()
     if row is None:
         raise _not_found
-    return to_response(*row)
+    return _response(session, business_id, *row)
 
 
 # --- Changes ------------------------------------------------------------------
@@ -346,7 +400,7 @@ def update_customer(
     for field, value in changes.items():
         setattr(customer, field, value)
     _commit(session, customer)
-    return to_response(customer, tier)
+    return _response(session, business_id, customer, tier)
 
 
 def cancel_customer(session: Session, business_id: int, customer_id: int) -> CustomerResponse:
@@ -355,4 +409,4 @@ def cancel_customer(session: Session, business_id: int, customer_id: int) -> Cus
     if customer.cancelled_at is None:
         customer.cancelled_at = utc_now()
         _commit(session, customer)
-    return to_response(customer, tier)
+    return _response(session, business_id, customer, tier)
