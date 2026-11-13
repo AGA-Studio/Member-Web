@@ -16,9 +16,11 @@ from api.v1.dependencies import (
 )
 from core.config import settings
 from core.security import create_access_token, decode_access_token, verify_password
+from models.business_model import Business
 from models.user_model import User
+from schemas.business_schema import BusinessSummaryResponse
 from schemas.token_schema import Token
-from schemas.user_schema import UserResponse
+from schemas.user_schema import MeResponse, UserResponse
 from services.auth_service import (
     clear_failed_logins,
     login_retry_after,
@@ -96,6 +98,11 @@ def logout(
     response.delete_cookie(settings.cookie_name)
 
 
-@router.get("/me", response_model=UserResponse)
-def me(user: CurrentUser) -> User:
-    return user
+@router.get("/me", response_model=MeResponse)
+def me(session: SessionDep, user: CurrentUser) -> MeResponse:
+    """Session user and their business (null for the platform owner)."""
+    business = session.get(Business, user.business_id) if user.business_id is not None else None
+    return MeResponse(
+        **UserResponse.model_validate(user).model_dump(),
+        business=BusinessSummaryResponse.model_validate(business) if business else None,
+    )
