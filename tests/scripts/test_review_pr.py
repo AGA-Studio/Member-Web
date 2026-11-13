@@ -128,8 +128,8 @@ class TestCallModel:
 
         def fake_post(payload: dict, api_key: str) -> dict:
             budgets.append(payload["max_tokens"])
-            if len(budgets) == 1:
-                # Lo que pasó en CI: todo el presupuesto se fue en razonar.
+            if len(budgets) < len(review_pr.TOKEN_BUDGETS):
+                # Lo que pasó en CI (PR #30): todo el presupuesto se fue en razonar.
                 return answer("", finish="length")
             return answer("- un hallazgo")
 
@@ -138,6 +138,24 @@ class TestCallModel:
 
         assert result == "- un hallazgo"
         assert budgets == list(review_pr.TOKEN_BUDGETS)
+
+    def test_budgets_grow_and_cover_a_large_prompt(self) -> None:
+        budgets = review_pr.TOKEN_BUDGETS
+        assert list(budgets) == sorted(budgets)
+        assert len(set(budgets)) == len(budgets)
+        # El PR #30 agotó 12 mil tokens razonando: el último intento debe pasar de ahí.
+        assert budgets[-1] > 12_000
+
+    def test_stops_at_the_first_answer(self, monkeypatch) -> None:
+        calls: list[int] = []
+
+        def fake_post(payload: dict, api_key: str) -> dict:
+            calls.append(payload["max_tokens"])
+            return answer("SIN HALLAZGOS")
+
+        monkeypatch.setattr(review_pr, "post_model", fake_post)
+        review_pr.call_model([], api_key="k", model="m")
+        assert calls == [review_pr.TOKEN_BUDGETS[0]]
 
     def test_gives_up_after_the_last_budget(self, monkeypatch) -> None:
         monkeypatch.setattr(

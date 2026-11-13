@@ -38,8 +38,12 @@ GITHUB_API = "https://api.github.com"
 MAX_DIFF_CHARS = 60_000
 MAX_FINDINGS = 5
 TIMEOUT = 180
-# El razonamiento consume `max_tokens`: se empieza bajo y se sube si no alcanza.
-TOKEN_BUDGETS = (6000, 12_000)
+# Una respuesta del modelo con 24 mil tokens tarda ~3 min; GitHub responde en segundos.
+MODEL_TIMEOUT = 300
+# El razonamiento consume `max_tokens`: se empieza bajo y se sube si no alcanza. En el
+# PR #30 (prompt de ~22 mil tokens) se gastó 12 mil solo en razonar dos veces seguidas.
+# Los tres intentos caben en los 10 min del job.
+TOKEN_BUDGETS = (8000, 16_000, 24_000)
 REASONING_EFFORT = "low"
 
 RULES = f"""\
@@ -196,7 +200,7 @@ def post_model(payload: dict[str, Any], api_key: str) -> dict[str, Any]:
     request.add_header("User-Agent", "memberplus-review/1.0")
     request.add_header("x-opencode-session", f"review-{os.getpid()}")
     try:
-        with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
+        with urllib.request.urlopen(request, timeout=MODEL_TIMEOUT) as response:
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as error:
         detail = error.read().decode("utf-8", "replace")[:500]
@@ -210,7 +214,7 @@ def call_model(messages: list[dict[str, str]], *, api_key: str, model: str) -> s
 
     El razonamiento del modelo consume el mismo `max_tokens` que la respuesta y
     su largo varía con el diff: con un tope fijo, un PR grande puede quedarse sin
-    texto. Por eso se intenta dos veces antes de rendirse.
+    texto. Por eso se reintenta con más presupuesto antes de rendirse.
     """
     detail = "sin intentos"
     for max_tokens in TOKEN_BUDGETS:
