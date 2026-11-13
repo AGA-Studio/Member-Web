@@ -70,7 +70,8 @@ flowchart TB
     MOD --> M5["login_attempt_model.py — LoginAttempt"]
     SRV --> SV1["auth_service.py — revocación de tokens · límite de login"]
     SCR --> SC1["seed.py — 2 negocios demo y sus usuarios"]
-    SCH --> S1["user_schema.py — UserCreate · UserUpdate · UserResponse"]
+    SCH --> S1["user_schema.py — UserCreate · UserUpdate · UserResponse · MeResponse"]
+    SCH --> S4["business_schema.py — BusinessSummaryResponse"]
     SCH --> S2["token_schema.py — Token · TokenData"]
     SCH --> S3["validators.py — PersonName"]
     API --> A1["dependencies.py — CurrentUser · require_roles · BusinessId<br/>ensure_user_can_access"]
@@ -158,11 +159,26 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | GET | `/health` | — | Estado de la API |
 | POST | `/api/v1/auth/login` | — | Login con email y contraseña; deja cookie y devuelve el token. Tras 5 intentos fallidos por email responde 429 durante 15 min |
 | POST | `/api/v1/auth/logout` | — | Revoca el token de esta sesión (cookie o Bearer) y borra la cookie. Las demás sesiones del usuario siguen abiertas |
-| GET | `/api/v1/auth/me` | cualquier usuario activo | Usuario de la sesión |
+| GET | `/api/v1/auth/me` | cualquier usuario activo | Usuario de la sesión y su negocio (`business`: `id`, `name`, `logo_url`, `status`; `null` para `platform`) |
 | GET | `/api/v1/user/list` | admin | Usuarios de su negocio |
 | POST | `/api/v1/user/create` | admin | Crea un admin o employee en su negocio |
 | GET | `/api/v1/user/{user_id}` | admin | Detalle de un usuario de su negocio |
 | PATCH | `/api/v1/user/{user_id}/update` | admin | Edita nombre, email, contraseña o `is_active`. Un admin no puede desactivarse a sí mismo (400) |
+
+**Respuesta de `/auth/me`** (`MeResponse`): los campos de `UserResponse` más `business`, el resumen del negocio que el frontend muestra en el encabezado del panel y de la caja. No incluye datos de uso ni de clientes.
+
+```json
+{
+  "id": 3,
+  "business_id": 1,
+  "name": "Luis Pérez",
+  "email": "caja@cafe-aurora.mx",
+  "role": "employee",
+  "is_active": true,
+  "created_at": "2026-11-12T23:28:01.536737Z",
+  "business": { "id": 1, "name": "Café Aurora", "logo_url": null, "status": "active" }
+}
+```
 
 **Validación de nombres** (`PersonName`, `schemas/validators.py`): se quitan los espacios sobrantes; solo letras (con acentos y ñ), espacios, guion y apóstrofo; mínimo 2 letras y máximo 120 caracteres. Si no se cumple → 422.
 

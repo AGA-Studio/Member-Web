@@ -100,6 +100,59 @@ class TestLogin:
         assert response.status_code == 422
 
 
+class TestCurrentUserBusiness:
+    """`/auth/me` carries the business so the frontend header shows its name."""
+
+    def test_admin_gets_their_business(self, client: TestClient, two_businesses) -> None:
+        business_a = two_businesses["business_a"]
+        login(client, "admin.a@demo.mx")
+        body = client.get(ME_URL).json()
+        assert body["business"] == {
+            "id": business_a.id,
+            "name": "Business A",
+            "logo_url": None,
+            "status": "active",
+        }
+
+    def test_employee_gets_their_business(self, client: TestClient, two_businesses) -> None:
+        login(client, "employee.a@demo.mx")
+        business = client.get(ME_URL).json()["business"]
+        assert business["id"] == two_businesses["business_a"].id
+        assert business["name"] == "Business A"
+
+    def test_business_matches_business_id(self, client: TestClient, two_businesses) -> None:
+        login(client, "admin.b@demo.mx")
+        body = client.get(ME_URL).json()
+        assert body["business"]["id"] == body["business_id"] == two_businesses["business_b"].id
+        assert body["business"]["name"] == "Business B"
+
+    def test_platform_owner_has_no_business(self, client: TestClient, two_businesses) -> None:
+        login(client, "owner@memberplus.mx")
+        body = client.get(ME_URL).json()
+        assert body["business_id"] is None
+        assert body["business"] is None
+
+    def test_status_and_logo_come_from_the_database(
+        self, client: TestClient, session: Session, make_business, make_user
+    ) -> None:
+        business = make_business("Café Aurora", status=BusinessStatus.TRIAL)
+        business.logo_url = "https://cdn.example.mx/aurora.png"
+        session.add(business)
+        session.commit()
+        make_user("caja@cafe-aurora.mx", business=business, role=Role.EMPLOYEE)
+
+        login(client, "caja@cafe-aurora.mx")
+        body = client.get(ME_URL).json()["business"]
+        assert body["name"] == "Café Aurora"
+        assert body["status"] == "trial"
+        assert body["logo_url"] == "https://cdn.example.mx/aurora.png"
+
+    def test_business_exposes_only_header_fields(self, client: TestClient, two_businesses) -> None:
+        login(client, "admin.a@demo.mx")
+        business = client.get(ME_URL).json()["business"]
+        assert set(business) == {"id", "name", "logo_url", "status"}
+
+
 class TestCurrentUser:
     def test_me_with_cookie(self, client: TestClient, two_businesses) -> None:
         login(client, "admin.a@demo.mx")
@@ -128,6 +181,7 @@ class TestCurrentUser:
             "role",
             "is_active",
             "created_at",
+            "business",
         }
 
     def test_cookie_has_priority_over_bearer(self, client: TestClient, two_businesses) -> None:
