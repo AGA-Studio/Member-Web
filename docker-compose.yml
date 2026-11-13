@@ -1,7 +1,9 @@
-# Local development database.
-#   docker compose up -d
-# PostgreSQL is exposed on host port 5433 to avoid clashing with a
-# locally installed Postgres (5432).
+# Local database plus a full stack for the demo backup.
+#   docker compose up -d                    → solo db (desarrollo diario)
+#   docker compose --profile stack up -d    → db + api + web (respaldo de la demo)
+#
+# El perfil `stack` solo hace pull de imágenes publicadas en GHCR: no construye
+# nada. Detalle y cronometraje en docs/DEPLOY.md (sección 9).
 services:
   db:
     image: postgres:18
@@ -22,6 +24,43 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  api:
+    profiles: ["stack"]
+    image: ghcr.io/aga-studio/member-web:${API_IMAGE_TAG:-0.0.1}
+    pull_policy: missing
+    container_name: memberplus-api
+    restart: unless-stopped
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      # Inside the compose network the database is `db:5432`, not localhost:5433.
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-memberplus}:${POSTGRES_PASSWORD:-memberplus}@db:5432/${POSTGRES_DB:-memberplus}
+      SECRET_KEY: ${SECRET_KEY:?define SECRET_KEY en el entorno o en .env}
+      # El stack local es HTTP aunque simule el ensayo.
+      COOKIE_SECURE: "false"
+      CORS_ORIGINS: http://localhost:3000
+      SEED_PASSWORD: ${SEED_PASSWORD:-}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    profiles: ["stack"]
+    # The :stack tag is built in CI with API_INTERNAL_URL=http://api:8000; the
+    # production image hardcodes the public API host and must not be used here.
+    image: ghcr.io/aga-studio/member-plus-frontend:${WEB_IMAGE_TAG:-stack}
+    pull_policy: missing
+    container_name: memberplus-web
+    restart: unless-stopped
+    environment:
+      API_INTERNAL_URL: http://api:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
 
 volumes:
   pgdata:
