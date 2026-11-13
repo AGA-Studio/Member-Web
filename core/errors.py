@@ -22,6 +22,7 @@ class ErrorCode(StrEnum):
     NOT_AUTHENTICATED = "not_authenticated"
     EMAIL_TAKEN = "email_taken"
     TIER_INVALID = "tier_invalid"
+    CUSTOMER_NOT_FOUND = "customer_not_found"
 
 
 class ApiError(HTTPException):
