@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, Query, status
 
 from api.v1.dependencies import BusinessId, SessionDep, require_roles
 from models.user_model import Role
+from schemas.card_schema import CardLinkResponse
 from schemas.customer_schema import (
     CustomerCreate,
     CustomerResponse,
@@ -18,7 +19,7 @@ from schemas.customer_schema import (
     CustomerUpdate,
 )
 from schemas.pagination_schema import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, PageResponse
-from services import customer_service
+from services import card_service, customer_service
 
 router = APIRouter(prefix="/customer", tags=["customer"])
 
@@ -98,3 +99,11 @@ def cancel_customer(
 ) -> CustomerResponse:
     """Irreversible: the card stays `cancelled`."""
     return customer_service.cancel_customer(session, business_id, customer_id)
+
+
+@router.post("/{customer_id}/card-link", response_model=CardLinkResponse, dependencies=admin_only)
+def create_card_link(
+    customer_id: int, session: SessionDep, business_id: BusinessId
+) -> CardLinkResponse:
+    """New link to the digital card ("Copiar enlace"). The previous link stops working."""
+    return card_service.create_link(session, business_id, customer_id)
