@@ -5,11 +5,12 @@ card: no email, phone, points, cashback or numeric ids (DECISIÓN 11).
 """
 
 from datetime import datetime
+from enum import StrEnum
 
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 
 from models.tier_model import TierFinish
-from schemas.customer_schema import CustomerStatus
+from schemas.customer_schema import CustomerResponse, CustomerStatus
 
 
 class CardLinkResponse(BaseModel):
@@ -17,6 +18,30 @@ class CardLinkResponse(BaseModel):
 
     url: str
     expires_at: datetime
+
+
+class CardEmailSentResponse(BaseModel):
+    sent_to: EmailStr
+    last_sent_at: datetime
+
+
+class CardEmailStatus(StrEnum):
+    """`pending`: the provider did not answer in time and the send goes on in the background."""
+
+    SENT = "sent"
+    FAILED = "failed"
+    PENDING = "pending"
+    SKIPPED = "skipped"
+
+
+class CardEmailResult(BaseModel):
+    status: CardEmailStatus
+
+
+class CustomerCreatedResponse(CustomerResponse):
+    """`/customer/create`: the customer plus what happened with the card email."""
+
+    card_email: CardEmailResult
 
 
 class PublicBusinessResponse(BaseModel):

@@ -125,6 +125,7 @@ class TestCreate:
             "cashback_balance_cents",
             "benefits",
             "last_purchase_at",
+            "card_email",
         }
         assert body["level"] == {"id": tiers["gold"].id, "name": "Oro", "finish": "gold"}
         assert body["benefits"] == {

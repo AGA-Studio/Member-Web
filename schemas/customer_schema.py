@@ -50,12 +50,16 @@ Phone = Annotated[
 
 
 class CustomerCreate(BaseModel):
-    """Without `level_id` the customer gets the business's cheapest tier."""
+    """Without `level_id` the customer gets the business's cheapest tier.
+
+    `send_card_email` (default true) emails the customer the link to their card.
+    """
 
     full_name: PersonName
     email: EmailStr
     phone: Phone | None = None
     level_id: int | None = None
+    send_card_email: bool = True
 
 
 class CustomerUpdate(BaseModel):

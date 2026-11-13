@@ -74,6 +74,7 @@ flowchart TB
     MOD --> M7["customer_model.py — Customer (cliente y su tarjeta)"]
     MOD --> M8["purchase_model.py — Purchase (compra = movimiento = comprobante)"]
     MOD --> M9["card_delivery_model.py — CardDelivery (enlace a la tarjeta digital)"]
+    MOD --> M10["card_email_model.py — CardEmail (envíos, para el límite)"]
     SRV --> SV1["auth_service.py — revocación de tokens · límite de login"]
     SRV --> SV2["tier_service.py — listar y editar niveles · reglas de rango"]
     SRV --> SV3["customer_service.py — clientes · código · estado · saldos · paginación"]
@@ -81,7 +82,8 @@ flowchart TB
     SRV --> SV5["checkout_service.py — cobrar · comprobante · Idempotency-Key"]
     SRV --> SV6["movement_service.py — historial · totales · CSV"]
     SRV --> SV7["platform_service.py — negocios vistos por la plataforma"]
-    SRV --> SV8["card_service.py — enlace · tarjeta pública"]
+    SRV --> SV8["card_service.py — enlace · correo · tarjeta pública"]
+    SRV --> SV9["email_service.py — SMTP con plazo máximo · bandeja en memoria"]
     SCR --> SC1["seed.py — 2 negocios demo, usuarios, niveles, clientes y compras"]
     SCH --> S1["user_schema.py — UserCreate · UserUpdate · UserResponse · MeResponse"]
     SCH --> S4["business_schema.py — BusinessSummaryResponse"]
@@ -93,7 +95,7 @@ flowchart TB
     SCH --> S8["checkout_schema.py — CheckoutCreate · ReceiptResponse"]
     SCH --> S9["movement_schema.py — MovementResponse · MovementPageResponse"]
     SCH --> S10["platform_schema.py — PlatformBusinessResponse"]
-    SCH --> S11["card_schema.py — CardLinkResponse · PublicCardResponse"]
+    SCH --> S11["card_schema.py — CardLinkResponse · PublicCardResponse · CustomerCreatedResponse"]
     API --> A1["dependencies.py — CurrentUser · require_roles · BusinessId<br/>ensure_user_can_access"]
     API --> A2["auth_api.py — /auth"]
     API --> A3["user_api.py — /user"]
@@ -120,6 +122,7 @@ erDiagram
     users ||--o{ purchases : "cobra"
     tiers ||--o{ purchases : "nivel aplicado"
     customers ||--o{ card_deliveries : "enlace"
+    customers ||--o{ card_emails : "envíos"
 
     businesses {
         int id PK
@@ -199,6 +202,13 @@ erDiagram
         datetime last_sent_at "nullable"
     }
 
+    card_emails {
+        int id PK
+        int business_id FK "índice"
+        int customer_id FK "índice"
+        datetime sent_at "índice; también los fallidos"
+    }
+
     revoked_tokens {
         string jti PK "id único del JWT"
         datetime expires_at "índice; se purga al pasar"
@@ -264,11 +274,12 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | GET | `/api/v1/customer/list` | admin | Clientes paginados por `full_name`. Filtros `q` (nombre, email o código), `level_id`, `status` (`active` \| `expiring` \| `expired` \| `cancelled`), `page`, `page_size` (8 por defecto, máx. 500). Una página que no existe devuelve la última |
 | GET | `/api/v1/customer/summary` | admin | Conteos `all`, `active` (incluye las por vencer), `expiring`, `expired`, `cancelled` |
 | GET | `/api/v1/customer/lookup` | admin, employee | Tarjeta por `code` (QR o tecleado; ignora espacios y mayúsculas). Responde también para vencidas y canceladas. 404 `customer_not_found` |
-| POST | `/api/v1/customer/create` | admin | Alta con `full_name`, `email`, `phone` y `level_id` opcionales. Genera `code`, `issued_at` y `valid_until` (+12 meses). 409 `email_taken` |
+| POST | `/api/v1/customer/create` | admin | Alta con `full_name`, `email`, `phone` y `level_id` opcionales. Genera `code`, `issued_at` y `valid_until` (+12 meses). Con `send_card_email` (`true` por defecto) envía el enlace a la tarjeta; la respuesta agrega `card_email.status` (`sent` \| `failed` \| `pending` \| `skipped`) y un correo fallido no falla el alta. 409 `email_taken` |
 | GET | `/api/v1/customer/{customer_id}` | admin | Ficha del cliente |
 | PATCH | `/api/v1/customer/{customer_id}/update` | admin | Edita `full_name`, `email`, `phone` (`null` lo borra) o `level_id` (cambio de nivel). 409 `email_taken` |
 | POST | `/api/v1/customer/{customer_id}/cancel` | admin | Cancela la tarjeta y revoca su enlace; irreversible y repetirlo no cambia nada |
 | POST | `/api/v1/customer/{customer_id}/card-link` | admin | Enlace nuevo a la tarjeta digital (`url`, `expires_at` = `valid_until`); revoca el anterior. 409 `customer_cancelled` o `customer_expired` |
+| POST | `/api/v1/customer/{customer_id}/card-link/send` | admin | Envía por correo un enlace nuevo (`sent_to`, `last_sent_at`). 429 `card_email_rate_limited`, 502 `email_failed` |
 | POST | `/api/v1/checkout/preview` | admin, employee | Mismo cuerpo que `create`; calcula y no guarda nada |
 | POST | `/api/v1/checkout/create` | admin, employee | Registra la compra (`customer_id`, `amount_cents`, `concept` opcional, `use_cashback`) y devuelve el comprobante (201). Cabecera opcional `Idempotency-Key`. El cajero sale del token |
 | GET | `/api/v1/checkout/{checkout_id}` | admin, employee | Comprobante. El cajero solo ve los suyos; el admin, todos los del negocio |
@@ -307,8 +318,10 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | `amount_invalid` | 422 | `/checkout/create` y `/checkout/preview`: `amount_cents` fuera de 1 a 100 000 000. Un monto que no es entero es validación de campo (422 de FastAPI, sin `code`) |
 | `checkout_not_found` | 404 | `/checkout/{checkout_id}`: no existe, es de otro negocio, o un cajero pide el comprobante de otro cajero |
 | `idempotency_conflict` | 409 | `/checkout/create`: la `Idempotency-Key` ya se usó para otra compra (otro cliente, monto o concepto) |
-| `customer_cancelled` | 409 | `/customer/{customer_id}/card-link`: la tarjeta está cancelada |
-| `customer_expired` | 409 | `/customer/{customer_id}/card-link`: la tarjeta venció (el enlace no abriría) |
+| `customer_cancelled` | 409 | `/customer/{customer_id}/card-link` y `/send`: la tarjeta está cancelada |
+| `customer_expired` | 409 | `/customer/{customer_id}/card-link` y `/send`: la tarjeta venció (el enlace no abriría) |
+| `card_email_rate_limited` | 429 | `/customer/{customer_id}/card-link/send`: ya se envió hace menos de 1 minuto o 5 veces en una hora (con `Retry-After`) |
+| `email_failed` | 502 | `/customer/{customer_id}/card-link/send`: el proveedor de correo falló |
 | `card_link_not_found` | 404 | `/card/{token}`: token desconocido, revocado, tarjeta vencida o cancelada, o negocio suspendido. Siempre el mismo cuerpo |
 | `rate_limited` | 429 | `/card/...`: más de `CARD_RATE_LIMIT_PER_MINUTE` peticiones por minuto desde la misma IP (con `Retry-After`) |
 
@@ -383,18 +396,26 @@ Ejemplo de la rúbrica, $1,000.00 en Oro (15 %, 1 punto por $10, 3 %): descuento
 - Filtros: `q` (nombre del negocio, sin distinguir mayúsculas) y `status` (`trial`, `active`, `suspended`).
 - `customers_count` cuenta las tarjetas **no canceladas**, con la misma regla que `customers_count` de un nivel. Sale de una sola consulta por página.
 
-**Tarjeta digital (`card_deliveries`, `/card`).** El cliente recibe un enlace a `{FRONTEND_PUBLIC_URL}/tarjeta/<token>`; esa página del frontend pide `GET /card/{token}`, dibuja la tarjeta y arma la imagen y el PDF en el navegador. Reglas (`services/card_service.py`):
+**Tarjeta digital (`card_deliveries`, `card_emails`, `/card`).** El cliente recibe un correo con un enlace a `{FRONTEND_PUBLIC_URL}/tarjeta/<token>`; esa página del frontend pide `GET /card/{token}`, dibuja la tarjeta y arma la imagen y el PDF en el navegador. Reglas (`services/card_service.py`):
 
 - El token son 32 bytes aleatorios (`secrets.token_urlsafe(32)`); en la base solo se guarda su SHA-256. No se deriva del `code` ni del `id`.
-- Un enlace activo por cliente: crear uno revoca el anterior.
+- Un enlace activo por cliente: crear uno revoca el anterior. Como el token en claro no se guarda, **cada correo lleva un enlace nuevo** y revoca el que se copió o envió antes.
 - El enlace vive lo que vive la tarjeta (DECISIÓN 10): no tiene vencimiento propio, `expires_at` es `valid_until`. Si se renueva la tarjeta, el enlace vuelve a abrir. Token desconocido, revocado, tarjeta vencida o cancelada, o negocio suspendido: siempre el mismo 404 `card_link_not_found`.
 - Cancelar la tarjeta llena `revoked_at` de su enlace.
 - `GET /card/{token}` solo devuelve negocio (`name`, `logo_url`), `full_name`, `code`, nivel (`name`, `finish`), `status`, `valid_until` y `wallet.google` (DECISIÓN 11; por ahora siempre `false`). Nada de correo, teléfono, puntos, cashback ni ids.
 - Las rutas `/card` no usan sesión ni cookie. Todas sus respuestas, errores incluidos, llevan `Cache-Control: no-store`, y cada IP tiene `CARD_RATE_LIMIT_PER_MINUTE` peticiones por minuto (30 por defecto; `core/rate_limit.py`, en memoria por proceso; la IP es la reenviada por el proxy gracias a `--proxy-headers`).
 
+Correo (`services/email_service.py`):
+
+- SMTP genérico por variables de entorno (`SMTP_HOST`, `SMTP_PORT`, `SMTP_TLS` = `none` \| `starttls` \| `ssl`, `SMTP_USER`, `SMTP_PASSWORD`, `MAIL_FROM`). En desarrollo sirve cualquier SMTP local, por ejemplo Mailpit. Sin `SMTP_HOST`, en desarrollo el correo solo se registra en el log y en una bandeja en memoria; en producción el envío falla.
+- El envío corre en un hilo aparte y la petición espera como máximo 1.5 s (`SEND_DEADLINE_SECONDS`). Si el proveedor no termina a tiempo, el resultado es `pending` y el envío sigue en segundo plano.
+- Asunto `Tu tarjeta de {negocio}`, remitente con el nombre del negocio y la dirección de `MAIL_FROM`. El cuerpo (texto y HTML) no lleva el código de la tarjeta, ni puntos ni saldo.
+- Límite por cliente: un correo por minuto y cinco por hora (`card_emails`; los intentos fallidos cuentan). El alta con `send_card_email` también cuenta.
+
+
 **Validación de nombres** (`PersonName`, `schemas/validators.py`): se quitan los espacios sobrantes; solo letras (con acentos y ñ), espacios, guion y apóstrofo; mínimo 2 letras y máximo 120 caracteres. Si no se cumple → 422.
 
-**Convención de rutas:** `/<recurso en singular>/<acción>` (`/user/create`, `/user/list`, `/user/{id}/update`). Los módulos nuevos siguen la misma forma, por ejemplo `/customer/create`. Los subrecursos son `/platform/business/list` (la plataforma lista los negocios) y `/customer/{customer_id}/card-link` (el enlace a la tarjeta); `tests/rules/test_routes.py` los permite con `SUB_RESOURCES`. El nombre con guion viene del contrato del frontend.
+**Convención de rutas:** `/<recurso en singular>/<acción>` (`/user/create`, `/user/list`, `/user/{id}/update`). Los módulos nuevos siguen la misma forma, por ejemplo `/customer/create`. Los subrecursos son `/platform/business/list` (la plataforma lista los negocios) y `/customer/{customer_id}/card-link` (el enlace a la tarjeta, con la acción `send`); `tests/rules/test_routes.py` los permite con `SUB_RESOURCES`. El nombre con guion viene del contrato del frontend.
 
 ```mermaid
 flowchart LR
@@ -427,6 +448,7 @@ flowchart LR
     CUST --> CU["PATCH /{customer_id}/update"]
     CUST --> CX["POST /{customer_id}/cancel"]
     CUST --> CLK["POST /{customer_id}/card-link"]
+    CUST --> CLS["POST /{customer_id}/card-link/send"]
 
     CHK --> KP["POST /preview"]
     CHK --> KC["POST /create"]

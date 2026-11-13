@@ -2,6 +2,7 @@
 
 from models.business_model import Business, BusinessStatus
 from models.card_delivery_model import CardDelivery
+from models.card_email_model import CardEmail
 from models.customer_model import Customer
 from models.login_attempt_model import LoginAttempt
 from models.purchase_model import CardStatus, Purchase
@@ -13,6 +14,7 @@ __all__ = [
     "Business",
     "BusinessStatus",
     "CardDelivery",
+    "CardEmail",
     "CardStatus",
     "Customer",
     "LoginAttempt",

@@ -22,12 +22,12 @@ Documentación de la suite de pruebas automatizadas del backend: qué se prueba,
 | Métrica | Valor |
 |---------|-------|
 | Fecha de ejecución | 12 de noviembre de 2026 |
-| Pruebas | **583**, todas pasan (0 `xfail`); conteo del 13 nov 2026 con niveles, clientes, caja, movimientos, plataforma y enlace a la tarjeta digital |
+| Pruebas | **607**, todas pasan (0 `xfail`); conteo del 13 nov 2026 con niveles, clientes, caja, movimientos, plataforma y entrega de la tarjeta digital (enlace y correo) |
 | Fallas | **0** |
 | Cobertura de líneas y ramas | **100 %** en `api/`, `core/`, `models/`, `schemas/`, `services/` y `scripts/seed.py`. `scripts/review_pr.py` (revisor del CI) queda en 60 %, por eso el total marca 92 % |
 | Bases de datos probadas | SQLite y **PostgreSQL 18.6** |
 | Tiempo | ~17 s en SQLite · ~42 s en PostgreSQL (equipo local) |
-| Criterio del MVP "0 filas de otro negocio" | ✅ Cumplido (7 pruebas de usuarios + 4 de niveles + 9 de clientes + 4 de caja + 3 de movimientos + 2 del enlace a la tarjeta) |
+| Criterio del MVP "0 filas de otro negocio" | ✅ Cumplido (7 pruebas de usuarios + 4 de niveles + 9 de clientes + 4 de caja + 3 de movimientos + 3 del enlace a la tarjeta) |
 | Migraciones (Alembic) | ✅ Suben, bajan, convierten datos y coinciden con los modelos (9 pruebas) |
 | Hallazgos | ✅ Los 7 corregidos (H1–H7) |
 
@@ -775,21 +775,24 @@ Contrato del frontend, sección 7. No usa `BusinessId`, así que no lleva prueba
 | `TestPrivacy` | La respuesta no trae nombres, códigos, correos, puntos ni cashback de clientes; solo las 5 llaves del contrato | ✅ |
 | `TestPermissions` | `admin` y `employee` → 403; sin sesión → 401 | ✅ |
 
-### 5.7l Enlace a la tarjeta digital — `tests/api/test_card.py` (22)
+### 5.7l Entrega de la tarjeta digital — `tests/api/test_card.py` (45)
 
-Contrato del frontend, sección 13 (enlace y tarjeta pública). Las rutas `/card` no usan sesión.
+Contrato del frontend, sección 13 (enlace, correo y tarjeta pública). Las rutas `/card` no usan sesión. El correo se prueba sin mocks: sin `SMTP_HOST` va a la bandeja en memoria (`email_service.OUTBOX`), y `tests/smtp_server.py` levanta un servidor SMTP real en `127.0.0.1` que acepta, rechaza o tarda.
 
 | Clase | Qué verifica | Resultado |
 |-------|--------------|-----------|
 | `TestCreateLink` | La URL es `{FRONTEND_PUBLIC_URL}/tarjeta/<token>` con un token de 43 caracteres y `expires_at` = `valid_until`; en la base solo queda el SHA-256 del token; los tokens son aleatorios y no contienen el código; un enlace nuevo revoca el anterior y queda uno activo; tarjeta cancelada → 409 `customer_cancelled`; vencida → 409 `customer_expired`; cliente inexistente → 404 `customer_not_found` | ✅ |
+| `TestSendLink` | Envía al correo del cliente con asunto `Tu tarjeta de {negocio}` y remitente con el nombre del negocio; el cuerpo sigue el contrato y no lleva código, puntos, saldo ni signos de exclamación; el enlace del correo abre la tarjeta; cada correo lleva un enlace nuevo y revoca el copiado; otro envío antes de 1 minuto → 429 `card_email_rate_limited` con `Retry-After` y sin revocar el enlace; 5 envíos en la última hora → 429 (4 sí pasan; los de hace más de una hora no cuentan); tarjeta cancelada o vencida → 409; cliente inexistente → 404 | ✅ |
+| `TestSmtp` | Envía por SMTP real; el proveedor que cierra la conexión → 502 `email_failed`; en producción sin `SMTP_HOST` → 502 | ✅ |
+| `TestCreateCustomer` | El alta envía la tarjeta por defecto (`card_email.status` = `sent`) y el enlace abre; `send_card_email: false` → `skipped` y sin enlace; un correo fallido no falla el alta (`failed`, 201); un proveedor lento → `pending` sin pasar del plazo; el alta cuenta para el límite de envíos | ✅ |
 | `TestPublicCard` | Forma exacta del contrato (sin sesión); no trae correo, teléfono, puntos, cashback ni ids; `Cache-Control: no-store` en 200 y en 404; token desconocido, largo o revocado → mismo 404 `card_link_not_found`; cancelar revoca el enlace; tarjeta vencida o negocio suspendido → mismo 404; tarjeta renovada vuelve a abrir; más de `CARD_RATE_LIMIT_PER_MINUTE` por IP → 429 `rate_limited` con `Retry-After` | ✅ |
-| `TestPermissions` | `employee` y `platform` → 403; sin sesión → 401; la tarjeta pública abre sin sesión | ✅ |
+| `TestPermissions` | `card-link` y `card-link/send`: `employee` y `platform` → 403; sin sesión → 401. La tarjeta pública abre sin sesión | ✅ |
 
-### 5.7m Aislamiento del enlace — `tests/api/test_isolation_card.py` (2)
+### 5.7m Aislamiento del enlace — `tests/api/test_isolation_card.py` (3)
 
 | Prueba | Verifica | Resultado |
 |--------|----------|-----------|
-| `test_admin_b_gets_404_for_a_customer_of_a` | El admin de B no puede crear el enlace de un cliente de A (404) y no se guarda nada | ✅ |
+| `test_admin_b_gets_404_for_a_customer_of_a` | El admin de B no puede crear ni enviar el enlace de un cliente de A (404); no se guarda nada ni sale ningún correo | ✅ |
 | `test_a_link_of_a_shows_only_a` | El enlace de A muestra el negocio A aunque lo abra una sesión de B | ✅ |
 
 ### 5.7n Límite por IP — `tests/unit/test_rate_limit.py` (5)

@@ -1,10 +1,11 @@
-"""Isolation of the card link: business B can never create A's link."""
+"""Isolation of the card link: business B can never create or send A's link."""
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
-from models import CardDelivery
+from models import CardDelivery, CardEmail
+from services import email_service
 from tests.api.test_customer import add_customer, add_tier
 from tests.conftest import login
 
@@ -19,7 +20,7 @@ def customer_a(session: Session, two_businesses):
     )
 
 
-@pytest.mark.parametrize("action", ["card-link"])
+@pytest.mark.parametrize("action", ["card-link", "card-link/send"])
 def test_admin_b_gets_404_for_a_customer_of_a(
     client: TestClient, session: Session, customer_a, action: str
 ) -> None:
@@ -28,6 +29,8 @@ def test_admin_b_gets_404_for_a_customer_of_a(
     assert response.status_code == 404
     assert response.json()["code"] == "customer_not_found"
     assert not session.exec(select(CardDelivery)).all()
+    assert not session.exec(select(CardEmail)).all()
+    assert not email_service.OUTBOX
 
 
 def test_a_link_of_a_shows_only_a(client: TestClient, customer_a) -> None:
