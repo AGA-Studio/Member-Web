@@ -84,7 +84,7 @@ flowchart TB
     SRV --> SV7["platform_service.py — negocios vistos por la plataforma"]
     SRV --> SV8["card_service.py — enlace · correo · tarjeta pública"]
     SRV --> SV9["email_service.py — SMTP con plazo máximo · bandeja en memoria"]
-    SCR --> SC1["seed.py — 2 negocios demo, usuarios, niveles, clientes y compras"]
+    SCR --> SC1["seed.py — 2 negocios demo, usuarios, niveles, clientes, compras y un enlace"]
     SCH --> S1["user_schema.py — UserCreate · UserUpdate · UserResponse · MeResponse"]
     SCH --> S4["business_schema.py — BusinessSummaryResponse"]
     SCH --> S2["token_schema.py — Token · TokenData"]
@@ -109,7 +109,7 @@ flowchart TB
 
 ## 3. Modelo de datos actual
 
-Existen las tablas de autenticación, los niveles, los clientes con su tarjeta, las compras y la entrega de la tarjeta digital; `python -m scripts.seed` las llena con dos negocios de demo (Café Aurora y Gimnasio Titán), sus usuarios, sus niveles, sus clientes (12 y 2), y sus compras (12 y 1).
+Existen las tablas de autenticación, los niveles, los clientes con su tarjeta, las compras y la entrega de la tarjeta digital; `python -m scripts.seed` las llena con dos negocios de demo (Café Aurora y Gimnasio Titán), sus usuarios, sus niveles, sus clientes (12 y 2), sus compras (12 y 1) y un enlace activo a la tarjeta `MP-4F7K2` (imprime la URL al crearlo).
 
 ```mermaid
 erDiagram
@@ -407,7 +407,7 @@ Ejemplo de la rúbrica, $1,000.00 en Oro (15 %, 1 punto por $10, 3 %): descuento
 
 Correo (`services/email_service.py`):
 
-- SMTP genérico por variables de entorno (`SMTP_HOST`, `SMTP_PORT`, `SMTP_TLS` = `none` \| `starttls` \| `ssl`, `SMTP_USER`, `SMTP_PASSWORD`, `MAIL_FROM`). En desarrollo sirve cualquier SMTP local, por ejemplo Mailpit. Sin `SMTP_HOST`, en desarrollo el correo solo se registra en el log y en una bandeja en memoria; en producción el envío falla.
+- SMTP genérico por variables de entorno (`SMTP_HOST`, `SMTP_PORT`, `SMTP_TLS` = `none` \| `starttls` \| `ssl`, `SMTP_USER`, `SMTP_PASSWORD`, `MAIL_FROM`). En desarrollo, Mailpit de `docker compose` (bandeja en `http://localhost:8025`). Sin `SMTP_HOST`, en desarrollo el correo solo se registra en el log y en una bandeja en memoria; en producción el envío falla.
 - El envío corre en un hilo aparte y la petición espera como máximo 1.5 s (`SEND_DEADLINE_SECONDS`). Si el proveedor no termina a tiempo, el resultado es `pending` y el envío sigue en segundo plano.
 - Asunto `Tu tarjeta de {negocio}`, remitente con el nombre del negocio y la dirección de `MAIL_FROM`. El cuerpo (texto y HTML) no lleva el código de la tarjeta, ni puntos ni saldo.
 - Límite por cliente: un correo por minuto y cinco por hora (`card_emails`; los intentos fallidos cuentan). El alta con `send_card_email` también cuenta.

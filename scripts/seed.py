@@ -8,8 +8,8 @@ Run after the migrations:
 
 It is idempotent: anything that already exists (business by name, user by
 email, tier by business and name, customer by business and email, purchase by
-business and its `seed-NN` idempotency key) is left untouched, so it can run any
-number of times. It never changes an existing user's
+business and its `seed-NN` idempotency key, an active card link) is left
+untouched, so it can run any number of times. It never changes an existing user's
 password or an edited tier.
 
 Password for the demo users:
@@ -31,6 +31,7 @@ from db.database import engine
 from models import (
     Business,
     BusinessStatus,
+    CardDelivery,
     CardStatus,
     Customer,
     Purchase,
@@ -39,7 +40,7 @@ from models import (
     TierFinish,
     User,
 )
-from services import pricing_service
+from services import card_service, pricing_service
 from services.customer_service import VALIDITY_MONTHS, add_months, as_utc, balance_of, utc_now
 
 DEMO_PASSWORD = "demo12345"
@@ -190,6 +191,10 @@ CUSTOMERS = [
     ("titan", "MP-8FTX2", "Paola Cruz", "paola.cruz@correo.com", None, "Básico", 50, False),
 ]
 
+# The card with an active link, so the frontend can open /tarjeta/<token>. Only the
+# hash of the token is stored: its URL is printed once, when the link is created.
+CARD_LINK = ("aurora", "MP-4F7K2")
+
 # (business key, card code, cashier email, N days ago, amount in cents, concept, use cashback)
 # Charged in date order through the same formula as the checkout. Ricardo Flores
 # buys once while his card is active and once after it expired (no benefits).
@@ -227,6 +232,7 @@ class SeedError(Exception):
 class SeedResult:
     created: list[str] = field(default_factory=list)
     existing: list[str] = field(default_factory=list)
+    card_url: str | None = None
 
 
 def resolve_password() -> str:
@@ -377,6 +383,23 @@ def seed(session: Session, password: str) -> SeedResult:
         session.flush()  # the next purchase of this customer sees the new balance
         result.created.append(label)
 
+    key, code = CARD_LINK
+    business = businesses[key]
+    label = f"card link {business.name} / {code}"
+    customer = session.exec(
+        select(Customer).where(Customer.business_id == business.id, Customer.code == code)
+    ).one()
+    active = select(CardDelivery).where(
+        CardDelivery.customer_id == customer.id,
+        CardDelivery.revoked_at.is_(None),  # type: ignore[union-attr]
+    )
+    if session.exec(active).first() is not None:
+        result.existing.append(label)
+    else:
+        token, _ = card_service.new_link(session, customer, now)
+        result.card_url = card_service.card_url(token)
+        result.created.append(label)
+
     session.commit()
     return result
 
@@ -397,6 +420,8 @@ def main() -> int:
         print(f"exists    {line}")
     if result.created and password == DEMO_PASSWORD:
         print(f"\nDemo password for the new users: {DEMO_PASSWORD}")
+    if result.card_url:
+        print(f"\nDemo card link ({CARD_LINK[1]}): {result.card_url}")
     return 0
 
 

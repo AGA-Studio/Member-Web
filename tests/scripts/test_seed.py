@@ -6,7 +6,17 @@ from sqlmodel import Session, select
 
 from core.config import settings
 from core.security import verify_password
-from models import Business, BusinessStatus, CardStatus, Customer, Purchase, Role, Tier, User
+from models import (
+    Business,
+    BusinessStatus,
+    CardDelivery,
+    CardStatus,
+    Customer,
+    Purchase,
+    Role,
+    Tier,
+    User,
+)
 from schemas.validators import normalize_person_name
 from scripts import seed as seed_module
 from scripts.seed import CUSTOMERS, DEMO_PASSWORD, USERS, SeedError, resolve_password, seed
@@ -186,14 +196,16 @@ class TestIdempotency:
     def test_second_run_creates_nothing(self, session: Session) -> None:
         first = seed(session, PASSWORD)
         second = seed(session, PASSWORD)
-        assert len(first.created) == 39
+        assert len(first.created) == 40
         assert second.created == []
-        assert len(second.existing) == 39
+        assert len(second.existing) == 40
+        assert second.card_url is None
         assert len(session.exec(select(Business)).all()) == 2
         assert len(session.exec(select(User)).all()) == 4
         assert len(session.exec(select(Tier)).all()) == 6
         assert len(session.exec(select(Customer)).all()) == 14
         assert len(session.exec(select(Purchase)).all()) == 13
+        assert len(session.exec(select(CardDelivery)).all()) == 1
 
     def test_existing_password_is_never_changed(self, session: Session) -> None:
         seed(session, PASSWORD)
@@ -207,6 +219,15 @@ class TestIdempotency:
         result = seed(session, PASSWORD)
         assert result.existing == ["business  Café Aurora"]
         assert len(session.exec(select(Business)).all()) == 2
+
+
+class TestSeedCardLink:
+    def test_the_printed_link_opens_the_demo_card(
+        self, session: Session, client: TestClient
+    ) -> None:
+        token = seed(session, PASSWORD).card_url.rsplit("/", 1)[1]
+        body = client.get(f"/api/v1/card/{token}").json()
+        assert (body["code"], body["business"]["name"]) == ("MP-4F7K2", "Café Aurora")
 
 
 class TestDemoScenario:
@@ -265,6 +286,7 @@ class TestCommandLine:
         out = capsys.readouterr().out
         assert "created   business  Café Aurora" in out
         assert f"Demo password for the new users: {DEMO_PASSWORD}" in out
+        assert f"Demo card link (MP-4F7K2): {settings.frontend_public_url}/tarjeta/" in out
 
     def test_main_reports_existing_data(
         self, session: Session, monkeypatch: pytest.MonkeyPatch, capsys

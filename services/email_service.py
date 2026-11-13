@@ -1,7 +1,7 @@
 """Sends email: today only the card link (API contract, section 13.7).
 
-- With `SMTP_HOST`: real SMTP, with the TLS mode of `SMTP_TLS` (for example
-  Mailpit in development).
+- With `SMTP_HOST`: real SMTP, with the TLS mode of `SMTP_TLS` (Mailpit in
+  development, see docker-compose.yml).
 - Without it: in development the message is logged and kept in `OUTBOX` (the
   last 50), so the flow works with no provider; in production the send fails.
 

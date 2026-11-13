@@ -22,7 +22,7 @@ Documentación de la suite de pruebas automatizadas del backend: qué se prueba,
 | Métrica | Valor |
 |---------|-------|
 | Fecha de ejecución | 12 de noviembre de 2026 |
-| Pruebas | **607**, todas pasan (0 `xfail`); conteo del 13 nov 2026 con niveles, clientes, caja, movimientos, plataforma y entrega de la tarjeta digital (enlace y correo) |
+| Pruebas | **608**, todas pasan (0 `xfail`); conteo del 13 nov 2026 con niveles, clientes, caja, movimientos, plataforma y entrega de la tarjeta digital (enlace y correo) |
 | Fallas | **0** |
 | Cobertura de líneas y ramas | **100 %** en `api/`, `core/`, `models/`, `schemas/`, `services/` y `scripts/seed.py`. `scripts/review_pr.py` (revisor del CI) queda en 60 %, por eso el total marca 92 % |
 | Bases de datos probadas | SQLite y **PostgreSQL 18.6** |
@@ -837,7 +837,7 @@ Differences: [('add_column', None, 'users', Column('phone', AutoString(), table=
 
 ---
 
-### 5.10 Seed de demo — `tests/scripts/test_seed.py` (47)
+### 5.10 Seed de demo — `tests/scripts/test_seed.py` (48)
 
 `scripts/seed.py` crea Café Aurora y Gimnasio Titán (`active`) con 4 usuarios (dueño de plataforma, admin y empleado de Café Aurora, y admin de Gimnasio Titán) y sus niveles: Bronce, Plata, Oro y Onyx en Café Aurora (beneficios del contrato, sección 8; precios de demo de $0, $199, $399 y $699) y Básico y Premium en Gimnasio Titán, distintos a propósito.
 
@@ -874,6 +874,7 @@ Differences: [('add_column', None, 'users', Column('phone', AutoString(), table=
 | `test_main_reports_existing_data` | En la segunda corrida reporta "exists" y no crea nada | ✅ |
 | `test_main_never_prints_a_custom_password` | Una `SEED_PASSWORD` propia nunca se imprime | ✅ |
 | `test_main_fails_without_password_in_production` | Sale con código 1 y mensaje "Seed aborted" | ✅ |
+| `test_the_printed_link_opens_the_demo_card` | El enlace que imprime el seed abre la tarjeta `MP-4F7K2` de Café Aurora; la segunda corrida no crea otro | ✅ |
 
 También se probó dentro de la imagen Docker: crea los datos con `SEED_PASSWORD` y se niega a correr sin ella en producción.
 
