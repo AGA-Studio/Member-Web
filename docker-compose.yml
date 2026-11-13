@@ -64,9 +64,11 @@ services:
 
   web:
     profiles: ["stack"]
-    # The :stack tag is built in CI with API_INTERNAL_URL=http://api:8000; the
-    # production image hardcodes the public API host and must not be used here.
-    image: ghcr.io/aga-studio/member-plus-frontend:${WEB_IMAGE_TAG:-stack}
+    # The -stack image is built in CI with API_INTERNAL_URL=http://api:8000 and
+    # tagged sha-<7>-stack (immutable, tied to the commit). Set WEB_IMAGE_TAG to
+    # the tag printed by the Image workflow; the production image hardcodes the
+    # public API host and must not be used here.
+    image: ghcr.io/aga-studio/member-plus-frontend:${WEB_IMAGE_TAG:-sha-local-stack}
     pull_policy: missing
     container_name: memberplus-web
     restart: unless-stopped

@@ -179,15 +179,18 @@ El compose de desarrollo levanta solo Postgres. Para el ensayo sin internet, el 
 |---|---|---|
 | `db` | `postgres:18` | Base del stack (volumen `pgdata`) |
 | `api` | `ghcr.io/aga-studio/member-web:${API_IMAGE_TAG:-0.0.1}` | API, la misma imagen que producción |
-| `web` | `ghcr.io/aga-studio/member-plus-frontend:${WEB_IMAGE_TAG:-stack}` | Frontend compilado con `API_INTERNAL_URL=http://api:8000` |
+| `web` | `ghcr.io/aga-studio/member-plus-frontend:${WEB_IMAGE_TAG:-sha-local-stack}` | Frontend compilado con `API_INTERNAL_URL=http://api:8000` |
 
-**Por qué el frontend usa el tag `stack` y no la imagen normal.** El `rewrite` de `/api/*` se evalúa en `next build` y queda horneado en la imagen. La imagen de producción apunta a `https://api-memberplus.neyzt.org`, así que en localhost y sin internet el navegador intentaría llamar a producción. La imagen `:stack` se construye con el build-arg interno y **solo sirve para este compose**: no se despliega en Coolify. Se publica desde el workflow *Image* del repo del frontend con `workflow_dispatch` y la casilla `stack`.
+**Por qué el frontend usa una imagen `-stack` y no la normal.** El `rewrite` de `/api/*` se evalúa en `next build` y queda horneado en la imagen. La imagen de producción apunta a `https://api-memberplus.neyzt.org`, así que en localhost y sin internet el navegador intentaría llamar a producción. La imagen `-stack` se construye con el build-arg interno y **solo sirve para este compose**: no se despliega en Coolify. Se publica desde el workflow *Image* del repo del frontend con `workflow_dispatch` y la casilla `stack`; el run imprime el tag `sha-<7>-stack` — inmutable, ligado al commit, como el resto de las imágenes — y aquí se fija a mano con `WEB_IMAGE_TAG`, igual que el tag de versión en Coolify.
 
-Con `pull_policy: missing` un `up` normal no refresca un tag que ya está local: después de mover `stack` (o de cambiar `API_IMAGE_TAG`/`WEB_IMAGE_TAG`), correr `docker compose --profile stack pull`.
+Con `pull_policy: missing` un `up` normal no refresca una imagen que ya está local: después de publicar un tag nuevo, correr `docker compose --profile stack pull`.
 
 ### Antes del ensayo (con internet)
 
+Con el tag que imprimió el workflow en `WEB_IMAGE_TAG` (en `.env` o exportado en la sesión):
+
 ```bash
+export WEB_IMAGE_TAG=sha-abc1234-stack   # el tag que imprimió el run del workflow
 docker compose --profile stack pull
 docker compose --profile stack up -d --wait
 docker compose --profile stack exec api python -m scripts.seed
