@@ -67,6 +67,17 @@ class CustomerCreate(BaseModel):
     amount_cents: int | None = None
 
 
+class CustomerRenew(BaseModel):
+    """Renewal at the counter. `level_id` changes the tier at the same time.
+
+    `amount_cents` defaults to the price of the (new) tier; 0 records no payment.
+    """
+
+    level_id: int | None = None
+    payment_method: PaymentMethod = PaymentMethod.CASH
+    amount_cents: int | None = None
+
+
 class CustomerUpdate(BaseModel):
     """Every field is optional. `level_id` changes the tier (paid at the counter)."""
 
