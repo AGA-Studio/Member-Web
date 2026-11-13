@@ -20,6 +20,7 @@ from fastapi import FastAPI
 from api.v1 import auth_api, user_api
 from core.config import settings
 from core.cors import setup_cors
+from core.errors import setup_error_handlers
 from db.database import check_database_connection
 
 API_V1_PREFIX = "/api/v1"
@@ -52,6 +53,7 @@ def create_app() -> FastAPI:
     )
 
     setup_cors(app)
+    setup_error_handlers(app)
 
     for router in API_V1_ROUTERS:
         app.include_router(router, prefix=API_V1_PREFIX)

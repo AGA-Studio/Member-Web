@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Annotated
 
 import jwt
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlmodel import select
 
@@ -15,6 +15,7 @@ from api.v1.dependencies import (
     get_request_token,
 )
 from core.config import settings
+from core.errors import ApiError, ErrorCode
 from core.security import create_access_token, decode_access_token, verify_password
 from models.business_model import Business
 from models.user_model import User
@@ -48,18 +49,20 @@ def login(
     # password; otherwise the lock would not stop a brute-force attack.
     retry_after = login_retry_after(session, email)
     if retry_after is not None:
-        raise HTTPException(
+        raise ApiError(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Too many failed login attempts. Try again later.",
+            code=ErrorCode.LOGIN_LOCKED,
             headers={"Retry-After": str(retry_after)},
         )
 
     user = session.exec(select(User).where(User.email == email)).first()
     if user is None or not verify_password(form.password, user.hashed_password):
         register_failed_login(session, email)
-        raise HTTPException(
+        raise ApiError(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
+            code=ErrorCode.INVALID_CREDENTIALS,
             headers={"WWW-Authenticate": "Bearer"},
         )
     clear_failed_logins(session, email)
