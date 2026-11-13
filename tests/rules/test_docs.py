@@ -36,7 +36,7 @@ def model_tables() -> set[str]:
 
 
 def documented_paths() -> set[str]:
-    return set(re.findall(r"`(?P<path>/[a-z0-9/{}_]+)`", ARCHITECTURE.read_text(encoding="utf-8")))
+    return set(re.findall(r"`(?P<path>/[a-z0-9/{}_-]+)`", ARCHITECTURE.read_text(encoding="utf-8")))
 
 
 def api_paths() -> list[str]:

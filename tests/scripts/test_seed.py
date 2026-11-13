@@ -6,7 +6,17 @@ from sqlmodel import Session, select
 
 from core.config import settings
 from core.security import verify_password
-from models import Business, BusinessStatus, Customer, Role, Tier, User
+from models import (
+    Business,
+    BusinessStatus,
+    CardDelivery,
+    CardStatus,
+    Customer,
+    Purchase,
+    Role,
+    Tier,
+    User,
+)
 from schemas.validators import normalize_person_name
 from scripts import seed as seed_module
 from scripts.seed import CUSTOMERS, DEMO_PASSWORD, USERS, SeedError, resolve_password, seed
@@ -153,17 +163,49 @@ class TestSeedCustomers:
         assert code[3:].isalnum() and not set(code[3:]) & set("01OIL")
 
 
+class TestSeedPurchases:
+    def test_balances_follow_the_checkout_formula(
+        self, session: Session, client: TestClient
+    ) -> None:
+        seed(session, PASSWORD)
+        login(client, "caja@cafe-aurora.mx", PASSWORD)
+        laura = client.get("/api/v1/customer/lookup", params={"code": "MP-4F7K2"}).json()
+        # $1,000 in Oro = 85 points and $25.50; then $250 spending that cashback = 21 and $6.38.
+        assert (laura["points_balance"], laura["cashback_balance_cents"]) == (106, 638)
+        assert laura["last_purchase_at"] is not None
+
+    def test_purchase_after_expiry_earned_nothing(self, session: Session) -> None:
+        seed(session, PASSWORD)
+        ricardo = session.exec(select(Customer).where(Customer.code == "MP-6QXZ9")).one()
+        purchases = session.exec(
+            select(Purchase).where(Purchase.customer_id == ricardo.id).order_by(Purchase.id)
+        ).all()
+        assert [p.card_status for p in purchases] == [CardStatus.ACTIVE, CardStatus.EXPIRED]
+        assert (purchases[1].points_earned, purchases[1].total_cents) == (0, 9_000)
+
+    def test_gimnasio_titan_has_its_own_purchase(
+        self, session: Session, client: TestClient
+    ) -> None:
+        seed(session, PASSWORD)
+        login(client, "admin@gimnasio-titan.mx", PASSWORD)
+        roberto = client.get("/api/v1/customer/lookup", params={"code": "MP-3GYM4"}).json()
+        assert (roberto["points_balance"], roberto["cashback_balance_cents"]) == (106, 1_078)
+
+
 class TestIdempotency:
     def test_second_run_creates_nothing(self, session: Session) -> None:
         first = seed(session, PASSWORD)
         second = seed(session, PASSWORD)
-        assert len(first.created) == 26
+        assert len(first.created) == 40
         assert second.created == []
-        assert len(second.existing) == 26
+        assert len(second.existing) == 40
+        assert second.card_url is None
         assert len(session.exec(select(Business)).all()) == 2
         assert len(session.exec(select(User)).all()) == 4
         assert len(session.exec(select(Tier)).all()) == 6
         assert len(session.exec(select(Customer)).all()) == 14
+        assert len(session.exec(select(Purchase)).all()) == 13
+        assert len(session.exec(select(CardDelivery)).all()) == 1
 
     def test_existing_password_is_never_changed(self, session: Session) -> None:
         seed(session, PASSWORD)
@@ -177,6 +219,15 @@ class TestIdempotency:
         result = seed(session, PASSWORD)
         assert result.existing == ["business  Café Aurora"]
         assert len(session.exec(select(Business)).all()) == 2
+
+
+class TestSeedCardLink:
+    def test_the_printed_link_opens_the_demo_card(
+        self, session: Session, client: TestClient
+    ) -> None:
+        token = seed(session, PASSWORD).card_url.rsplit("/", 1)[1]
+        body = client.get(f"/api/v1/card/{token}").json()
+        assert (body["code"], body["business"]["name"]) == ("MP-4F7K2", "Café Aurora")
 
 
 class TestDemoScenario:
@@ -235,6 +286,7 @@ class TestCommandLine:
         out = capsys.readouterr().out
         assert "created   business  Café Aurora" in out
         assert f"Demo password for the new users: {DEMO_PASSWORD}" in out
+        assert f"Demo card link (MP-4F7K2): {settings.frontend_public_url}/tarjeta/" in out
 
     def test_main_reports_existing_data(
         self, session: Session, monkeypatch: pytest.MonkeyPatch, capsys

@@ -9,20 +9,24 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, status
 
 from api.v1.dependencies import BusinessId, SessionDep, require_roles
-from models.user_model import Role
+from models.user_model import Role, User
+from schemas.card_schema import CardEmailSentResponse, CardLinkResponse, CustomerCreatedResponse
 from schemas.customer_schema import (
     CustomerCreate,
+    CustomerRenew,
     CustomerResponse,
     CustomerStatusFilter,
     CustomerSummaryResponse,
     CustomerUpdate,
 )
 from schemas.pagination_schema import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, PageResponse
-from services import customer_service
+from schemas.payment_schema import MembershipPaymentResponse
+from services import card_service, customer_service, payment_service
 
 router = APIRouter(prefix="/customer", tags=["customer"])
 
 admin_only = [Depends(require_roles(Role.ADMIN))]
+AdminUser = Annotated[User, Depends(require_roles(Role.ADMIN))]
 
 
 @router.get("/list", response_model=PageResponse[CustomerResponse], dependencies=admin_only)
@@ -68,14 +72,14 @@ def lookup(
 
 @router.post(
     "/create",
-    response_model=CustomerResponse,
+    response_model=CustomerCreatedResponse,
     status_code=status.HTTP_201_CREATED,
-    dependencies=admin_only,
 )
 def create_customer(
-    data: CustomerCreate, session: SessionDep, business_id: BusinessId
-) -> CustomerResponse:
-    return customer_service.create_customer(session, business_id, data)
+    data: CustomerCreate, session: SessionDep, business_id: BusinessId, admin: AdminUser
+) -> CustomerCreatedResponse:
+    """Records the first payment. With `send_card_email` (default) it emails the card link."""
+    return card_service.create_customer(session, business_id, data, admin.id)
 
 
 @router.get("/{customer_id}", response_model=CustomerResponse, dependencies=admin_only)
@@ -98,3 +102,51 @@ def cancel_customer(
 ) -> CustomerResponse:
     """Irreversible: the card stays `cancelled`."""
     return customer_service.cancel_customer(session, business_id, customer_id)
+
+
+@router.post("/{customer_id}/card-link", response_model=CardLinkResponse, dependencies=admin_only)
+def create_card_link(
+    customer_id: int, session: SessionDep, business_id: BusinessId
+) -> CardLinkResponse:
+    """New link to the digital card ("Copiar enlace"). The previous link stops working."""
+    return card_service.create_link(session, business_id, customer_id)
+
+
+@router.post(
+    "/{customer_id}/card-link/send", response_model=CardEmailSentResponse, dependencies=admin_only
+)
+def send_card_link(
+    customer_id: int, session: SessionDep, business_id: BusinessId
+) -> CardEmailSentResponse:
+    """Email the customer a new card link. One per minute and five per hour."""
+    return card_service.send_link(session, business_id, customer_id)
+
+
+@router.post("/{customer_id}/renew", response_model=CustomerResponse)
+def renew_customer(
+    customer_id: int,
+    data: CustomerRenew,
+    session: SessionDep,
+    business_id: BusinessId,
+    admin: AdminUser,
+) -> CustomerResponse:
+    """Extend the card and record its payment. A cancelled card is 409."""
+    return customer_service.renew_customer(session, business_id, customer_id, data, admin.id)
+
+
+@router.get(
+    "/{customer_id}/payment/list",
+    response_model=PageResponse[MembershipPaymentResponse],
+    dependencies=admin_only,
+)
+def list_payments(
+    customer_id: int,
+    session: SessionDep,
+    business_id: BusinessId,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = DEFAULT_PAGE_SIZE,
+) -> PageResponse[MembershipPaymentResponse]:
+    """Membership payments of the customer, most recent first."""
+    return payment_service.list_payments(
+        session, business_id, customer_id, page=page, page_size=page_size
+    )

@@ -22,12 +22,12 @@ Documentación de la suite de pruebas automatizadas del backend: qué se prueba,
 | Métrica | Valor |
 |---------|-------|
 | Fecha de ejecución | 12 de noviembre de 2026 |
-| Pruebas | **435**, todas pasan (0 `xfail`); conteo del 13 nov 2026 con niveles y clientes |
+| Pruebas | **649**, todas pasan (0 `xfail`); conteo del 13 nov 2026 con niveles, clientes, caja, movimientos, plataforma, entrega de la tarjeta digital y pagos de membresía |
 | Fallas | **0** |
 | Cobertura de líneas y ramas | **100 %** en `api/`, `core/`, `models/`, `schemas/`, `services/` y `scripts/seed.py`. `scripts/review_pr.py` (revisor del CI) queda en 60 %, por eso el total marca 92 % |
 | Bases de datos probadas | SQLite y **PostgreSQL 18.6** |
 | Tiempo | ~17 s en SQLite · ~42 s en PostgreSQL (equipo local) |
-| Criterio del MVP "0 filas de otro negocio" | ✅ Cumplido (7 pruebas de usuarios + 4 de niveles + 9 de clientes) |
+| Criterio del MVP "0 filas de otro negocio" | ✅ Cumplido (7 pruebas de usuarios + 4 de niveles + 9 de clientes + 4 de caja + 3 de movimientos + 3 del enlace a la tarjeta) |
 | Migraciones (Alembic) | ✅ Suben, bajan, convierten datos y coinciden con los modelos (9 pruebas) |
 | Hallazgos | ✅ Los 7 corregidos (H1–H7) |
 
@@ -200,7 +200,8 @@ tests/
 │   ├── test_models.py
 │   ├── test_validators.py
 │   ├── test_auth_service.py
-│   └── test_customer_service.py
+│   ├── test_customer_service.py
+│   └── test_pricing_service.py
 └── api/
     ├── test_system.py
     ├── test_auth.py
@@ -210,6 +211,11 @@ tests/
     ├── test_isolation_tier.py
     ├── test_customer.py
     ├── test_isolation_customer.py
+    ├── test_checkout.py
+    ├── test_isolation_checkout.py
+    ├── test_movement.py
+    ├── test_isolation_movement.py
+    ├── test_platform.py
     ├── test_login_limit.py
     ├── test_error_codes.py
     └── test_known_issues.py
@@ -696,7 +702,7 @@ Contrato del frontend, sección 3. Las reglas viven en `services/customer_servic
 | `TestTierCount` | `/tier/list` cuenta solo tarjetas no canceladas | ✅ |
 | `TestCodeAndRaces` | Un código ya usado se regenera; tras 10 choques se rinde con error; dos altas con el mismo email a la vez → 409, no 500, y la API sigue respondiendo | ✅ |
 
-### 5.7d Aislamiento de clientes — `tests/api/test_isolation_customer.py` (9)
+### 5.7d Aislamiento de clientes — `tests/api/test_isolation_customer.py` (11)
 
 | Prueba | Verifica | Resultado |
 |--------|----------|-----------|
@@ -709,10 +715,103 @@ Contrato del frontend, sección 3. Las reglas viven en `services/customer_servic
 | `test_cannot_assign_a_tier_of_the_other_business` | Un `level_id` de B → 422 al crear y al editar | ✅ |
 | `test_level_filter_with_other_business_tier_is_empty` | Filtrar por un nivel de B devuelve 0 | ✅ |
 | `test_tier_counts_only_its_customers` | `customers_count` no cuenta clientes de otro negocio | ✅ |
+| `test_renew_of_other_business_is_404_and_unchanged` | Renovar un cliente de B → 404, sin cambiar su vigencia ni registrar pago | ✅ |
+| `test_payment_list_of_other_business_looks_like_nonexistent` | Los pagos de un cliente de B responden igual que un cliente inexistente | ✅ |
 
 ### 5.7e Servicio de clientes — `tests/unit/test_customer_service.py` (10)
 
 `add_months` (mismo día, fin de mes y 29 de febrero), `normalize_code`, y que `generate_code` usa el alfabeto sin caracteres parecidos y produce códigos distintos.
+
+### 5.7f Fórmula de caja — `tests/unit/test_pricing_service.py` (14)
+
+`services/pricing_service.py` sin base de datos: el ejemplo de la rúbrica ($1,000.00 en Oro → 85 000, 85 puntos y $25.50), puntos y cashback sobre la base antes de restar el cashback usado, el cashback usado nunca pasa de la base, redondeo mitad hacia arriba al centavo, puntos hacia abajo por cada $10, tarjeta sin beneficios y nivel con todo en 0.
+
+### 5.7g Caja — `tests/api/test_checkout.py` (35)
+
+Contrato del frontend, sección 5. Los casos parametrizados cuentan uno por variante.
+
+| Clase | Qué verifica | Resultado |
+|-------|--------------|-----------|
+| `TestCreate` | Forma exacta del comprobante con el ejemplo de la rúbrica; los saldos de `/customer` (ficha, lista y `lookup`) salen de las compras; sin compras, 0 y `null`; usar cashback y su tope en la base; tarjeta vencida o cancelada paga completo y no gana ni usa nada; el admin también cobra; el cajero sale del token | ✅ |
+| `TestValidation` | `amount_cents` 0, negativo o mayor a 100 000 000 → 422 `amount_invalid`; no entero → 422 de FastAPI; `concept` se limpia, en blanco es `null`, más de 120 → 422; cliente desconocido → 404 `customer_not_found`; un error no guarda nada | ✅ |
+| `TestReceipt` | `GET` devuelve el mismo comprobante; el admin lee todos; un cajero no lee el de otro (404 `checkout_not_found`); id desconocido → 404; el comprobante conserva el nivel aplicado aunque se edite después | ✅ |
+| `TestPreview` | Da los mismos números que `create` y no guarda nada; tarjeta vencida; valida igual que `create` | ✅ |
+| `TestIdempotency` | La misma clave no cobra dos veces (`Idempotent-Replayed: true`); misma clave con otro monto → 409 `idempotency_conflict`; claves distintas son compras distintas; clave de más de 64 → 422; dos reintentos simultáneos → una sola compra | ✅ |
+| `TestPermissions` | `platform` → 403; sin sesión → 401 | ✅ |
+
+### 5.7h Aislamiento de caja — `tests/api/test_isolation_checkout.py` (4)
+
+| Prueba | Verifica | Resultado |
+|--------|----------|-----------|
+| `test_cannot_charge_a_customer_of_the_other_business` | Cobrar o previsualizar a un cliente de B desde A → 404, y no se guarda nada | ✅ |
+| `test_receipt_of_the_other_business_looks_like_nonexistent` | El comprobante de B responde igual que uno inexistente | ✅ |
+| `test_balances_count_zero_rows_of_the_other_business` | Los saldos de A no suman compras de B | ✅ |
+| `test_idempotency_keys_are_per_business` | La misma `Idempotency-Key` en dos negocios son dos compras | ✅ |
+
+### 5.7i Movimientos — `tests/api/test_movement.py` (41)
+
+Contrato del frontend, sección 6. Las compras se registran con `/checkout/create` y después se mueven en el tiempo. Los casos parametrizados cuentan uno por variante.
+
+| Clase | Qué verifica | Resultado |
+|-------|--------------|-----------|
+| `TestList` | Forma exacta del movimiento (`cashier_name`, `points_delta`, sin `register_name`); su id es el del comprobante; más reciente primero; `summary` suma todo el conjunto filtrado aunque la página sea de 1; sin compras todo en 0; filtro por cliente; `q` por nombre o código sin distinguir mayúsculas, no por correo; `from`/`to` inclusivos y sin zona = UTC; "últimos 7 días"; página fuera de rango → la última; cliente desconocido → lista vacía; parámetros inválidos → 422 | ✅ |
+| `TestExport` | `text/csv; charset=utf-8`, `attachment` con nombre `movimientos-AAAAMMDD.csv` y BOM; columnas en orden e importes en pesos (`1000.00`, `25.50`); mismos filtros que `list` sin paginar; sin compras solo el encabezado; una celda que empieza con `=` sale con `'` | ✅ |
+| `TestHelpers` | `pesos` (0, centavos sueltos, negativos) y `safe_cell` (`=`, `+`, `-`, `@`, vacío) | ✅ |
+| `TestPermissions` | `employee` y `platform` → 403 en las dos rutas; sin sesión → 401 | ✅ |
+
+### 5.7j Aislamiento de movimientos — `tests/api/test_isolation_movement.py` (3)
+
+| Prueba | Verifica | Resultado |
+|--------|----------|-----------|
+| `test_list_shows_zero_rows_of_the_other_business` | La lista y su `summary` de A no cuentan compras de B | ✅ |
+| `test_filtering_by_a_customer_of_the_other_business_finds_nothing` | `customer_id` o `q` de un cliente de B → lista vacía | ✅ |
+| `test_export_has_zero_rows_of_the_other_business` | El CSV de A no trae filas de B, ni filtrando por su cliente | ✅ |
+
+### 5.7k Plataforma — `tests/api/test_platform.py` (19)
+
+Contrato del frontend, sección 7. No usa `BusinessId`, así que no lleva prueba de aislamiento entre negocios. En su lugar, `TestPrivacy` comprueba que no sale ningún dato de clientes.
+
+| Clase | Qué verifica | Resultado |
+|-------|--------------|-----------|
+| `TestList` | Forma exacta del negocio; todos los negocios por nombre; `customers_count` no cuenta tarjetas canceladas; filtro por `status`; `q` busca en el nombre sin distinguir mayúsculas y no en los clientes; página fuera de rango → la última; parámetros inválidos → 422 | ✅ |
+| `TestPrivacy` | La respuesta no trae nombres, códigos, correos, puntos ni cashback de clientes; solo las 5 llaves del contrato | ✅ |
+| `TestPermissions` | `admin` y `employee` → 403; sin sesión → 401 | ✅ |
+
+### 5.7l Entrega de la tarjeta digital — `tests/api/test_card.py` (59)
+
+Contrato del frontend, sección 13 (enlace, correo, tarjeta pública y Google Wallet). Las rutas `/card` no usan sesión. El correo se prueba sin mocks: sin `SMTP_HOST` va a la bandeja en memoria (`email_service.OUTBOX`), y `tests/smtp_server.py` levanta un servidor SMTP real en `127.0.0.1` que acepta, rechaza o tarda.
+
+| Clase | Qué verifica | Resultado |
+|-------|--------------|-----------|
+| `TestCreateLink` | La URL es `{FRONTEND_PUBLIC_URL}/tarjeta/<token>` con un token de 43 caracteres y `expires_at` = `valid_until`; en la base solo queda el SHA-256 del token; los tokens son aleatorios y no contienen el código; un enlace nuevo revoca el anterior y queda uno activo; tarjeta cancelada → 409 `customer_cancelled`; vencida → 409 `customer_expired`; cliente inexistente → 404 `customer_not_found` | ✅ |
+| `TestSendLink` | Envía al correo del cliente con asunto `Tu tarjeta de {negocio}` y remitente con el nombre del negocio; el cuerpo sigue el contrato y no lleva código, puntos, saldo ni signos de exclamación; el enlace del correo abre la tarjeta; cada correo lleva un enlace nuevo y revoca el copiado; otro envío antes de 1 minuto → 429 `card_email_rate_limited` con `Retry-After` y sin revocar el enlace; 5 envíos en la última hora → 429 (4 sí pasan; los de hace más de una hora no cuentan); tarjeta cancelada o vencida → 409; cliente inexistente → 404 | ✅ |
+| `TestSmtp` | Envía por SMTP real; el proveedor que cierra la conexión → 502 `email_failed`; en producción sin `SMTP_HOST` → 502 | ✅ |
+| `TestCreateCustomer` | El alta envía la tarjeta por defecto (`card_email.status` = `sent`) y el enlace abre; `send_card_email: false` → `skipped` y sin enlace; un correo fallido no falla el alta (`failed`, 201); un proveedor lento → `pending` sin pasar del plazo; el alta cuenta para el límite de envíos | ✅ |
+| `TestPublicCard` | Forma exacta del contrato (sin sesión); no trae correo, teléfono, puntos, cashback ni ids; `Cache-Control: no-store` en 200 y en 404; token desconocido, largo o revocado → mismo 404 `card_link_not_found`; cancelar revoca el enlace; tarjeta vencida o negocio suspendido → mismo 404; tarjeta renovada vuelve a abrir; más de `CARD_RATE_LIMIT_PER_MINUTE` por IP → 429 `rate_limited` con `Retry-After` | ✅ |
+| `TestGoogleWallet` | Sin configuración → 503 `wallet_unavailable` con `no-store`; token desconocido → 404 antes que el 503; tarjeta cancelada → 404; con configuración la tarjeta dice `wallet.google = true`; el JWT se firma con RS256 y se decodifica con la llave pública de prueba (`iss`, `aud`, `typ`, `origins`); lleva la clase del negocio y el objeto del cliente con el QR igual al `code`; usa el logo `https` del negocio si existe; una cuenta de servicio rota o una variable vacía → sin configurar | ✅ |
+| `TestPermissions` | `card-link` y `card-link/send`: `employee` y `platform` → 403; sin sesión → 401. La tarjeta pública abre sin sesión | ✅ |
+
+### 5.7m Aislamiento del enlace — `tests/api/test_isolation_card.py` (3)
+
+| Prueba | Verifica | Resultado |
+|--------|----------|-----------|
+| `test_admin_b_gets_404_for_a_customer_of_a` | El admin de B no puede crear ni enviar el enlace de un cliente de A (404); no se guarda nada ni sale ningún correo | ✅ |
+| `test_a_link_of_a_shows_only_a` | El enlace de A muestra el negocio A aunque lo abra una sesión de B | ✅ |
+
+### 5.7n Límite por IP — `tests/unit/test_rate_limit.py` (5)
+
+`core/rate_limit.py`: ventana deslizante en memoria. Permite hasta el límite y luego da los segundos de espera; cuenta cada llave aparte; las peticiones viejas salen de la ventana; `reset` borra todo; con demasiadas llaves descarta las que ya no tienen peticiones.
+
+### 5.7o Pagos de membresía — `tests/api/test_membership_payment.py` (25)
+
+Contrato del frontend, sección 9 (DECISIÓN 9).
+
+| Clase | Qué verifica | Resultado |
+|-------|--------------|-----------|
+| `TestFirstPayment` | El alta registra un pago `new` con el precio del nivel, el método `cash`, el periodo de la tarjeta y el admin que lo registró; el admin puede cambiar monto y método; nivel gratuito o monto 0 no registran pago; monto fuera de rango → 422 `amount_invalid` sin crear el cliente; método desconocido → 422; un correo duplicado no deja pago suelto | ✅ |
+| `TestValidityMonths` | Sin cambios la vigencia es de 12 meses; con `validity_months = 6` en el negocio, la tarjeta y su pago duran 6 meses | ✅ |
+| `TestRenew` | Una tarjeta vigente renueva desde su `valid_until` y una vencida desde hoy; puede cambiar nivel, monto y método; renovar un nivel gratuito no registra pago; tarjeta cancelada → 409 `customer_cancelled` sin pago ni cambio; nivel desconocido o monto fuera de rango → 422; cliente inexistente → 404; el cajero → 403 | ✅ |
+| `TestPaymentList` | El más reciente primero, con método, monto, nivel, periodo y quién lo registró; conserva el nombre del nivel aunque luego cambie; pagina; vacía para un cliente gratuito; cliente inexistente → 404; el cajero → 403 | ✅ |
 
 ### 5.8 Hallazgos conocidos — `tests/api/test_known_issues.py` (0)
 
@@ -752,7 +851,7 @@ Differences: [('add_column', None, 'users', Column('phone', AutoString(), table=
 
 ---
 
-### 5.10 Seed de demo — `tests/scripts/test_seed.py` (44)
+### 5.10 Seed de demo — `tests/scripts/test_seed.py` (48)
 
 `scripts/seed.py` crea Café Aurora y Gimnasio Titán (`active`) con 4 usuarios (dueño de plataforma, admin y empleado de Café Aurora, y admin de Gimnasio Titán) y sus niveles: Bronce, Plata, Oro y Onyx en Café Aurora (beneficios del contrato, sección 8; precios de demo de $0, $199, $399 y $699) y Básico y Premium en Gimnasio Titán, distintos a propósito.
 
@@ -772,7 +871,10 @@ Differences: [('add_column', None, 'users', Column('phone', AutoString(), table=
 | `test_the_contract_card_is_found_at_the_counter` | `MP-4F7K2` (Laura Méndez, Oro) se encuentra en caja | ✅ |
 | `test_tiers_count_the_seeded_customers` | `customers_count` de cada nivel coincide con el seed (sin la cancelada) | ✅ |
 | `test_demo_customers_follow_the_rules[...]` | Nombres válidos y códigos sin caracteres parecidos (14 casos) | ✅ |
-| `test_second_run_creates_nothing` | Correrlo dos veces no duplica nada (26 registros) | ✅ |
+| `test_balances_follow_the_checkout_formula` | Laura Méndez: $1,000 en Oro y luego $250 usando su cashback → 106 puntos y $6.38 | ✅ |
+| `test_purchase_after_expiry_earned_nothing` | Ricardo Flores compra con la tarjeta activa y otra vez ya vencida: la segunda no gana nada | ✅ |
+| `test_gimnasio_titan_has_its_own_purchase` | Gimnasio Titán tiene su propia compra y saldos | ✅ |
+| `test_second_run_creates_nothing` | Correrlo dos veces no duplica nada (39 registros) | ✅ |
 | `test_existing_password_is_never_changed` | Una segunda corrida con otra contraseña no cambia la existente | ✅ |
 | `test_completes_partial_data` | Si ya existe un negocio, crea solo lo que falta | ✅ |
 | `test_admin_a_sees_only_cafe_aurora` | El admin de Café Aurora ve solo a sus 2 usuarios | ✅ |
@@ -786,6 +888,7 @@ Differences: [('add_column', None, 'users', Column('phone', AutoString(), table=
 | `test_main_reports_existing_data` | En la segunda corrida reporta "exists" y no crea nada | ✅ |
 | `test_main_never_prints_a_custom_password` | Una `SEED_PASSWORD` propia nunca se imprime | ✅ |
 | `test_main_fails_without_password_in_production` | Sale con código 1 y mensaje "Seed aborted" | ✅ |
+| `test_the_printed_link_opens_the_demo_card` | El enlace que imprime el seed abre la tarjeta `MP-4F7K2` de Café Aurora; la segunda corrida no crea otro | ✅ |
 
 También se probó dentro de la imagen Docker: crea los datos con `SEED_PASSWORD` y se niega a correr sin ella en producción.
 
@@ -803,7 +906,7 @@ No usan fixtures ni base de datos, así que corren también en el job de Postgre
 | `test_output_schemas_never_expose_credentials` | Ningún `*Response` expone `hashed_password`, `password`, `secret`, `api_key`… | Los DTO de salida no filtran credenciales |
 | `test_every_module_has_an_output_schema` | Existe al menos un `*Response` en `schemas/` | Un módulo declara lo que devuelve |
 | `test_no_async_functions_in_the_application` | No hay `async def` en `api/`, `core/`, `db/`, `models/`, `schemas/`, `scripts/`, `services/` | El proyecto es síncrono |
-| `test_every_route_matches_the_resource_action_shape` | Toda ruta es `/<recurso>/<acción>`, con la acción en lista cerrada | Convención de rutas |
+| `test_every_route_matches_the_resource_action_shape` | Toda ruta es `/<recurso>/<acción>`, con la acción en lista cerrada; `SUB_RESOURCES` permite `business` en `/platform/business/list` | Convención de rutas |
 | `test_only_health_lives_outside_the_version_prefix` | Solo `/health` vive fuera de `/api/v1` | Todo lo demás va versionado |
 | `test_every_router_module_is_registered_in_main` | Todo `api/v1/*_api.py` está en `API_V1_ROUTERS` | Un router sin registrar es código muerto |
 | `test_every_registered_router_comes_from_a_module` | Todo router registrado tiene su módulo | Sin routers fantasma en `main.py` |

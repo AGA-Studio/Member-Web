@@ -5,9 +5,9 @@ from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import Session
+from sqlmodel import Session, select
 
-from models import Customer, Tier, TierFinish
+from models import Customer, MembershipPayment, Tier, TierFinish
 from tests.conftest import login
 
 BASE = "/api/v1/customer"
@@ -129,3 +129,28 @@ def test_tier_counts_only_its_customers(client: TestClient, data) -> None:
     login(client, "admin.a@demo.mx")
     counts = [t["customers_count"] for t in client.get("/api/v1/tier/list").json()]
     assert counts == [1]
+
+
+def test_renew_of_other_business_is_404_and_unchanged(
+    client: TestClient, session: Session, data
+) -> None:
+    login(client, "admin.a@demo.mx")
+    target = data["b"]
+    before = target.valid_until
+    response = client.post(f"{BASE}/{target.id}/renew", json={"amount_cents": 1_000})
+    assert response.status_code == 404
+    session.expire_all()
+    assert session.get(Customer, target.id).valid_until == before
+    assert session.exec(select(MembershipPayment)).all() == []
+
+
+def test_payment_list_of_other_business_looks_like_nonexistent(client: TestClient, data) -> None:
+    login(client, "admin.b@demo.mx")
+    assert (
+        client.post(f"{BASE}/{data['b'].id}/renew", json={"amount_cents": 1_000}).status_code == 200
+    )
+    login(client, "admin.a@demo.mx")
+    other = client.get(f"{BASE}/{data['b'].id}/payment/list")
+    missing = client.get(f"{BASE}/999999/payment/list")
+    assert other.status_code == 404
+    assert other.json() == missing.json()

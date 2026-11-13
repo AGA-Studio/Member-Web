@@ -10,6 +10,7 @@ from typing import Annotated
 
 from pydantic import AfterValidator, BaseModel, EmailStr, Field
 
+from models.membership_payment_model import PaymentMethod
 from models.tier_model import TierFinish
 from schemas.validators import PersonName
 
@@ -50,12 +51,31 @@ Phone = Annotated[
 
 
 class CustomerCreate(BaseModel):
-    """Without `level_id` the customer gets the business's cheapest tier."""
+    """Without `level_id` the customer gets the business's cheapest tier.
+
+    `send_card_email` (default true) emails the customer the link to their card.
+    The first payment is recorded with `payment_method`; `amount_cents` defaults to
+    the tier's price, and 0 records no payment.
+    """
 
     full_name: PersonName
     email: EmailStr
     phone: Phone | None = None
     level_id: int | None = None
+    send_card_email: bool = True
+    payment_method: PaymentMethod = PaymentMethod.CASH
+    amount_cents: int | None = None
+
+
+class CustomerRenew(BaseModel):
+    """Renewal at the counter. `level_id` changes the tier at the same time.
+
+    `amount_cents` defaults to the price of the (new) tier; 0 records no payment.
+    """
+
+    level_id: int | None = None
+    payment_method: PaymentMethod = PaymentMethod.CASH
+    amount_cents: int | None = None
 
 
 class CustomerUpdate(BaseModel):

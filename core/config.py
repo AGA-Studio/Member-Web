@@ -39,7 +39,30 @@ class Settings(BaseSettings):
     # CORS: "http://a,http://b" in the .env
     cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:3000"]
 
-    @field_validator("cors_origins", mode="before")
+    # Public base of the frontend: the card link is `{frontend_public_url}/tarjeta/<token>`.
+    frontend_public_url: str = "http://localhost:3000"
+
+    # Email (card link). Empty SMTP_HOST = no provider: in development the email is
+    # logged and kept in memory; in production every send fails (`email_failed`).
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_tls: Literal["none", "starttls", "ssl"] = "starttls"
+    smtp_timeout_seconds: float = Field(default=10, gt=0)
+    mail_from: str = "no-reply@memberplus.mx"
+
+    # Google Wallet. All of issuer, service account and logo are needed; with any
+    # of them empty, the card page hides the button and the endpoint answers 503.
+    google_wallet_issuer_id: str = ""
+    google_wallet_service_account_json: str = ""
+    google_wallet_origins: Annotated[list[str], NoDecode] = []
+    google_wallet_logo_url: str = ""
+
+    # Requests per minute and IP to the public card endpoints.
+    card_rate_limit_per_minute: int = Field(default=30, ge=1)
+
+    @field_validator("cors_origins", "google_wallet_origins", mode="before")
     @classmethod
     def _split_origins(cls, value: str | list[str]) -> list[str]:
         if isinstance(value, str):

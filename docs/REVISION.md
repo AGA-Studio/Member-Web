@@ -25,11 +25,11 @@ Un PR no las contradice. Si de verdad hay que cambiarlas, se cambia primero la c
 | Beneficios simultáneos | Los tres aplican a la vez si el negocio los habilita | Descuento, puntos y cashback en la misma compra |
 | Cashback | Se acumula y se aplica en la compra siguiente con aprobación del cliente | Saldo de cashback separado del de puntos |
 | Subir de nivel | Por cobro | Mejor nivel = más beneficio y más costo |
-| Vigencia | Meses y precio configurables por negocio, renovación manual | Sin cobro automático |
+| Vigencia | Precio por nivel (`price_cents`); meses configurables por negocio más adelante, renovación manual | Por ahora **12 meses fijos** (`VALIDITY_MONTHS`, corregida el 13 nov 2026); sin cobro automático |
 | Pagos de membresía | Se registran en tabla simple | Monto, fecha, método y quién lo registró; sin pasarela |
 | Cliente | No tiene cuenta | Solo administrador y empleado inician sesión |
 | Tarjeta | Una sola entidad con nivel, estado y vigencia | Una tarjeta por cliente; sin tabla "membresía" aparte |
-| Numeración | Id único global y correlativo por negocio | El correlativo es el que se imprime |
+| Numeración | Id único global; se imprime un código corto aleatorio `MP-XXXXX`, único por negocio | 5 caracteres sin `0/O/1/I/L`; no es correlativo (corregida el 13 nov 2026) |
 | Caja | QR impreso con código corto y tecleable | El QR lleva solo el código, no un UUID; si el lector falla se teclea |
 | Identidad | **Sin reconocimiento facial en ningún punto** | No se guardan fotos ni datos biométricos; se retiró RF-11 |
 | Auth | JWT en cookie httpOnly y Argon2id | Sin NextAuth, sin Supabase |
