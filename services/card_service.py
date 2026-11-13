@@ -43,13 +43,14 @@ from schemas.card_schema import (
     CardEmailStatus,
     CardLinkResponse,
     CustomerCreatedResponse,
+    GoogleWalletResponse,
     PublicBusinessResponse,
     PublicCardResponse,
     PublicTierResponse,
     WalletAvailabilityResponse,
 )
 from schemas.customer_schema import CustomerCreate, CustomerStatus
-from services import customer_service, email_service
+from services import customer_service, email_service, wallet_service
 from services.customer_service import as_utc, customer_status, utc_now
 
 TOKEN_BYTES = 32
@@ -283,6 +284,18 @@ def public_card(session: Session, token: str) -> PublicCardResponse:
         level=PublicTierResponse(name=tier.name, finish=tier.finish),
         status=CustomerStatus.ACTIVE,
         valid_until=as_utc(customer.valid_until),
-        # Google Wallet is not available yet: the frontend hides the button.
-        wallet=WalletAvailabilityResponse(google=False),
+        wallet=WalletAvailabilityResponse(google=wallet_service.is_configured()),
     )
+
+
+def google_wallet(session: Session, token: str) -> GoogleWalletResponse:
+    customer, tier, business = _resolve(session, token)
+    if not wallet_service.is_configured():
+        raise ApiError(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Google Wallet is not configured",
+            code=ErrorCode.WALLET_UNAVAILABLE,
+            headers=NO_STORE,
+        )
+    url = wallet_service.save_url(business, customer, tier, as_utc(customer.valid_until), utc_now())
+    return GoogleWalletResponse(save_url=url)

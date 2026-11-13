@@ -31,6 +31,7 @@ class ErrorCode(StrEnum):
     CARD_LINK_NOT_FOUND = "card_link_not_found"
     CARD_EMAIL_RATE_LIMITED = "card_email_rate_limited"
     EMAIL_FAILED = "email_failed"
+    WALLET_UNAVAILABLE = "wallet_unavailable"
     RATE_LIMITED = "rate_limited"
 
 
