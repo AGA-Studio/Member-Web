@@ -22,7 +22,7 @@ Documentación de la suite de pruebas automatizadas del backend: qué se prueba,
 | Métrica | Valor |
 |---------|-------|
 | Fecha de ejecución | 12 de noviembre de 2026 |
-| Pruebas | **622**, todas pasan (0 `xfail`); conteo del 13 nov 2026 con niveles, clientes, caja, movimientos, plataforma y entrega de la tarjeta digital (enlace, correo y Google Wallet) |
+| Pruebas | **632**, todas pasan (0 `xfail`); conteo del 13 nov 2026 con niveles, clientes, caja, movimientos, plataforma, entrega de la tarjeta digital y pagos de membresía |
 | Fallas | **0** |
 | Cobertura de líneas y ramas | **100 %** en `api/`, `core/`, `models/`, `schemas/`, `services/` y `scripts/seed.py`. `scripts/review_pr.py` (revisor del CI) queda en 60 %, por eso el total marca 92 % |
 | Bases de datos probadas | SQLite y **PostgreSQL 18.6** |
@@ -799,6 +799,15 @@ Contrato del frontend, sección 13 (enlace, correo, tarjeta pública y Google Wa
 ### 5.7n Límite por IP — `tests/unit/test_rate_limit.py` (5)
 
 `core/rate_limit.py`: ventana deslizante en memoria. Permite hasta el límite y luego da los segundos de espera; cuenta cada llave aparte; las peticiones viejas salen de la ventana; `reset` borra todo; con demasiadas llaves descarta las que ya no tienen peticiones.
+
+### 5.7o Pagos de membresía — `tests/api/test_membership_payment.py` (10)
+
+Contrato del frontend, sección 9 (DECISIÓN 9).
+
+| Clase | Qué verifica | Resultado |
+|-------|--------------|-----------|
+| `TestFirstPayment` | El alta registra un pago `new` con el precio del nivel, el método `cash`, el periodo de la tarjeta y el admin que lo registró; el admin puede cambiar monto y método; nivel gratuito o monto 0 no registran pago; monto fuera de rango → 422 `amount_invalid` sin crear el cliente; método desconocido → 422; un correo duplicado no deja pago suelto | ✅ |
+| `TestValidityMonths` | Sin cambios la vigencia es de 12 meses; con `validity_months = 6` en el negocio, la tarjeta y su pago duran 6 meses | ✅ |
 
 ### 5.8 Hallazgos conocidos — `tests/api/test_known_issues.py` (0)
 

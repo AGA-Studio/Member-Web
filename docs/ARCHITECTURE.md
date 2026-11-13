@@ -75,6 +75,7 @@ flowchart TB
     MOD --> M8["purchase_model.py — Purchase (compra = movimiento = comprobante)"]
     MOD --> M9["card_delivery_model.py — CardDelivery (enlace a la tarjeta digital)"]
     MOD --> M10["card_email_model.py — CardEmail (envíos, para el límite)"]
+    MOD --> M11["membership_payment_model.py — MembershipPayment, PaymentMethod, PaymentKind"]
     SRV --> SV1["auth_service.py — revocación de tokens · límite de login"]
     SRV --> SV2["tier_service.py — listar y editar niveles · reglas de rango"]
     SRV --> SV3["customer_service.py — clientes · código · estado · saldos · paginación"]
@@ -85,6 +86,7 @@ flowchart TB
     SRV --> SV8["card_service.py — enlace · correo · tarjeta pública"]
     SRV --> SV9["email_service.py — SMTP con plazo máximo · bandeja en memoria"]
     SRV --> SV10["wallet_service.py — JWT de Google Wallet"]
+    SRV --> SV11["payment_service.py — pagos de membresía"]
     SCR --> SC1["seed.py — 2 negocios demo, usuarios, niveles, clientes, compras y un enlace"]
     SCH --> S1["user_schema.py — UserCreate · UserUpdate · UserResponse · MeResponse"]
     SCH --> S4["business_schema.py — BusinessSummaryResponse"]
@@ -124,11 +126,14 @@ erDiagram
     tiers ||--o{ purchases : "nivel aplicado"
     customers ||--o{ card_deliveries : "enlace"
     customers ||--o{ card_emails : "envíos"
+    customers ||--o{ membership_payments : "paga"
+    users ||--o{ membership_payments : "registra"
 
     businesses {
         int id PK
         string name
         string logo_url "nullable"
+        int validity_months "meses de vigencia; 12 por defecto"
         enum status "trial | active | suspended"
         datetime created_at
     }
@@ -191,6 +196,21 @@ erDiagram
         int points_per_ten "≥ 0; puntos por cada $10"
         decimal cashback_percent "0 a 100, 2 decimales"
         datetime created_at
+    }
+
+    membership_payments {
+        int id PK
+        int business_id FK "índice"
+        int customer_id FK "índice"
+        int tier_id FK "nivel pagado"
+        string tier_name "copia del nombre"
+        enum kind "new | renewal"
+        enum method "cash | card | transfer"
+        int amount_cents "> 0"
+        datetime period_start
+        datetime period_end "vigencia que compró"
+        int recorded_by FK "users.id, sale del token"
+        datetime created_at "índice"
     }
 
     card_deliveries {
@@ -275,7 +295,7 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | GET | `/api/v1/customer/list` | admin | Clientes paginados por `full_name`. Filtros `q` (nombre, email o código), `level_id`, `status` (`active` \| `expiring` \| `expired` \| `cancelled`), `page`, `page_size` (8 por defecto, máx. 500). Una página que no existe devuelve la última |
 | GET | `/api/v1/customer/summary` | admin | Conteos `all`, `active` (incluye las por vencer), `expiring`, `expired`, `cancelled` |
 | GET | `/api/v1/customer/lookup` | admin, employee | Tarjeta por `code` (QR o tecleado; ignora espacios y mayúsculas). Responde también para vencidas y canceladas. 404 `customer_not_found` |
-| POST | `/api/v1/customer/create` | admin | Alta con `full_name`, `email`, `phone` y `level_id` opcionales. Genera `code`, `issued_at` y `valid_until` (+12 meses). Con `send_card_email` (`true` por defecto) envía el enlace a la tarjeta; la respuesta agrega `card_email.status` (`sent` \| `failed` \| `pending` \| `skipped`) y un correo fallido no falla el alta. 409 `email_taken` |
+| POST | `/api/v1/customer/create` | admin | Alta con `full_name`, `email`, `phone` y `level_id` opcionales. Genera `code`, `issued_at` y `valid_until` (+`validity_months` del negocio). Registra el primer pago (`payment_method` = `cash` \| `card` \| `transfer`, `cash` por defecto; `amount_cents`, por defecto el precio del nivel; 0 no registra pago). Con `send_card_email` (`true` por defecto) envía el enlace a la tarjeta; la respuesta agrega `card_email.status` (`sent` \| `failed` \| `pending` \| `skipped`) y un correo fallido no falla el alta. 409 `email_taken` |
 | GET | `/api/v1/customer/{customer_id}` | admin | Ficha del cliente |
 | PATCH | `/api/v1/customer/{customer_id}/update` | admin | Edita `full_name`, `email`, `phone` (`null` lo borra) o `level_id` (cambio de nivel). 409 `email_taken` |
 | POST | `/api/v1/customer/{customer_id}/cancel` | admin | Cancela la tarjeta y revoca su enlace; irreversible y repetirlo no cambia nada |
@@ -317,7 +337,7 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | `email_taken` | 409 | `/user/create` y `/user/{user_id}/update`: email en uso |
 | `tier_invalid` | 422 | `/tier/{tier_id}/update`: valor fuera de rango. `/customer/create` y `/customer/{customer_id}/update`: `level_id` inexistente, de otro negocio, o negocio sin niveles |
 | `customer_not_found` | 404 | `/customer/lookup`, `/customer/{customer_id}` y sus acciones, `/checkout/create` y `/checkout/preview`: no existe o es de otro negocio |
-| `amount_invalid` | 422 | `/checkout/create` y `/checkout/preview`: `amount_cents` fuera de 1 a 100 000 000. Un monto que no es entero es validación de campo (422 de FastAPI, sin `code`) |
+| `amount_invalid` | 422 | `/checkout/create` y `/checkout/preview`: `amount_cents` fuera de 1 a 100 000 000. `/customer/create`: `amount_cents` fuera de 0 a 100 000 000. Un monto que no es entero es validación de campo (422 de FastAPI, sin `code`) |
 | `checkout_not_found` | 404 | `/checkout/{checkout_id}`: no existe, es de otro negocio, o un cajero pide el comprobante de otro cajero |
 | `idempotency_conflict` | 409 | `/checkout/create`: la `Idempotency-Key` ya se usó para otra compra (otro cliente, monto o concepto) |
 | `customer_cancelled` | 409 | `/customer/{customer_id}/card-link` y `/send`: la tarjeta está cancelada |
@@ -356,7 +376,8 @@ Reglas de `PATCH /tier/{tier_id}/update` (`services/tier_service.py`):
 
 - `code`: `MP-` más 5 caracteres al azar de un alfabeto sin `0/O` ni `1/I/L` (por ejemplo `MP-4F7K2`), único dentro del negocio. Es lo que lleva el QR y lo que se teclea en caja; la búsqueda ignora espacios y mayúsculas.
 - `email`: se guarda en minúscula y es único por negocio (otro negocio puede tener el mismo).
-- Vigencia: 12 meses desde `issued_at` (`VALIDITY_MONTHS`, fija mientras la DECISIÓN 9 no la vuelva configurable). El 31 pasa al último día de un mes más corto.
+- Vigencia: `validity_months` del negocio (12 por defecto; por ahora lo fija el seed, sin pantalla de configuración) desde `issued_at`. El 31 pasa al último día de un mes más corto.
+- Pagos de membresía (`membership_payments`, `services/payment_service.py`, DECISIÓN 9): el alta registra el primer pago en la misma transacción que la tarjeta. El monto es el `price_cents` del nivel salvo que el admin mande `amount_cents`; un monto de 0 (nivel gratuito) no registra pago. Guarda el nivel, el método, el periodo que compró y quién lo registró. Sin pasarela de pagos.
 - `status` no se guarda: `cancelled` si `cancelled_at` tiene fecha (irreversible, gana sobre todo), `expired` si `valid_until` ya pasó, si no `active`. `expiring_soon` marca las activas que vencen en 30 días o menos.
 - Cambio de nivel: el admin lo asigna con `level_id` en `PATCH /customer/{customer_id}/update` (el nivel se paga en caja). Sin `level_id` al crear, entra al nivel más barato.
 - `points_balance`, `cashback_balance_cents` y `last_purchase_at` se calculan sumando las compras del cliente (`customer_service.balances`), en una sola consulta por página de la lista.
