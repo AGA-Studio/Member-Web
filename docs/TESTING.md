@@ -22,7 +22,7 @@ Documentación de la suite de pruebas automatizadas del backend: qué se prueba,
 | Métrica | Valor |
 |---------|-------|
 | Fecha de ejecución | 12 de noviembre de 2026 |
-| Pruebas | **314**, todas pasan (0 `xfail`); conteo del 12 nov 2026 con niveles |
+| Pruebas | **315**, todas pasan (0 `xfail`); conteo del 12 nov 2026 con niveles |
 | Fallas | **0** |
 | Cobertura de líneas y ramas | **100 %** en `api/`, `core/`, `models/`, `schemas/`, `services/` y `scripts/seed.py`. `scripts/review_pr.py` (revisor del CI) queda en 60 %, por eso el total marca 92 % |
 | Bases de datos probadas | SQLite y **PostgreSQL 18.6** |
@@ -586,14 +586,16 @@ Reproduce dos peticiones que pasan la revisión de email al mismo tiempo: la fix
 | `test_failed_update_leaves_user_unchanged` | Si el cambio falla, ni el email ni el nombre se guardan | ✅ |
 | `test_api_keeps_working_after_the_conflict` | Tras el `rollback`, la siguiente petición funciona | ✅ |
 
-### 5.6b Niveles — `tests/api/test_tier.py` (39)
+### 5.6b Niveles — `tests/api/test_tier.py` (40)
 
-Contrato del frontend, sección 4. `GET /tier/list` y `PATCH /tier/{tier_id}/update`; las reglas viven en `services/tier_service.py`.
+Contrato del frontend, sección 4. `GET /tier/list` y `PATCH /tier/{tier_id}/update`; las reglas viven en `services/tier_service.py`. El nivel se paga (`price_cents`), no se alcanza por puntos.
 
 **Listado**
 | Prueba | Verifica | Resultado |
 |--------|----------|-----------|
-| `test_ordered_by_min_points` | Los niveles salen por `min_points` ascendente aunque se hayan creado en otro orden | ✅ |
+| `test_ordered_from_cheapest_to_most_expensive` | Los niveles salen del más barato al más caro aunque se hayan creado en otro orden | ✅ |
+| `test_a_price_change_reorders_the_list` | Cambiar un precio cambia el orden | ✅ |
+| `test_tiers_have_no_points_threshold` | La respuesta no trae `min_points` | ✅ |
 | `test_shape_matches_the_contract` | Campos exactos del contrato, `customers_count` en 0 por ahora | ✅ |
 | `test_percents_are_json_numbers` | Los porcentajes son números JSON, no texto | ✅ |
 | `test_employee_can_read_the_tiers` | El cajero puede leerlos (la caja muestra los beneficios) | ✅ |
@@ -618,11 +620,10 @@ Contrato del frontend, sección 4. `GET /tier/list` y `PATCH /tier/{tier_id}/upd
 **Rangos** (422 `tier_invalid`, y el nivel no cambia)
 | Prueba | Verifica | Resultado |
 |--------|----------|-----------|
-| `test_out_of_range_is_tier_invalid[...]` | Porcentajes < 0, > 100 o con 3 decimales; `points_per_ten` < 0 o > 1000; `min_points` < 0 o > 10⁹; nombre vacío o de más de 60 (13 casos) | ✅ |
-| `test_lowest_tier_must_stay_at_zero` | El nivel de entrada no puede dejar `min_points = 0` | ✅ |
-| `test_entry_tier_stays_the_entry_tier` | Otro nivel no puede tomar el 0; los demás se mueven libres | ✅ |
-| `test_two_tiers_cannot_share_min_points` | Dos niveles del negocio no comparten `min_points` | ✅ |
-| `test_keeping_its_own_min_points_is_fine` | Reenviar el mismo valor no choca consigo mismo | ✅ |
+| `test_out_of_range_is_tier_invalid[...]` | Porcentajes < 0, > 100 o con 3 decimales; `points_per_ten` < 0 o > 1000; `price_cents` < 0 o > 10⁸; nombre vacío o de más de 60 (13 casos) | ✅ |
+| `test_price_message_says_the_range` | El error de precio dice el rango permitido | ✅ |
+| `test_price_limits_are_accepted` | $0 (nivel gratuito) y $1,000,000.00 son válidos | ✅ |
+| `test_two_tiers_can_share_a_price` | Dos niveles pueden costar lo mismo | ✅ |
 | `test_out_of_range_is_rejected[...]` | Las restricciones `CHECK` de la base rechazan valores fuera de rango aunque se salte el servicio (4 casos) | ✅ |
 
 ### 5.7 Aislamiento multi-negocio — `tests/api/test_isolation.py` (7)
@@ -672,7 +673,7 @@ sequenceDiagram
 | `test_each_business_sees_only_its_tiers` | El cajero de A ve solo los niveles de A, y el de B solo los de B | ✅ |
 | `test_update_tier_of_other_business_is_404_and_unchanged` | Editar un nivel de B desde A → 404, y en la base sigue igual | ✅ |
 | `test_other_business_and_nonexistent_look_identical` | Misma respuesta para "de otro negocio" e "inexistente" | ✅ |
-| `test_thresholds_of_other_business_do_not_count` | Las reglas de `min_points` solo miran los niveles del mismo negocio | ✅ |
+| `test_editing_own_tier_leaves_other_business_untouched` | Lo que B edita en sus niveles no toca los de A | ✅ |
 
 ### 5.8 Hallazgos conocidos — `tests/api/test_known_issues.py` (0)
 
@@ -714,7 +715,7 @@ Differences: [('add_column', None, 'users', Column('phone', AutoString(), table=
 
 ### 5.10 Seed de demo — `tests/scripts/test_seed.py` (26)
 
-`scripts/seed.py` crea Café Aurora y Gimnasio Titán (`active`) con 4 usuarios (dueño de plataforma, admin y empleado de Café Aurora, y admin de Gimnasio Titán) y sus niveles: Bronce, Plata, Oro y Onyx en Café Aurora (contrato, sección 8) y Básico y Premium en Gimnasio Titán, distintos a propósito.
+`scripts/seed.py` crea Café Aurora y Gimnasio Titán (`active`) con 4 usuarios (dueño de plataforma, admin y empleado de Café Aurora, y admin de Gimnasio Titán) y sus niveles: Bronce, Plata, Oro y Onyx en Café Aurora (beneficios del contrato, sección 8; precios de demo de $0, $199, $399 y $699) y Básico y Premium en Gimnasio Titán, distintos a propósito.
 
 | Prueba | Verifica | Resultado |
 |--------|----------|-----------|
@@ -725,7 +726,7 @@ Differences: [('add_column', None, 'users', Column('phone', AutoString(), table=
 | `test_demo_names_follow_the_name_rule[...]` | Los nombres de demo cumplen `PersonName` (4 casos) | ✅ |
 | `test_cafe_aurora_gets_the_contract_tiers` | Café Aurora tiene los 4 niveles del contrato, vistos desde `/tier/list` | ✅ |
 | `test_gimnasio_titan_gets_different_tiers` | Gimnasio Titán tiene Básico y Premium | ✅ |
-| `test_every_business_has_a_tier_at_zero_points` | Cada negocio tiene un nivel de entrada en 0 puntos | ✅ |
+| `test_a_better_tier_costs_more` | En cada negocio, el nivel más caro da igual o más descuento | ✅ |
 | `test_an_edited_tier_is_not_overwritten` | Volver a correr el seed no pisa un nivel editado | ✅ |
 | `test_second_run_creates_nothing` | Correrlo dos veces no duplica nada (12 registros) | ✅ |
 | `test_existing_password_is_never_changed` | Una segunda corrida con otra contraseña no cambia la existente | ✅ |

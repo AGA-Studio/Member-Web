@@ -117,7 +117,7 @@ erDiagram
         int business_id FK "índice"
         string name "texto libre, máx. 60"
         enum finish "bronze | silver | gold | onyx"
-        int min_points "≥ 0; el nivel más bajo es 0"
+        int price_cents "≥ 0; precio por vigencia, centavos MXN"
         decimal discount_percent "0 a 100, 2 decimales"
         int points_per_ten "≥ 0; puntos por cada $10"
         decimal cashback_percent "0 a 100, 2 decimales"
@@ -138,7 +138,7 @@ erDiagram
     }
 ```
 
-**Niveles (`tiers`).** Cada negocio define los suyos; el seed solo carga una plantilla (Bronce, Plata, Oro y Onyx en Café Aurora; Básico y Premium en Gimnasio Titán). `finish` es el acabado visual de la tarjeta y lo elige el negocio; el nombre es libre. Un beneficio en `0` equivale a deshabilitado para ese nivel. Los rangos se validan en `services/tier_service.py` (422 `tier_invalid`) y la base los repite con restricciones `CHECK` como última defensa.
+**Niveles (`tiers`).** Cada negocio define los suyos; el seed solo carga una plantilla (Bronce, Plata, Oro y Onyx en Café Aurora; Básico y Premium en Gimnasio Titán). `finish` es el acabado visual de la tarjeta y lo elige el negocio; el nombre es libre. Un beneficio en `0` equivale a deshabilitado para ese nivel. **El cliente sube de nivel pagando** (decisión "por cobro": mejor nivel = más beneficio y más costo), así que cada nivel tiene `price_cents` y no hay umbral de puntos; los puntos solo son un saldo. Los rangos se validan en `services/tier_service.py` (422 `tier_invalid`) y la base los repite con restricciones `CHECK` como última defensa.
 
 `revoked_tokens` (H2) y `login_attempts` (H4) son tablas de seguridad, no datos de un negocio: no llevan `business_id` ni se relacionan con `users`. Se limpian solas: un token revocado se borra cuando ya habría expirado, y un registro de intentos se borra al iniciar sesión bien o cuando pasa la ventana de bloqueo.
 
@@ -184,8 +184,8 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | POST | `/api/v1/user/create` | admin | Crea un admin o employee en su negocio |
 | GET | `/api/v1/user/{user_id}` | admin | Detalle de un usuario de su negocio |
 | PATCH | `/api/v1/user/{user_id}/update` | admin | Edita nombre, email, contraseña o `is_active`. Un admin no puede desactivarse a sí mismo (400) |
-| GET | `/api/v1/tier/list` | admin, employee | Niveles de su negocio, sin paginar, por `min_points` ascendente, con `customers_count` |
-| PATCH | `/api/v1/tier/{tier_id}/update` | admin | Edita `name`, `finish`, `min_points`, `discount_percent`, `points_per_ten`, `cashback_percent` (todos opcionales). Fuera de rango → 422 `tier_invalid` |
+| GET | `/api/v1/tier/list` | admin, employee | Niveles de su negocio, sin paginar, del más barato al más caro (`price_cents`), con `customers_count` |
+| PATCH | `/api/v1/tier/{tier_id}/update` | admin | Edita `name`, `finish`, `price_cents`, `discount_percent`, `points_per_ten`, `cashback_percent` (todos opcionales). Fuera de rango → 422 `tier_invalid` |
 
 **Respuesta de `/auth/me`** (`MeResponse`): los campos de `UserResponse` más `business`, el resumen del negocio que el frontend muestra en el encabezado del panel y de la caja. No incluye datos de uso ni de clientes.
 
@@ -212,7 +212,7 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | `business_suspended` | 403 | `ensure_user_can_access`: negocio suspendido (login y cada petición) |
 | `not_authenticated` | 401 | `get_token_data` / `get_current_user`: sin sesión, token inválido, vencido o revocado |
 | `email_taken` | 409 | `/user/create` y `/user/{user_id}/update`: email en uso |
-| `tier_invalid` | 422 | `/tier/{tier_id}/update`: valor fuera de rango o regla de `min_points` rota |
+| `tier_invalid` | 422 | `/tier/{tier_id}/update`: valor fuera de rango |
 
 Los códigos de clientes y caja (`customer_not_found`, `amount_invalid`…) se agregan a `ErrorCode` con su módulo.
 
@@ -223,7 +223,7 @@ Los códigos de clientes y caja (`customer_not_found`, `amount_invalid`…) se a
   "id": 3,
   "name": "Oro",
   "finish": "gold",
-  "min_points": 1000,
+  "price_cents": 39900,
   "discount_percent": 15.0,
   "points_per_ten": 1,
   "cashback_percent": 3.0,
@@ -233,8 +233,8 @@ Los códigos de clientes y caja (`customer_not_found`, `amount_invalid`…) se a
 
 Reglas de `PATCH /tier/{tier_id}/update` (`services/tier_service.py`):
 
-- `min_points` de 0 a 1 000 000 000; `points_per_ten` de 0 a 1000; `discount_percent` y `cashback_percent` de 0 a 100 con máximo 2 decimales; `name` de 1 a 60 caracteres (se quitan espacios sobrantes). `finish` desconocido es validación de campo (422 de FastAPI, sin `code`).
-- El nivel con menos puntos conserva `min_points = 0` (todo cliente cabe en uno) y dos niveles del mismo negocio no comparten `min_points` (el nivel de un saldo nunca es ambiguo). Como un `PATCH` cambia un solo nivel, el nivel de entrada no puede cederle el 0 a otro.
+- `price_cents` de 0 a 100 000 000 ($1,000,000.00; 0 = nivel gratuito); `points_per_ten` de 0 a 1000; `discount_percent` y `cashback_percent` de 0 a 100 con máximo 2 decimales; `name` de 1 a 60 caracteres (se quitan espacios sobrantes). `finish` desconocido es validación de campo (422 de FastAPI, sin `code`).
+- Dos niveles pueden costar lo mismo; el listado los desempata por `id`.
 - Un campo en `null` cuenta como no enviado.
 - El cambio aplica a compras nuevas; las anteriores guardan los valores que usaron.
 - `customers_count` vale 0 hasta que exista el módulo de clientes; entonces contará las tarjetas no canceladas de cada nivel en una sola consulta.
