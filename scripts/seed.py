@@ -34,6 +34,9 @@ from models import (
     CardDelivery,
     CardStatus,
     Customer,
+    MembershipPayment,
+    PaymentKind,
+    PaymentMethod,
     Purchase,
     Role,
     Tier,
@@ -311,19 +314,39 @@ def seed(session: Session, password: str) -> SeedResult:
             select(Tier).where(Tier.business_id == business.id, Tier.name == tier_name)
         ).one()
         issued_at = now - timedelta(days=days_ago)
-        session.add(
-            Customer(
-                business_id=business.id,
-                tier_id=tier.id,
-                code=code,
-                full_name=name,
-                email=email,
-                phone=phone,
-                issued_at=issued_at,
-                valid_until=add_months(issued_at, VALIDITY_MONTHS),
-                cancelled_at=now - timedelta(days=7) if cancelled else None,
-            )
+        customer = Customer(
+            business_id=business.id,
+            tier_id=tier.id,
+            code=code,
+            full_name=name,
+            email=email,
+            phone=phone,
+            issued_at=issued_at,
+            valid_until=add_months(issued_at, VALIDITY_MONTHS),
+            cancelled_at=now - timedelta(days=7) if cancelled else None,
         )
+        session.add(customer)
+        if tier.price_cents > 0:
+            # The first payment of the membership, recorded by the business admin.
+            session.flush()
+            admin = session.exec(
+                select(User).where(User.business_id == business.id, User.role == Role.ADMIN)
+            ).first()
+            session.add(
+                MembershipPayment(
+                    business_id=business.id,
+                    customer_id=customer.id,
+                    tier_id=tier.id,
+                    tier_name=tier.name,
+                    kind=PaymentKind.NEW,
+                    method=PaymentMethod.CASH,
+                    amount_cents=tier.price_cents,
+                    period_start=issued_at,
+                    period_end=customer.valid_until,
+                    recorded_by=admin.id,
+                    created_at=issued_at,
+                )
+            )
         result.created.append(label)
     session.flush()
 
