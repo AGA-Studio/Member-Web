@@ -21,6 +21,7 @@ class ErrorCode(StrEnum):
     USER_INACTIVE = "user_inactive"
     NOT_AUTHENTICATED = "not_authenticated"
     EMAIL_TAKEN = "email_taken"
+    TIER_INVALID = "tier_invalid"
 
 
 class ApiError(HTTPException):

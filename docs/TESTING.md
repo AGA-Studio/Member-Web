@@ -22,12 +22,12 @@ Documentación de la suite de pruebas automatizadas del backend: qué se prueba,
 | Métrica | Valor |
 |---------|-------|
 | Fecha de ejecución | 12 de noviembre de 2026 |
-| Pruebas | **217**, todas pasan (0 `xfail`) |
+| Pruebas | **315**, todas pasan (0 `xfail`); conteo del 12 nov 2026 con niveles |
 | Fallas | **0** |
-| Cobertura de líneas y ramas | **100 %** (435 sentencias, 78 ramas), incluidos `services/` y `scripts/` |
+| Cobertura de líneas y ramas | **100 %** en `api/`, `core/`, `models/`, `schemas/`, `services/` y `scripts/seed.py`. `scripts/review_pr.py` (revisor del CI) queda en 60 %, por eso el total marca 92 % |
 | Bases de datos probadas | SQLite y **PostgreSQL 18.6** |
 | Tiempo | ~17 s en SQLite · ~42 s en PostgreSQL (equipo local) |
-| Criterio del MVP "0 filas de otro negocio" | ✅ Cumplido (7 pruebas de aislamiento) |
+| Criterio del MVP "0 filas de otro negocio" | ✅ Cumplido (7 pruebas de usuarios + 4 de niveles) |
 | Migraciones (Alembic) | ✅ Suben, bajan, convierten datos y coinciden con los modelos (9 pruebas) |
 | Hallazgos | ✅ Los 7 corregidos (H1–H7) |
 
@@ -205,6 +205,8 @@ tests/
     ├── test_auth.py
     ├── test_user.py
     ├── test_isolation.py
+    ├── test_tier.py
+    ├── test_isolation_tier.py
     ├── test_login_limit.py
     ├── test_error_codes.py
     └── test_known_issues.py
@@ -584,6 +586,46 @@ Reproduce dos peticiones que pasan la revisión de email al mismo tiempo: la fix
 | `test_failed_update_leaves_user_unchanged` | Si el cambio falla, ni el email ni el nombre se guardan | ✅ |
 | `test_api_keeps_working_after_the_conflict` | Tras el `rollback`, la siguiente petición funciona | ✅ |
 
+### 5.6b Niveles — `tests/api/test_tier.py` (40)
+
+Contrato del frontend, sección 4. `GET /tier/list` y `PATCH /tier/{tier_id}/update`; las reglas viven en `services/tier_service.py`. El nivel se paga (`price_cents`), no se alcanza por puntos.
+
+**Listado**
+| Prueba | Verifica | Resultado |
+|--------|----------|-----------|
+| `test_ordered_from_cheapest_to_most_expensive` | Los niveles salen del más barato al más caro aunque se hayan creado en otro orden | ✅ |
+| `test_a_price_change_reorders_the_list` | Cambiar un precio cambia el orden | ✅ |
+| `test_tiers_have_no_points_threshold` | La respuesta no trae `min_points` | ✅ |
+| `test_shape_matches_the_contract` | Campos exactos del contrato, `customers_count` en 0 por ahora | ✅ |
+| `test_percents_are_json_numbers` | Los porcentajes son números JSON, no texto | ✅ |
+| `test_employee_can_read_the_tiers` | El cajero puede leerlos (la caja muestra los beneficios) | ✅ |
+| `test_business_without_tiers_gets_empty_list` | Negocio sin niveles → `[]` | ✅ |
+| `test_platform_cannot_read_tiers` | `platform` → 403 | ✅ |
+| `test_requires_session` | Sin sesión → 401 `not_authenticated` | ✅ |
+
+**Edición**
+| Prueba | Verifica | Resultado |
+|--------|----------|-----------|
+| `test_updates_every_field` | Cambia los 6 campos y devuelve el nivel actualizado | ✅ |
+| `test_change_is_persisted` | El cambio queda en la base | ✅ |
+| `test_only_sent_fields_change` | Lo no enviado no cambia | ✅ |
+| `test_null_means_not_sent` | `null` no borra el valor | ✅ |
+| `test_name_is_trimmed` | Se quitan espacios sobrantes del nombre | ✅ |
+| `test_zero_disables_a_benefit` | Los tres beneficios aceptan 0 (= deshabilitado) | ✅ |
+| `test_limits_are_accepted` | 100 % es válido | ✅ |
+| `test_employee_cannot_update` / `test_platform_cannot_update` | Solo el admin edita → 403 | ✅ |
+| `test_unknown_tier_is_404` | Id inexistente → 404 `Tier not found` | ✅ |
+| `test_unknown_finish_keeps_fastapi_shape` | `finish` desconocido es validación de campo (422 de FastAPI) | ✅ |
+
+**Rangos** (422 `tier_invalid`, y el nivel no cambia)
+| Prueba | Verifica | Resultado |
+|--------|----------|-----------|
+| `test_out_of_range_is_tier_invalid[...]` | Porcentajes < 0, > 100 o con 3 decimales; `points_per_ten` < 0 o > 1000; `price_cents` < 0 o > 10⁸; nombre vacío o de más de 60 (13 casos) | ✅ |
+| `test_price_message_says_the_range` | El error de precio dice el rango permitido | ✅ |
+| `test_price_limits_are_accepted` | $0 (nivel gratuito) y $1,000,000.00 son válidos | ✅ |
+| `test_two_tiers_can_share_a_price` | Dos niveles pueden costar lo mismo | ✅ |
+| `test_out_of_range_is_rejected[...]` | Las restricciones `CHECK` de la base rechazan valores fuera de rango aunque se salte el servicio (4 casos) | ✅ |
+
 ### 5.7 Aislamiento multi-negocio — `tests/api/test_isolation.py` (7)
 
 Es la prueba obligatoria del MVP: *"0 filas de otro negocio, comprobado por test automático"*.
@@ -624,6 +666,15 @@ sequenceDiagram
 | `test_user_created_by_a_is_invisible_to_b` | Lo que crea A no aparece para B | ✅ |
 | `test_forged_business_id_in_token_body_has_no_effect` | Un JWT válido con `business_id` alterado no da acceso: el negocio se toma del usuario en la BD | ✅ |
 
+### 5.7b Aislamiento de niveles — `tests/api/test_isolation_tier.py` (4)
+
+| Prueba | Verifica | Resultado |
+|--------|----------|-----------|
+| `test_each_business_sees_only_its_tiers` | El cajero de A ve solo los niveles de A, y el de B solo los de B | ✅ |
+| `test_update_tier_of_other_business_is_404_and_unchanged` | Editar un nivel de B desde A → 404, y en la base sigue igual | ✅ |
+| `test_other_business_and_nonexistent_look_identical` | Misma respuesta para "de otro negocio" e "inexistente" | ✅ |
+| `test_editing_own_tier_leaves_other_business_untouched` | Lo que B edita en sus niveles no toca los de A | ✅ |
+
 ### 5.8 Hallazgos conocidos — `tests/api/test_known_issues.py` (0)
 
 Hoy no hay hallazgos abiertos. El archivo se conserva vacío para registrar los siguientes como `xfail(strict=True)`.
@@ -645,7 +696,7 @@ Usan su propia fixture `empty_database`, que deja la base sin ninguna tabla (ni 
 | Prueba | Verifica | Resultado |
 |--------|----------|-----------|
 | `test_there_is_a_single_head` | Una sola cabeza: no hay migraciones paralelas sin fusionar | ✅ |
-| `test_upgrade_creates_all_tables` | `upgrade head` crea `businesses`, `users` y `alembic_version` | ✅ |
+| `test_upgrade_creates_all_tables` | `upgrade head` crea todas las tablas (`businesses`, `users`, `revoked_tokens`, `login_attempts`, `tiers`) y `alembic_version` | ✅ |
 | `test_models_and_migrations_are_in_sync` | Los modelos y las migraciones coinciden (detecta migraciones olvidadas) | ✅ |
 | `test_downgrade_removes_tables_and_enums` | `downgrade base` borra tablas y, en PostgreSQL, los tipos `ENUM` | ✅ |
 | `test_upgrade_after_downgrade` | Se puede bajar y volver a subir | ✅ |
@@ -662,9 +713,9 @@ Differences: [('add_column', None, 'users', Column('phone', AutoString(), table=
 
 ---
 
-### 5.10 Seed de demo — `tests/scripts/test_seed.py` (22)
+### 5.10 Seed de demo — `tests/scripts/test_seed.py` (26)
 
-`scripts/seed.py` crea Café Aurora y Gimnasio Titán (`active`) con 4 usuarios: dueño de plataforma, admin y empleado de Café Aurora, y admin de Gimnasio Titán.
+`scripts/seed.py` crea Café Aurora y Gimnasio Titán (`active`) con 4 usuarios (dueño de plataforma, admin y empleado de Café Aurora, y admin de Gimnasio Titán) y sus niveles: Bronce, Plata, Oro y Onyx en Café Aurora (beneficios del contrato, sección 8; precios de demo de $0, $199, $399 y $699) y Básico y Premium en Gimnasio Titán, distintos a propósito.
 
 | Prueba | Verifica | Resultado |
 |--------|----------|-----------|
@@ -673,7 +724,11 @@ Differences: [('add_column', None, 'users', Column('phone', AutoString(), table=
 | `test_users_belong_to_the_right_business` | Cada usuario en su negocio; el dueño sin negocio | ✅ |
 | `test_passwords_are_hashed` | Contraseñas en Argon2id y verificables | ✅ |
 | `test_demo_names_follow_the_name_rule[...]` | Los nombres de demo cumplen `PersonName` (4 casos) | ✅ |
-| `test_second_run_creates_nothing` | Correrlo dos veces no duplica nada | ✅ |
+| `test_cafe_aurora_gets_the_contract_tiers` | Café Aurora tiene los 4 niveles del contrato, vistos desde `/tier/list` | ✅ |
+| `test_gimnasio_titan_gets_different_tiers` | Gimnasio Titán tiene Básico y Premium | ✅ |
+| `test_a_better_tier_costs_more` | En cada negocio, el nivel más caro da igual o más descuento | ✅ |
+| `test_an_edited_tier_is_not_overwritten` | Volver a correr el seed no pisa un nivel editado | ✅ |
+| `test_second_run_creates_nothing` | Correrlo dos veces no duplica nada (12 registros) | ✅ |
 | `test_existing_password_is_never_changed` | Una segunda corrida con otra contraseña no cambia la existente | ✅ |
 | `test_completes_partial_data` | Si ya existe un negocio, crea solo lo que falta | ✅ |
 | `test_admin_a_sees_only_cafe_aurora` | El admin de Café Aurora ve solo a sus 2 usuarios | ✅ |

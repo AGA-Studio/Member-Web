@@ -6,7 +6,7 @@ from sqlmodel import Session, select
 
 from core.config import settings
 from core.security import verify_password
-from models import Business, BusinessStatus, Role, User
+from models import Business, BusinessStatus, Role, Tier, User
 from schemas.validators import normalize_person_name
 from scripts import seed as seed_module
 from scripts.seed import DEMO_PASSWORD, USERS, SeedError, resolve_password, seed
@@ -58,15 +58,67 @@ class TestSeedData:
         assert normalize_person_name(name) == name
 
 
+class TestSeedTiers:
+    def test_cafe_aurora_gets_the_contract_tiers(
+        self, session: Session, client: TestClient
+    ) -> None:
+        seed(session, PASSWORD)
+        login(client, "caja@cafe-aurora.mx", PASSWORD)
+        tiers = [
+            (
+                t["name"],
+                t["finish"],
+                t["price_cents"],
+                t["discount_percent"],
+                t["points_per_ten"],
+                t["cashback_percent"],
+            )
+            for t in client.get("/api/v1/tier/list").json()
+        ]
+        assert tiers == [
+            ("Bronce", "bronze", 0, 5, 1, 0),
+            ("Plata", "silver", 19_900, 10, 1, 1),
+            ("Oro", "gold", 39_900, 15, 1, 3),
+            ("Onyx", "onyx", 69_900, 20, 2, 5),
+        ]
+
+    def test_gimnasio_titan_gets_different_tiers(
+        self, session: Session, client: TestClient
+    ) -> None:
+        seed(session, PASSWORD)
+        login(client, "admin@gimnasio-titan.mx", PASSWORD)
+        names = [t["name"] for t in client.get("/api/v1/tier/list").json()]
+        assert names == ["Básico", "Premium"]
+
+    def test_a_better_tier_costs_more(self, session: Session) -> None:
+        # "Por cobro": more benefits, higher price.
+        seed(session, PASSWORD)
+        for business in session.exec(select(Business)).all():
+            query = select(Tier).where(Tier.business_id == business.id).order_by(Tier.price_cents)
+            discounts = [t.discount_percent for t in session.exec(query).all()]
+            assert discounts == sorted(discounts)
+
+    def test_an_edited_tier_is_not_overwritten(self, session: Session) -> None:
+        seed(session, PASSWORD)
+        gold = session.exec(select(Tier).where(Tier.name == "Oro")).one()
+        gold.price_cents = 45_000
+        session.add(gold)
+        session.commit()
+        seed(session, PASSWORD)
+        session.refresh(gold)
+        assert gold.price_cents == 45_000
+
+
 class TestIdempotency:
     def test_second_run_creates_nothing(self, session: Session) -> None:
         first = seed(session, PASSWORD)
         second = seed(session, PASSWORD)
-        assert len(first.created) == 6
+        assert len(first.created) == 12
         assert second.created == []
-        assert len(second.existing) == 6
+        assert len(second.existing) == 12
         assert len(session.exec(select(Business)).all()) == 2
         assert len(session.exec(select(User)).all()) == 4
+        assert len(session.exec(select(Tier)).all()) == 6
 
     def test_existing_password_is_never_changed(self, session: Session) -> None:
         seed(session, PASSWORD)

@@ -11,6 +11,8 @@ EXPECTED_PATHS = {
     "/api/v1/user/create",
     "/api/v1/user/{user_id}",
     "/api/v1/user/{user_id}/update",
+    "/api/v1/tier/list",
+    "/api/v1/tier/{tier_id}/update",
 }
 
 

@@ -17,7 +17,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from api.v1 import auth_api, user_api
+from api.v1 import auth_api, tier_api, user_api
 from core.config import settings
 from core.cors import setup_cors
 from core.errors import setup_error_handlers
@@ -29,8 +29,9 @@ API_V1_PREFIX = "/api/v1"
 API_V1_ROUTERS = [
     auth_api.router,
     user_api.router,
+    tier_api.router,
     # Next MVP modules (H1–H3):
-    # customer_api.router, membership_api.router, tier_api.router,
+    # customer_api.router, membership_api.router,
     # checkout_api.router, movement_api.router, platform_api.router,
 ]
 
