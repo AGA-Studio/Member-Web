@@ -1,4 +1,4 @@
-"""Digital card delivery: link and public card (contract, section 13)."""
+"""Digital card delivery: link, email and public card (contract, section 13)."""
 
 import hashlib
 import json
@@ -9,9 +9,11 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
 from core.config import settings
-from models import BusinessStatus, CardDelivery, Customer, TierFinish
+from models import BusinessStatus, CardDelivery, CardEmail, Customer, TierFinish
+from services import email_service
 from tests.api.test_customer import add_customer, add_tier
 from tests.conftest import login
+from tests.smtp_server import SmtpServer
 
 CUSTOMER = "/api/v1/customer"
 CARD = "/api/v1/card"
@@ -46,6 +48,10 @@ def new_link(client: TestClient, customer: Customer) -> str:
     response = client.post(f"{CUSTOMER}/{customer.id}/card-link")
     assert response.status_code == 200, response.text
     return response.json()["url"].rsplit("/", 1)[1]
+
+
+def text_of(message) -> str:
+    return message.get_body(("plain",)).get_content()
 
 
 def links_of(session: Session, customer: Customer) -> list[CardDelivery]:
@@ -99,6 +105,181 @@ class TestCreateLink:
         response = admin.post(f"{CUSTOMER}/999999/card-link")
         assert response.status_code == 404
         assert response.json()["code"] == "customer_not_found"
+
+
+class TestSendLink:
+    URL = CUSTOMER + "/{id}/card-link/send"
+
+    def send(self, client: TestClient, customer: Customer):
+        return client.post(self.URL.format(id=customer.id))
+
+    def test_emails_the_customer(self, admin, cards) -> None:
+        response = self.send(admin, cards["active"])
+        assert response.status_code == 200
+        body = response.json()
+        assert body["sent_to"] == "mp-4f7k2@correo.com"
+        assert body["last_sent_at"].endswith(("Z", "+00:00"))
+        [message] = email_service.OUTBOX
+        assert message["To"] == "mp-4f7k2@correo.com"
+        assert message["Subject"] == "Tu tarjeta de Business A"
+        assert message["From"] == f"Business A <{settings.mail_from}>"
+
+    def test_email_body_follows_the_contract(self, admin, cards) -> None:
+        self.send(admin, cards["active"])
+        [message] = email_service.OUTBOX
+        text = text_of(message)
+        assert text.startswith("Hola, Laura Méndez:")
+        assert "Business A te dio una tarjeta de membresía." in text
+        assert f"{settings.frontend_public_url}/tarjeta/" in text
+        assert "Si no esperabas este correo, puedes ignorarlo." in text
+        html = message.get_body(("html",)).get_content().removeprefix("<!doctype html>")
+        assert "Ver mi tarjeta" in html
+        for secret in ("MP-4F7K2", "puntos", "cashback", "saldo", "!", "¡"):
+            assert secret not in text
+            assert secret not in html
+
+    def test_the_emailed_link_opens_the_card(self, admin, cards) -> None:
+        self.send(admin, cards["active"])
+        token = text_of(email_service.OUTBOX[0]).split("/tarjeta/")[1].split()[0]
+        assert admin.get(f"{CARD}/{token}").json()["code"] == "MP-4F7K2"
+
+    def test_every_email_carries_a_new_link(self, admin, cards, session: Session) -> None:
+        copied = new_link(admin, cards["active"])
+        self.send(admin, cards["active"])
+        assert admin.get(f"{CARD}/{copied}").json() == NOT_FOUND
+        [active] = [link for link in links_of(session, cards["active"]) if not link.revoked_at]
+        assert active.last_sent_at is not None
+
+    def test_again_within_a_minute_is_429(self, admin, cards) -> None:
+        assert self.send(admin, cards["active"]).status_code == 200
+        response = self.send(admin, cards["active"])
+        assert response.status_code == 429
+        assert response.json()["code"] == "card_email_rate_limited"
+        assert 1 <= int(response.headers["Retry-After"]) <= 60
+        assert len(email_service.OUTBOX) == 1
+
+    def test_a_rejected_send_keeps_the_link(self, admin, cards) -> None:
+        self.send(admin, cards["active"])
+        token = text_of(email_service.OUTBOX[0]).split("/tarjeta/")[1].split()[0]
+        self.send(admin, cards["active"])
+        assert admin.get(f"{CARD}/{token}").status_code == 200
+
+    def add_sends(self, session: Session, customer: Customer, *minutes_ago: int) -> None:
+        now = datetime.now(UTC)
+        for minutes in minutes_ago:
+            session.add(
+                CardEmail(
+                    business_id=customer.business_id,
+                    customer_id=customer.id,
+                    sent_at=now - timedelta(minutes=minutes),
+                )
+            )
+        session.commit()
+
+    def test_five_in_an_hour_is_429(self, admin, cards, session: Session) -> None:
+        self.add_sends(session, cards["active"], 50, 40, 30, 20, 10)
+        response = self.send(admin, cards["active"])
+        assert response.status_code == 429
+        # The oldest send leaves the window in about 10 minutes.
+        assert 540 <= int(response.headers["Retry-After"]) <= 600
+
+    def test_four_in_an_hour_is_fine(self, admin, cards, session: Session) -> None:
+        self.add_sends(session, cards["active"], 50, 40, 30, 20)
+        assert self.send(admin, cards["active"]).status_code == 200
+
+    def test_sends_older_than_an_hour_do_not_count(self, admin, cards, session) -> None:
+        self.add_sends(session, cards["active"], 300, 200, 120, 90, 61)
+        assert self.send(admin, cards["active"]).status_code == 200
+
+    def test_cancelled_card_is_409(self, admin, cards) -> None:
+        response = self.send(admin, cards["cancelled"])
+        assert response.status_code == 409
+        assert response.json()["code"] == "customer_cancelled"
+        assert not email_service.OUTBOX
+
+    def test_expired_card_is_409(self, admin, cards) -> None:
+        assert self.send(admin, cards["expired"]).json()["code"] == "customer_expired"
+
+    def test_unknown_customer_is_404(self, admin) -> None:
+        response = admin.post(self.URL.format(id=999999))
+        assert response.json()["code"] == "customer_not_found"
+
+
+class TestSmtp:
+    URL = CUSTOMER + "/{id}/card-link/send"
+
+    def use_server(self, monkeypatch, server: SmtpServer) -> None:
+        monkeypatch.setattr(settings, "smtp_host", "127.0.0.1")
+        monkeypatch.setattr(settings, "smtp_port", server.port)
+        monkeypatch.setattr(settings, "smtp_tls", "none")
+        monkeypatch.setattr(settings, "smtp_timeout_seconds", 5)
+
+    def test_sends_through_the_smtp_server(self, admin, cards, monkeypatch) -> None:
+        with SmtpServer() as server:
+            self.use_server(monkeypatch, server)
+            response = admin.post(self.URL.format(id=cards["active"].id))
+        assert response.status_code == 200
+        [raw] = server.messages
+        assert b"Subject: Tu tarjeta de Business A" in raw
+        assert not email_service.OUTBOX
+
+    def test_provider_failure_is_502(self, admin, cards, monkeypatch) -> None:
+        with SmtpServer(mode="reject") as server:
+            self.use_server(monkeypatch, server)
+            response = admin.post(self.URL.format(id=cards["active"].id))
+        assert response.status_code == 502
+        assert response.json()["code"] == "email_failed"
+
+    def test_production_without_provider_is_502(self, admin, cards, monkeypatch) -> None:
+        monkeypatch.setattr(settings, "environment", "production")
+        response = admin.post(self.URL.format(id=cards["active"].id))
+        assert response.json()["code"] == "email_failed"
+        assert not email_service.OUTBOX
+
+
+class TestCreateCustomer:
+    def create(self, client: TestClient, **extra):
+        body = {"full_name": "Sofía Hernández", "email": "sofia@correo.com", **extra}
+        return client.post(f"{CUSTOMER}/create", json=body)
+
+    def test_sends_the_card_by_default(self, admin, cards) -> None:
+        response = self.create(admin)
+        assert response.status_code == 201
+        assert response.json()["card_email"] == {"status": "sent"}
+        [message] = email_service.OUTBOX
+        assert message["To"] == "sofia@correo.com"
+        token = text_of(message).split("/tarjeta/")[1].split()[0]
+        assert admin.get(f"{CARD}/{token}").json()["full_name"] == "Sofía Hernández"
+
+    def test_can_skip_the_email(self, admin, cards, session: Session) -> None:
+        response = self.create(admin, send_card_email=False)
+        assert response.json()["card_email"] == {"status": "skipped"}
+        assert not email_service.OUTBOX
+        assert not session.exec(select(CardDelivery)).all()
+
+    def test_a_failed_email_does_not_fail_the_creation(
+        self, admin, cards, session: Session, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(settings, "environment", "production")
+        response = self.create(admin)
+        assert response.status_code == 201
+        assert response.json()["card_email"] == {"status": "failed"}
+        assert session.get(Customer, response.json()["id"]) is not None
+
+    def test_a_slow_provider_is_pending(self, admin, cards, monkeypatch) -> None:
+        with SmtpServer(mode="slow", delay=email_service.SEND_DEADLINE_SECONDS + 0.5) as server:
+            TestSmtp().use_server(monkeypatch, server)
+            started = datetime.now(UTC)
+            response = self.create(admin)
+            elapsed = datetime.now(UTC) - started
+        assert response.status_code == 201
+        assert response.json()["card_email"] == {"status": "pending"}
+        assert elapsed < timedelta(seconds=email_service.SEND_DEADLINE_SECONDS + 1)
+
+    def test_counts_for_the_email_limit(self, admin, cards) -> None:
+        customer_id = self.create(admin).json()["id"]
+        response = admin.post(f"{CUSTOMER}/{customer_id}/card-link/send")
+        assert response.json()["code"] == "card_email_rate_limited"
 
 
 class TestPublicCard:
@@ -194,13 +375,13 @@ class TestPublicCard:
 
 
 class TestPermissions:
-    @pytest.mark.parametrize("action", ["card-link"])
+    @pytest.mark.parametrize("action", ["card-link", "card-link/send"])
     @pytest.mark.parametrize("email", ["employee.a@demo.mx", "owner@memberplus.mx"])
     def test_only_the_admin(self, client: TestClient, cards, action: str, email: str) -> None:
         login(client, email)
         assert client.post(f"{CUSTOMER}/{cards['active'].id}/{action}").status_code == 403
 
-    @pytest.mark.parametrize("action", ["card-link"])
+    @pytest.mark.parametrize("action", ["card-link", "card-link/send"])
     def test_without_session_is_401(self, client: TestClient, cards, action: str) -> None:
         assert client.post(f"{CUSTOMER}/{cards['active'].id}/{action}").status_code == 401
 

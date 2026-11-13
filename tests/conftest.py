@@ -29,6 +29,7 @@ from core.security import hash_password  # noqa: E402
 from db.database import engine  # noqa: E402
 from main import app  # noqa: E402
 from models import Business, BusinessStatus, Role, User  # noqa: E402
+from services import email_service  # noqa: E402
 
 DEFAULT_PASSWORD = "password123"
 # Argon2id is slow on purpose; hash the shared password once per run.
@@ -49,8 +50,9 @@ def _clean_database() -> Generator[None]:
 
 @pytest.fixture(autouse=True)
 def _reset_in_memory_state() -> Generator[None]:
-    """The public card rate limit lives in memory."""
+    """The public card rate limit and the dev email outbox live in memory."""
     card_api.public_limiter.reset()
+    email_service.OUTBOX.clear()
     yield
 
 
