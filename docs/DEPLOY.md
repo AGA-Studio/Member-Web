@@ -117,7 +117,9 @@ Cómo se comporta:
    gh secret set COOLIFY_TOKEN --body '<token-con-permiso-deploy>'
    ```
 
-   Con eso, el paso *Pedir deploy a Coolify* de `image.yml` hace `POST` al webhook (con `GET`, Coolify responde `405 This endpoint has changed to a POST request.`) y contesta 202 con el `deployment_uuid`. Sin `COOLIFY_WEBHOOK` el paso solo avisa y el deploy sigue siendo manual.
+   Con eso, el paso *Pedir deploy a Coolify* de `image.yml` hace `POST` al webhook (con `GET`, Coolify responde `405 This endpoint has changed to a POST request.`) y contesta `200` con `{"deployments":[{"resource_uuid":"…","deployment_uuid":"…"}]}`.
+
+   **El `resource_uuid` de la respuesta es la app que se desplegó**: si no es la de este repo, el secreto `COOLIFY_WEBHOOK` está apuntando a la otra app (pasó el 13 nov: el backend desplegaba el frontend y el suyo no). El webhook es **por app**; el token es el mismo para las dos. Sin `COOLIFY_WEBHOOK` el paso solo avisa y el deploy sigue siendo manual.
 
    **`COOLIFY_TOKEN` es opcional** y solo se necesita si copiaste la URL de *auth required*: si la URL ya trae `?api_token=...` (el formato viejo), el paso detecta el token vacío y no manda cabecera. Mandar un `Bearer` vacío provoca 401 y tumba el run **después** de publicar la imagen.
 
