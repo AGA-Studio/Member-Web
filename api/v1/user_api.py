@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import select
 
 from api.v1.dependencies import BusinessId, CurrentUser, SessionDep, require_roles
+from core.errors import ApiError, ErrorCode
 from core.security import hash_password
 from models.user_model import Role, User
 from schemas.user_schema import UserCreate, UserResponse, UserUpdate
@@ -27,7 +28,11 @@ def _get_business_user(session: SessionDep, user_id: int, business_id: int) -> U
     return user
 
 
-_email_in_use = HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already in use")
+_email_in_use = ApiError(
+    status_code=status.HTTP_409_CONFLICT,
+    detail="Email already in use",
+    code=ErrorCode.EMAIL_TAKEN,
+)
 
 
 def _ensure_email_available(session: SessionDep, email: str) -> None:
