@@ -158,9 +158,9 @@ Reglas:
 | `dependabot.yml` | Las actions se actualizan a mano | `.github/dependabot.yml` |
 | `docker compose up` desde cero | Es un criterio del MVP (≤ 3 min) | Job aparte, ahora que existe el `Dockerfile` |
 | Pruebas de RLS | Se escribirán con las políticas, en su migración | Job `test (postgres)` |
-| Entorno de staging | Solo hay una app en Coolify; `main` publica imagen y es la que se sirve | Segunda app en Coolify apuntando a un tag fijo, cuando el MVP esté en producción |
+| Entorno de demo separado | Se evaluó y se descartó el 13 nov 2026: la demo **es** producción (un dominio, una base, un seed) y una segunda app duplicaría base y migraciones | Solo si el MVP pasa a tener tráfico real; hoy el rollback se hace con los tags `sha-<7>` |
 
-El despliegue ya no está en esta lista: lo cubre el workflow `image.yml` y está documentado en [DEPLOY.md](DEPLOY.md).
+El despliegue ya no está en esta lista: lo cubre el workflow `image.yml` (mergear a `main` publica **y** despliega) y está documentado en [DEPLOY.md](DEPLOY.md).
 
 
 ---
