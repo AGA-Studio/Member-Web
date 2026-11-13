@@ -30,6 +30,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from core.errors import ApiError, ErrorCode
+from models.card_delivery_model import CardDelivery
 from models.customer_model import Customer
 from models.purchase_model import Purchase
 from models.tier_model import Tier
@@ -404,9 +405,20 @@ def update_customer(
 
 
 def cancel_customer(session: Session, business_id: int, customer_id: int) -> CustomerResponse:
-    """Irreversible. Cancelling an already cancelled card changes nothing."""
+    """Irreversible, and it revokes the card link. Cancelling again changes nothing."""
     customer, tier = _get_row(session, business_id, customer_id)
     if customer.cancelled_at is None:
-        customer.cancelled_at = utc_now()
+        now = utc_now()
+        customer.cancelled_at = now
+        links = session.exec(
+            select(CardDelivery).where(
+                CardDelivery.business_id == business_id,
+                CardDelivery.customer_id == customer.id,
+                CardDelivery.revoked_at.is_(None),  # type: ignore[union-attr]
+            )
+        ).all()
+        for link in links:
+            link.revoked_at = now
+            session.add(link)
         _commit(session, customer)
     return _response(session, business_id, customer, tier)

@@ -39,6 +39,12 @@ class Settings(BaseSettings):
     # CORS: "http://a,http://b" in the .env
     cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:3000"]
 
+    # Public base of the frontend: the card link is `{frontend_public_url}/tarjeta/<token>`.
+    frontend_public_url: str = "http://localhost:3000"
+
+    # Requests per minute and IP to the public card endpoints.
+    card_rate_limit_per_minute: int = Field(default=30, ge=1)
+
     @field_validator("cors_origins", mode="before")
     @classmethod
     def _split_origins(cls, value: str | list[str]) -> list[str]:
