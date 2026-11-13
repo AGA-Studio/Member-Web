@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, Query, status
 
 from api.v1.dependencies import BusinessId, SessionDep, require_roles
 from models.user_model import Role
-from schemas.card_schema import CardLinkResponse
+from schemas.card_schema import CardEmailSentResponse, CardLinkResponse, CustomerCreatedResponse
 from schemas.customer_schema import (
     CustomerCreate,
     CustomerResponse,
@@ -69,14 +69,15 @@ def lookup(
 
 @router.post(
     "/create",
-    response_model=CustomerResponse,
+    response_model=CustomerCreatedResponse,
     status_code=status.HTTP_201_CREATED,
     dependencies=admin_only,
 )
 def create_customer(
     data: CustomerCreate, session: SessionDep, business_id: BusinessId
-) -> CustomerResponse:
-    return customer_service.create_customer(session, business_id, data)
+) -> CustomerCreatedResponse:
+    """With `send_card_email` (default) it emails the card link; a failed email never fails it."""
+    return card_service.create_customer(session, business_id, data)
 
 
 @router.get("/{customer_id}", response_model=CustomerResponse, dependencies=admin_only)
@@ -107,3 +108,13 @@ def create_card_link(
 ) -> CardLinkResponse:
     """New link to the digital card ("Copiar enlace"). The previous link stops working."""
     return card_service.create_link(session, business_id, customer_id)
+
+
+@router.post(
+    "/{customer_id}/card-link/send", response_model=CardEmailSentResponse, dependencies=admin_only
+)
+def send_card_link(
+    customer_id: int, session: SessionDep, business_id: BusinessId
+) -> CardEmailSentResponse:
+    """Email the customer a new card link. One per minute and five per hour."""
+    return card_service.send_link(session, business_id, customer_id)
