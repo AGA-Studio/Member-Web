@@ -9,7 +9,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, status
 
 from api.v1.dependencies import BusinessId, SessionDep, require_roles
-from models.user_model import Role
+from models.user_model import Role, User
 from schemas.card_schema import CardEmailSentResponse, CardLinkResponse, CustomerCreatedResponse
 from schemas.customer_schema import (
     CustomerCreate,
@@ -24,6 +24,7 @@ from services import card_service, customer_service
 router = APIRouter(prefix="/customer", tags=["customer"])
 
 admin_only = [Depends(require_roles(Role.ADMIN))]
+AdminUser = Annotated[User, Depends(require_roles(Role.ADMIN))]
 
 
 @router.get("/list", response_model=PageResponse[CustomerResponse], dependencies=admin_only)
@@ -71,13 +72,12 @@ def lookup(
     "/create",
     response_model=CustomerCreatedResponse,
     status_code=status.HTTP_201_CREATED,
-    dependencies=admin_only,
 )
 def create_customer(
-    data: CustomerCreate, session: SessionDep, business_id: BusinessId
+    data: CustomerCreate, session: SessionDep, business_id: BusinessId, admin: AdminUser
 ) -> CustomerCreatedResponse:
-    """With `send_card_email` (default) it emails the card link; a failed email never fails it."""
-    return card_service.create_customer(session, business_id, data)
+    """Records the first payment. With `send_card_email` (default) it emails the card link."""
+    return card_service.create_customer(session, business_id, data, admin.id)
 
 
 @router.get("/{customer_id}", response_model=CustomerResponse, dependencies=admin_only)

@@ -233,10 +233,10 @@ def send_link(session: Session, business_id: int, customer_id: int) -> CardEmail
 
 
 def create_customer(
-    session: Session, business_id: int, data: CustomerCreate
+    session: Session, business_id: int, data: CustomerCreate, recorded_by: int
 ) -> CustomerCreatedResponse:
     """`/customer/create` plus the card email. The customer is created even if it fails."""
-    created = customer_service.create_customer(session, business_id, data)
+    created = customer_service.create_customer(session, business_id, data, recorded_by)
     email_status = CardEmailStatus.SKIPPED
     if data.send_card_email:
         customer, business = _load(session, business_id, created.id)

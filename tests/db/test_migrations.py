@@ -32,6 +32,7 @@ APP_TABLES = {
     "purchases",
     "card_deliveries",
     "card_emails",
+    "membership_payments",
 }
 
 
