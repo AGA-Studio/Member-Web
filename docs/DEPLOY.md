@@ -23,7 +23,8 @@ El API se despliega como **imagen Docker** construida en GitHub Actions y public
 6. [Migraciones y datos](#6-migraciones-y-datos)
 7. [Rollback](#7-rollback)
 8. [Probar la imagen en local](#8-probar-la-imagen-en-local)
-9. [Problemas comunes](#9-problemas-comunes)
+9. [Respaldo local de la demo (perfil stack)](#9-respaldo-local-de-la-demo-perfil-stack)
+10. [Problemas comunes](#10-problemas-comunes)
 
 ---
 
@@ -83,7 +84,7 @@ El webhook automático (sección 4, paso 7) es **opcional** y solo tiene sentido
 ## 4. Configurar Coolify (una vez)
 
 1. **Paquete público en GHCR.** El paquete nace privado aunque el repo sea público. En GitHub → *Packages* → `member-web` → *Package settings* → *Change visibility* → **Public**. Si prefieres dejarlo privado, agrega en Coolify una credencial de registro con un token de solo lectura (`read:packages`).
-2. **Postgres.** Crear el servicio PostgreSQL 18 en Coolify (sin puerto público) y anotar su URL **interna**. No uses el compose de desarrollo: ese es solo para tu máquina.
+2. **Postgres.** Crear el servicio PostgreSQL 18 en Coolify (sin puerto público) y anotar su URL **interna**. No uses el compose de desarrollo como base de Coolify: ese es solo para tu máquina (sección 9).
    - **Crea una base propia**, en el terminal del recurso: `psql -U postgres -c "CREATE DATABASE memberplus;"`. La URL interna que entrega Coolify termina en `/postgres`; si se deja así, las tablas viven en la base por defecto y `memberplus` queda vacía (un `pg_dump` de ella saldría en blanco).
 3. **Aplicación.** Nuevo recurso → *Docker Image* → `ghcr.io/aga-studio/member-web:<versión>` (p. ej. `0.0.1`). Puerto expuesto **8000**.
    - **Deja el healthcheck de Coolify apagado.** Para recursos de tipo *Docker Image*, Coolify lo implementa con `curl` o `wget` **dentro** del contenedor, y `python:3.14-slim` no trae ninguno de los dos: el contenedor quedaría `unhealthy` para siempre aunque la API responda, y el deploy se marcaría fallido. La imagen ya declara su propio `HEALTHCHECK` contra `/health` usando la stdlib, y Coolify muestra ese estado sin configurar nada. Si de todos modos quieres que Coolify lo evalúe, usa el tipo **`cmd`** con `python -c "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=3)"`, nunca `http`.
@@ -170,7 +171,54 @@ curl -s http://127.0.0.1:8001/health   # {"status":"ok"}
 
 ---
 
-## 9. Problemas comunes
+## 9. Respaldo local de la demo (perfil `stack`)
+
+El compose de desarrollo levanta solo Postgres. Para el ensayo sin internet, el mismo `docker-compose.yml` trae un perfil `stack` que suma `api` y `web` **sin construir nada**: las dos imágenes se publican en GHCR y en local solo se hace `pull`.
+
+| Servicio | Imagen | Qué es |
+|---|---|---|
+| `db` | `postgres:18` | Base del stack (volumen `pgdata`) |
+| `api` | `ghcr.io/aga-studio/member-web:${API_IMAGE_TAG:-0.0.1}` | API, la misma imagen que producción |
+| `web` | `ghcr.io/aga-studio/member-plus-frontend:${WEB_IMAGE_TAG:-stack}` | Frontend compilado con `API_INTERNAL_URL=http://api:8000` |
+
+**Por qué el frontend usa el tag `stack` y no la imagen normal.** El `rewrite` de `/api/*` se evalúa en `next build` y queda horneado en la imagen. La imagen de producción apunta a `https://api-memberplus.neyzt.org`, así que en localhost y sin internet el navegador intentaría llamar a producción. La imagen `:stack` se construye con el build-arg interno y **solo sirve para este compose**: no se despliega en Coolify. Se publica desde el workflow *Image* del repo del frontend con `workflow_dispatch` y la casilla `stack`.
+
+Con `pull_policy: missing` un `up` normal no refresca un tag que ya está local: después de mover `stack` (o de cambiar `API_IMAGE_TAG`/`WEB_IMAGE_TAG`), correr `docker compose --profile stack pull`.
+
+### Antes del ensayo (con internet)
+
+```bash
+docker compose --profile stack pull
+docker compose --profile stack up -d --wait
+docker compose --profile stack exec api python -m scripts.seed
+```
+
+`--wait` espera a que `db`, `api` y `web` estén `healthy`; los tres tienen healthcheck. El seed es idempotente: en `development` usa la contraseña demo conocida, en `production` exige `SEED_PASSWORD`.
+
+### Cronometraje del criterio de H0
+
+Con las imágenes ya descargadas, desde cero:
+
+```bash
+docker compose --profile stack down -v
+time docker compose --profile stack up -d --wait
+docker compose --profile stack ps        # todo healthy
+curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:3000/
+```
+
+Anotar el resultado (meta: 3 minutos o menos). El seed no entra en el tiempo del `up`:
+
+| Fecha | Con internet | Sin internet | Notas |
+|---|---|---|---|
+| | | | |
+
+### Prueba sin internet
+
+Desconectar la red y repetir `down -v` + `up -d --wait`. Si el arranque intenta descargar algo, falta el `pull` previo o el tag no está local: `docker images | grep -E "member-web|member-plus-frontend"`.
+
+---
+
+## 10. Problemas comunes
 
 **`denied` o `unauthorized` al hacer pull en Coolify.**
 El paquete de GHCR sigue privado. Ponlo público o agrega credencial de registro en Coolify.
