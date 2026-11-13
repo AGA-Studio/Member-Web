@@ -39,6 +39,7 @@ from models.tier_model import Tier
 from schemas.customer_schema import (
     BenefitsResponse,
     CustomerCreate,
+    CustomerRenew,
     CustomerResponse,
     CustomerStatus,
     CustomerStatusFilter,
@@ -446,4 +447,51 @@ def cancel_customer(session: Session, business_id: int, customer_id: int) -> Cus
             link.revoked_at = now
             session.add(link)
         _commit(session, customer)
+    return _response(session, business_id, customer, tier)
+
+
+_cancelled = ApiError(
+    status_code=status.HTTP_409_CONFLICT,
+    detail="Card is cancelled",
+    code=ErrorCode.CUSTOMER_CANCELLED,
+)
+
+
+def renew_customer(
+    session: Session, business_id: int, customer_id: int, data: CustomerRenew, recorded_by: int
+) -> CustomerResponse:
+    """Extend the card by the business's `validity_months` and record the payment.
+
+    A card still valid renews from its `valid_until` (no paid days are lost); an
+    expired one renews from now. A cancelled card cannot be renewed (409).
+    """
+    row = session.exec(
+        with_tier(business_id).where(Customer.id == customer_id).with_for_update(of=Customer)
+    ).first()
+    if row is None:
+        raise _not_found
+    customer, tier = row
+    if customer.cancelled_at is not None:
+        raise _cancelled
+    if data.level_id is not None:
+        tier = _resolve_tier(session, business_id, data.level_id)
+    amount = payment_service.resolve_amount(tier, data.amount_cents)
+
+    start = max(as_utc(customer.valid_until), utc_now())
+    months = session.get(Business, business_id).validity_months
+    customer.valid_until = add_months(start, months)
+    customer.tier_id = tier.id
+    session.add(customer)
+    payment_service.record(
+        session,
+        customer=customer,
+        tier=tier,
+        kind=PaymentKind.RENEWAL,
+        method=data.payment_method,
+        amount_cents=amount,
+        period_start=start,
+        period_end=customer.valid_until,
+        recorded_by=recorded_by,
+    )
+    _commit(session, customer)
     return _response(session, business_id, customer, tier)

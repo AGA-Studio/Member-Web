@@ -299,6 +299,8 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | GET | `/api/v1/customer/{customer_id}` | admin | Ficha del cliente |
 | PATCH | `/api/v1/customer/{customer_id}/update` | admin | Edita `full_name`, `email`, `phone` (`null` lo borra) o `level_id` (cambio de nivel). 409 `email_taken` |
 | POST | `/api/v1/customer/{customer_id}/cancel` | admin | Cancela la tarjeta y revoca su enlace; irreversible y repetirlo no cambia nada |
+| POST | `/api/v1/customer/{customer_id}/renew` | admin | Renueva `validity_months` meses: desde `valid_until` si sigue vigente, desde hoy si venció. Cuerpo opcional: `level_id` (cambia de nivel), `payment_method`, `amount_cents` (por defecto el precio del nivel; 0 no registra pago). 409 `customer_cancelled` |
+| GET | `/api/v1/customer/{customer_id}/payment/list` | admin | Pagos de membresía del cliente, el más reciente primero, paginados: `kind` (`new` \| `renewal`), `method`, `amount_cents`, `level` {`id`, `name` con que se pagó}, `period_start`, `period_end`, `recorded_by_name` |
 | POST | `/api/v1/customer/{customer_id}/card-link` | admin | Enlace nuevo a la tarjeta digital (`url`, `expires_at` = `valid_until`); revoca el anterior. 409 `customer_cancelled` o `customer_expired` |
 | POST | `/api/v1/customer/{customer_id}/card-link/send` | admin | Envía por correo un enlace nuevo (`sent_to`, `last_sent_at`). 429 `card_email_rate_limited`, 502 `email_failed` |
 | POST | `/api/v1/checkout/preview` | admin, employee | Mismo cuerpo que `create`; calcula y no guarda nada |
@@ -337,10 +339,10 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | `email_taken` | 409 | `/user/create` y `/user/{user_id}/update`: email en uso |
 | `tier_invalid` | 422 | `/tier/{tier_id}/update`: valor fuera de rango. `/customer/create` y `/customer/{customer_id}/update`: `level_id` inexistente, de otro negocio, o negocio sin niveles |
 | `customer_not_found` | 404 | `/customer/lookup`, `/customer/{customer_id}` y sus acciones, `/checkout/create` y `/checkout/preview`: no existe o es de otro negocio |
-| `amount_invalid` | 422 | `/checkout/create` y `/checkout/preview`: `amount_cents` fuera de 1 a 100 000 000. `/customer/create`: `amount_cents` fuera de 0 a 100 000 000. Un monto que no es entero es validación de campo (422 de FastAPI, sin `code`) |
+| `amount_invalid` | 422 | `/checkout/create` y `/checkout/preview`: `amount_cents` fuera de 1 a 100 000 000. `/customer/create` y `/customer/{customer_id}/renew`: `amount_cents` fuera de 0 a 100 000 000. Un monto que no es entero es validación de campo (422 de FastAPI, sin `code`) |
 | `checkout_not_found` | 404 | `/checkout/{checkout_id}`: no existe, es de otro negocio, o un cajero pide el comprobante de otro cajero |
 | `idempotency_conflict` | 409 | `/checkout/create`: la `Idempotency-Key` ya se usó para otra compra (otro cliente, monto o concepto) |
-| `customer_cancelled` | 409 | `/customer/{customer_id}/card-link` y `/send`: la tarjeta está cancelada |
+| `customer_cancelled` | 409 | `/customer/{customer_id}/card-link`, `/send` y `/renew`: la tarjeta está cancelada |
 | `customer_expired` | 409 | `/customer/{customer_id}/card-link` y `/send`: la tarjeta venció (el enlace no abriría) |
 | `card_email_rate_limited` | 429 | `/customer/{customer_id}/card-link/send`: ya se envió hace menos de 1 minuto o 5 veces en una hora (con `Retry-After`) |
 | `email_failed` | 502 | `/customer/{customer_id}/card-link/send`: el proveedor de correo falló |
@@ -378,6 +380,7 @@ Reglas de `PATCH /tier/{tier_id}/update` (`services/tier_service.py`):
 - `email`: se guarda en minúscula y es único por negocio (otro negocio puede tener el mismo).
 - Vigencia: `validity_months` del negocio (12 por defecto; por ahora lo fija el seed, sin pantalla de configuración) desde `issued_at`. El 31 pasa al último día de un mes más corto.
 - Pagos de membresía (`membership_payments`, `services/payment_service.py`, DECISIÓN 9): el alta registra el primer pago en la misma transacción que la tarjeta. El monto es el `price_cents` del nivel salvo que el admin mande `amount_cents`; un monto de 0 (nivel gratuito) no registra pago. Guarda el nivel, el método, el periodo que compró y quién lo registró. Sin pasarela de pagos.
+- Renovación (`/customer/{customer_id}/renew`): bloquea la fila del cliente, suma `validity_months` desde el `valid_until` vigente (no se pierden días pagados) o desde hoy si ya venció, puede cambiar de nivel y registra un pago `renewal` en la misma transacción. Una tarjeta cancelada no se renueva (409). El seed le da su pago `new` a cada cliente de demo en un nivel con precio.
 - `status` no se guarda: `cancelled` si `cancelled_at` tiene fecha (irreversible, gana sobre todo), `expired` si `valid_until` ya pasó, si no `active`. `expiring_soon` marca las activas que vencen en 30 días o menos.
 - Cambio de nivel: el admin lo asigna con `level_id` en `PATCH /customer/{customer_id}/update` (el nivel se paga en caja). Sin `level_id` al crear, entra al nivel más barato.
 - `points_balance`, `cashback_balance_cents` y `last_purchase_at` se calculan sumando las compras del cliente (`customer_service.balances`), en una sola consulta por página de la lista.

@@ -22,7 +22,7 @@ Documentación de la suite de pruebas automatizadas del backend: qué se prueba,
 | Métrica | Valor |
 |---------|-------|
 | Fecha de ejecución | 12 de noviembre de 2026 |
-| Pruebas | **632**, todas pasan (0 `xfail`); conteo del 13 nov 2026 con niveles, clientes, caja, movimientos, plataforma, entrega de la tarjeta digital y pagos de membresía |
+| Pruebas | **649**, todas pasan (0 `xfail`); conteo del 13 nov 2026 con niveles, clientes, caja, movimientos, plataforma, entrega de la tarjeta digital y pagos de membresía |
 | Fallas | **0** |
 | Cobertura de líneas y ramas | **100 %** en `api/`, `core/`, `models/`, `schemas/`, `services/` y `scripts/seed.py`. `scripts/review_pr.py` (revisor del CI) queda en 60 %, por eso el total marca 92 % |
 | Bases de datos probadas | SQLite y **PostgreSQL 18.6** |
@@ -702,7 +702,7 @@ Contrato del frontend, sección 3. Las reglas viven en `services/customer_servic
 | `TestTierCount` | `/tier/list` cuenta solo tarjetas no canceladas | ✅ |
 | `TestCodeAndRaces` | Un código ya usado se regenera; tras 10 choques se rinde con error; dos altas con el mismo email a la vez → 409, no 500, y la API sigue respondiendo | ✅ |
 
-### 5.7d Aislamiento de clientes — `tests/api/test_isolation_customer.py` (9)
+### 5.7d Aislamiento de clientes — `tests/api/test_isolation_customer.py` (11)
 
 | Prueba | Verifica | Resultado |
 |--------|----------|-----------|
@@ -715,6 +715,8 @@ Contrato del frontend, sección 3. Las reglas viven en `services/customer_servic
 | `test_cannot_assign_a_tier_of_the_other_business` | Un `level_id` de B → 422 al crear y al editar | ✅ |
 | `test_level_filter_with_other_business_tier_is_empty` | Filtrar por un nivel de B devuelve 0 | ✅ |
 | `test_tier_counts_only_its_customers` | `customers_count` no cuenta clientes de otro negocio | ✅ |
+| `test_renew_of_other_business_is_404_and_unchanged` | Renovar un cliente de B → 404, sin cambiar su vigencia ni registrar pago | ✅ |
+| `test_payment_list_of_other_business_looks_like_nonexistent` | Los pagos de un cliente de B responden igual que un cliente inexistente | ✅ |
 
 ### 5.7e Servicio de clientes — `tests/unit/test_customer_service.py` (10)
 
@@ -800,7 +802,7 @@ Contrato del frontend, sección 13 (enlace, correo, tarjeta pública y Google Wa
 
 `core/rate_limit.py`: ventana deslizante en memoria. Permite hasta el límite y luego da los segundos de espera; cuenta cada llave aparte; las peticiones viejas salen de la ventana; `reset` borra todo; con demasiadas llaves descarta las que ya no tienen peticiones.
 
-### 5.7o Pagos de membresía — `tests/api/test_membership_payment.py` (10)
+### 5.7o Pagos de membresía — `tests/api/test_membership_payment.py` (25)
 
 Contrato del frontend, sección 9 (DECISIÓN 9).
 
@@ -808,6 +810,8 @@ Contrato del frontend, sección 9 (DECISIÓN 9).
 |-------|--------------|-----------|
 | `TestFirstPayment` | El alta registra un pago `new` con el precio del nivel, el método `cash`, el periodo de la tarjeta y el admin que lo registró; el admin puede cambiar monto y método; nivel gratuito o monto 0 no registran pago; monto fuera de rango → 422 `amount_invalid` sin crear el cliente; método desconocido → 422; un correo duplicado no deja pago suelto | ✅ |
 | `TestValidityMonths` | Sin cambios la vigencia es de 12 meses; con `validity_months = 6` en el negocio, la tarjeta y su pago duran 6 meses | ✅ |
+| `TestRenew` | Una tarjeta vigente renueva desde su `valid_until` y una vencida desde hoy; puede cambiar nivel, monto y método; renovar un nivel gratuito no registra pago; tarjeta cancelada → 409 `customer_cancelled` sin pago ni cambio; nivel desconocido o monto fuera de rango → 422; cliente inexistente → 404; el cajero → 403 | ✅ |
+| `TestPaymentList` | El más reciente primero, con método, monto, nivel, periodo y quién lo registró; conserva el nombre del nivel aunque luego cambie; pagina; vacía para un cliente gratuito; cliente inexistente → 404; el cajero → 403 | ✅ |
 
 ### 5.8 Hallazgos conocidos — `tests/api/test_known_issues.py` (0)
 

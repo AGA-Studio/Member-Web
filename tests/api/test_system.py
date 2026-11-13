@@ -20,6 +20,8 @@ EXPECTED_PATHS = {
     "/api/v1/customer/{customer_id}",
     "/api/v1/customer/{customer_id}/update",
     "/api/v1/customer/{customer_id}/cancel",
+    "/api/v1/customer/{customer_id}/renew",
+    "/api/v1/customer/{customer_id}/payment/list",
     "/api/v1/customer/{customer_id}/card-link",
     "/api/v1/customer/{customer_id}/card-link/send",
     "/api/v1/checkout/preview",
