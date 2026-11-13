@@ -31,6 +31,11 @@ ALLOWED_ACTIONS = {
     "update",
 }
 
+# A resource seen from another one. `/platform/business/list` (contract, section 7):
+# the platform owner lists the businesses, so `business` sits between the resource
+# and the action.
+SUB_RESOURCES = {"business"}
+
 # The only endpoint allowed outside the versioned prefix.
 UNVERSIONED = {"/health"}
 
@@ -61,7 +66,7 @@ def test_every_route_matches_the_resource_action_shape() -> None:
                 if parameter != parameter.lower() or "-" in parameter:
                     problems.append(f"{path}: path parameter '{parameter}' must be snake_case")
                 continue
-            if segment not in ALLOWED_ACTIONS:
+            if segment not in ALLOWED_ACTIONS | SUB_RESOURCES:
                 problems.append(
                     f"{path}: '{segment}' is not one of the allowed actions "
                     f"{sorted(ALLOWED_ACTIONS)}"
