@@ -512,6 +512,62 @@ Contrato del frontend, sección 1.2 (DECISIÓN 7). Cada error de negocio trae `c
 | `test_field_validation_keeps_fastapi_shape` | Los 422 de validación siguen con `detail` en lista y sin `code` | ✅ |
 | `test_errors_outside_the_contract_have_no_code` | Un error fuera de la tabla del contrato (`Permission denied`) no lleva `code` | ✅ |
 
+### 5.5e Logo y almacenamiento
+
+60 pruebas en 4 archivos. Usan el fixture `storage` de `tests/conftest.py`, que simula S3 con **moto**: el código real de `boto3` corre igual y el CI no necesita un servidor de almacenamiento. Guía en [STORAGE.md](STORAGE.md).
+
+**Imágenes — `tests/unit/test_image_service.py` (18)**
+
+| Prueba | Verifica | Resultado |
+|--------|----------|-----------|
+| `test_accepted_formats_become_webp[JPEG / PNG / WEBP]` | Los 3 formatos aceptados salen como WebP | ✅ |
+| `test_large_image_is_shrunk_keeping_proportions` | 2000×1000 → 512×256 | ✅ |
+| `test_small_image_is_not_enlarged` | Una imagen chica no se agranda | ✅ |
+| `test_transparency_is_kept` | Un logo con fondo transparente lo conserva | ✅ |
+| `test_metadata_is_removed` | Una foto con modelo de celular y GPS en EXIF sale sin metadatos (DLP) | ✅ |
+| `test_exif_orientation_is_applied_before_dropping_it` | Se aplica la rotación del EXIF antes de borrarlo | ✅ |
+| `test_non_images_are_rejected[empty / text / pdf / truncated]` | Vacío, texto, PDF o un PNG cortado → rechazados | ✅ |
+| `test_other_image_formats_are_rejected[GIF / BMP / TIFF]` | Formatos fuera de la lista → rechazados | ✅ |
+| `test_too_many_pixels_is_rejected` | Una "bomba de descompresión" (36 M píxeles en < 100 KB) → rechazada | ✅ |
+| `test_extension_does_not_matter_only_content` | Se juzga el contenido, no el nombre del archivo | ✅ |
+| `test_header_ok_but_pixels_broken_is_rejected` | Un JPEG cortado: la cabecera parece válida pero no decodifica → rechazado | ✅ |
+
+**Almacenamiento — `tests/unit/test_storage_service.py` (20)**
+
+| Prueba | Verifica | Resultado |
+|--------|----------|-----------|
+| `TestEnabled` (5) | Crea el bucket al primer uso, sube con su `Content-Type`, borra, borrar algo inexistente no falla, la URL firmada apunta al host público, caduca y lleva firma | ✅ |
+| `TestReferences` (8) | Distingue clave de URL externa; las URLs externas pasan tal cual; `null` y vacío dan `null` | ✅ |
+| `TestDisabled` (6) | Sin configuración: subir y firmar fallan con `StorageUnavailable`, borrar no falla, las claves se reportan `null` y las URLs externas siguen pasando | ✅ |
+| `test_unreachable_server_is_storage_unavailable` | Un servidor que no responde → `StorageUnavailable`, no un 500 | ✅ |
+
+**API — `tests/api/test_logo.py` (19)**
+
+| Prueba | Verifica | Resultado |
+|--------|----------|-----------|
+| `TestPermissions` (3) | Sin sesión → 401; empleado y dueño de plataforma → 403, y el bucket queda vacío | ✅ |
+| `test_upload_returns_the_business_with_a_signed_url` | 200 con el negocio y `logo_url` firmada | ✅ |
+| `test_stored_as_webp_under_the_business_prefix` | Clave `businesses/{id}/logo/….webp`; la base guarda la clave, no la URL | ✅ |
+| `test_me_shows_the_logo` | El empleado lo ve en `/auth/me` | ✅ |
+| `test_replacing_deletes_the_previous_file` | Reemplazar deja un solo archivo, con otro nombre | ✅ |
+| `test_replacing_an_external_url_keeps_working` | Un negocio con URL externa puede subir su logo | ✅ |
+| `test_too_large` | Más de 2 MB → 413 `image_too_large` | ✅ |
+| `test_not_an_accepted_image[text / gif / pdf-renamed]` | → 422 `image_invalid`, sin tocar el bucket | ✅ |
+| `test_missing_file` | Sin archivo → 422 | ✅ |
+| `test_rejected_upload_keeps_the_current_logo` | Una subida rechazada no borra el logo actual | ✅ |
+| `test_delete_removes_file_and_reference` | Borra archivo y referencia | ✅ |
+| `test_delete_without_logo_is_harmless` | Repetir el borrado → 200 | ✅ |
+| `TestStorageDisabled` (3) | Sin almacenamiento: subir → 503 `storage_unavailable`, un archivo inválido sigue siendo 422, `/auth/me` y borrar siguen funcionando | ✅ |
+
+**Aislamiento — `tests/api/test_isolation_logo.py` (4)**
+
+| Prueba | Verifica | Resultado |
+|--------|----------|-----------|
+| `test_logo_of_a_is_invisible_to_b` | B no ve el logo de A | ✅ |
+| `test_upload_by_b_only_changes_b` | Subir en B no cambia a A | ✅ |
+| `test_delete_by_b_does_not_touch_a` | Borrar en B no borra el archivo de A | ✅ |
+| `test_files_are_separated_by_business_prefix` | Cada negocio en su prefijo `businesses/{id}/` | ✅ |
+
 ### 5.6 Usuarios — `tests/api/test_user.py` (53)
 
 **Permisos**
