@@ -29,6 +29,8 @@ class ErrorCode(StrEnum):
     CUSTOMER_CANCELLED = "customer_cancelled"
     CUSTOMER_EXPIRED = "customer_expired"
     CARD_LINK_NOT_FOUND = "card_link_not_found"
+    CARD_EMAIL_RATE_LIMITED = "card_email_rate_limited"
+    EMAIL_FAILED = "email_failed"
     RATE_LIMITED = "rate_limited"
 
 
