@@ -17,9 +17,10 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from api.v1 import auth_api, user_api
+from api.v1 import auth_api, customer_api, tier_api, user_api
 from core.config import settings
 from core.cors import setup_cors
+from core.errors import setup_error_handlers
 from db.database import check_database_connection
 
 API_V1_PREFIX = "/api/v1"
@@ -28,8 +29,9 @@ API_V1_PREFIX = "/api/v1"
 API_V1_ROUTERS = [
     auth_api.router,
     user_api.router,
+    tier_api.router,
+    customer_api.router,
     # Next MVP modules (H1–H3):
-    # customer_api.router, membership_api.router, tier_api.router,
     # checkout_api.router, movement_api.router, platform_api.router,
 ]
 
@@ -52,6 +54,7 @@ def create_app() -> FastAPI:
     )
 
     setup_cors(app)
+    setup_error_handlers(app)
 
     for router in API_V1_ROUTERS:
         app.include_router(router, prefix=API_V1_PREFIX)

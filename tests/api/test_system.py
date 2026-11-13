@@ -11,6 +11,15 @@ EXPECTED_PATHS = {
     "/api/v1/user/create",
     "/api/v1/user/{user_id}",
     "/api/v1/user/{user_id}/update",
+    "/api/v1/tier/list",
+    "/api/v1/tier/{tier_id}/update",
+    "/api/v1/customer/list",
+    "/api/v1/customer/summary",
+    "/api/v1/customer/lookup",
+    "/api/v1/customer/create",
+    "/api/v1/customer/{customer_id}",
+    "/api/v1/customer/{customer_id}/update",
+    "/api/v1/customer/{customer_id}/cancel",
 }
 
 

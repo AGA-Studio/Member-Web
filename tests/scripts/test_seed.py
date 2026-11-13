@@ -6,10 +6,10 @@ from sqlmodel import Session, select
 
 from core.config import settings
 from core.security import verify_password
-from models import Business, BusinessStatus, Role, User
+from models import Business, BusinessStatus, Customer, Role, Tier, User
 from schemas.validators import normalize_person_name
 from scripts import seed as seed_module
-from scripts.seed import DEMO_PASSWORD, USERS, SeedError, resolve_password, seed
+from scripts.seed import CUSTOMERS, DEMO_PASSWORD, USERS, SeedError, resolve_password, seed
 from tests.conftest import login
 
 PASSWORD = "seed-password-123"
@@ -58,15 +58,112 @@ class TestSeedData:
         assert normalize_person_name(name) == name
 
 
+class TestSeedTiers:
+    def test_cafe_aurora_gets_the_contract_tiers(
+        self, session: Session, client: TestClient
+    ) -> None:
+        seed(session, PASSWORD)
+        login(client, "caja@cafe-aurora.mx", PASSWORD)
+        tiers = [
+            (
+                t["name"],
+                t["finish"],
+                t["price_cents"],
+                t["discount_percent"],
+                t["points_per_ten"],
+                t["cashback_percent"],
+            )
+            for t in client.get("/api/v1/tier/list").json()
+        ]
+        assert tiers == [
+            ("Bronce", "bronze", 0, 5, 1, 0),
+            ("Plata", "silver", 19_900, 10, 1, 1),
+            ("Oro", "gold", 39_900, 15, 1, 3),
+            ("Onyx", "onyx", 69_900, 20, 2, 5),
+        ]
+
+    def test_gimnasio_titan_gets_different_tiers(
+        self, session: Session, client: TestClient
+    ) -> None:
+        seed(session, PASSWORD)
+        login(client, "admin@gimnasio-titan.mx", PASSWORD)
+        names = [t["name"] for t in client.get("/api/v1/tier/list").json()]
+        assert names == ["Básico", "Premium"]
+
+    def test_a_better_tier_costs_more(self, session: Session) -> None:
+        # "Por cobro": more benefits, higher price.
+        seed(session, PASSWORD)
+        for business in session.exec(select(Business)).all():
+            query = select(Tier).where(Tier.business_id == business.id).order_by(Tier.price_cents)
+            discounts = [t.discount_percent for t in session.exec(query).all()]
+            assert discounts == sorted(discounts)
+
+    def test_an_edited_tier_is_not_overwritten(self, session: Session) -> None:
+        seed(session, PASSWORD)
+        gold = session.exec(select(Tier).where(Tier.name == "Oro")).one()
+        gold.price_cents = 45_000
+        session.add(gold)
+        session.commit()
+        seed(session, PASSWORD)
+        session.refresh(gold)
+        assert gold.price_cents == 45_000
+
+
+class TestSeedCustomers:
+    def test_cafe_aurora_has_twelve_customers_in_every_state(
+        self, session: Session, client: TestClient
+    ) -> None:
+        seed(session, PASSWORD)
+        login(client, "admin@cafe-aurora.mx", PASSWORD)
+        assert client.get("/api/v1/customer/summary").json() == {
+            "all": 12,
+            "active": 10,
+            "expiring": 2,
+            "expired": 1,
+            "cancelled": 1,
+        }
+
+    def test_gimnasio_titan_has_its_own_customers(
+        self, session: Session, client: TestClient
+    ) -> None:
+        seed(session, PASSWORD)
+        login(client, "admin@gimnasio-titan.mx", PASSWORD)
+        names = [c["full_name"] for c in client.get("/api/v1/customer/list").json()["items"]]
+        assert names == ["Paola Cruz", "Roberto Díaz"]
+
+    def test_the_contract_card_is_found_at_the_counter(
+        self, session: Session, client: TestClient
+    ) -> None:
+        seed(session, PASSWORD)
+        login(client, "caja@cafe-aurora.mx", PASSWORD)
+        card = client.get("/api/v1/customer/lookup", params={"code": "mp-4f7k2"}).json()
+        assert (card["full_name"], card["level"]["name"]) == ("Laura Méndez", "Oro")
+
+    def test_tiers_count_the_seeded_customers(self, session: Session, client: TestClient) -> None:
+        seed(session, PASSWORD)
+        login(client, "admin@cafe-aurora.mx", PASSWORD)
+        counts = {t["name"]: t["customers_count"] for t in client.get("/api/v1/tier/list").json()}
+        # Daniela Vega (Plata) is cancelled and does not count.
+        assert counts == {"Bronce": 4, "Plata": 2, "Oro": 3, "Onyx": 2}
+
+    @pytest.mark.parametrize("row", CUSTOMERS, ids=[row[1] for row in CUSTOMERS])
+    def test_demo_customers_follow_the_rules(self, row) -> None:
+        _, code, name, *_ = row
+        assert normalize_person_name(name) == name
+        assert code[3:].isalnum() and not set(code[3:]) & set("01OIL")
+
+
 class TestIdempotency:
     def test_second_run_creates_nothing(self, session: Session) -> None:
         first = seed(session, PASSWORD)
         second = seed(session, PASSWORD)
-        assert len(first.created) == 6
+        assert len(first.created) == 26
         assert second.created == []
-        assert len(second.existing) == 6
+        assert len(second.existing) == 26
         assert len(session.exec(select(Business)).all()) == 2
         assert len(session.exec(select(User)).all()) == 4
+        assert len(session.exec(select(Tier)).all()) == 6
+        assert len(session.exec(select(Customer)).all()) == 14
 
     def test_existing_password_is_never_changed(self, session: Session) -> None:
         seed(session, PASSWORD)

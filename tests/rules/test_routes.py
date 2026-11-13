@@ -14,7 +14,19 @@ API_PREFIX = "/api/v1"
 
 # Documented actions plus the three auth verbs already in use. Adding an action
 # is a one-line change here, on purpose: the list is the convention.
-ALLOWED_ACTIONS = {"create", "delete", "list", "login", "logout", "me", "update"}
+# `summary`, `lookup` and `cancel` come from the frontend API contract (section 3).
+ALLOWED_ACTIONS = {
+    "cancel",
+    "create",
+    "delete",
+    "list",
+    "login",
+    "logout",
+    "lookup",
+    "me",
+    "summary",
+    "update",
+}
 
 # The only endpoint allowed outside the versioned prefix.
 UNVERSIONED = {"/health"}

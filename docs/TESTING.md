@@ -22,12 +22,12 @@ Documentación de la suite de pruebas automatizadas del backend: qué se prueba,
 | Métrica | Valor |
 |---------|-------|
 | Fecha de ejecución | 12 de noviembre de 2026 |
-| Pruebas | **217**, todas pasan (0 `xfail`) |
+| Pruebas | **435**, todas pasan (0 `xfail`); conteo del 13 nov 2026 con niveles y clientes |
 | Fallas | **0** |
-| Cobertura de líneas y ramas | **100 %** (435 sentencias, 78 ramas), incluidos `services/` y `scripts/` |
+| Cobertura de líneas y ramas | **100 %** en `api/`, `core/`, `models/`, `schemas/`, `services/` y `scripts/seed.py`. `scripts/review_pr.py` (revisor del CI) queda en 60 %, por eso el total marca 92 % |
 | Bases de datos probadas | SQLite y **PostgreSQL 18.6** |
 | Tiempo | ~17 s en SQLite · ~42 s en PostgreSQL (equipo local) |
-| Criterio del MVP "0 filas de otro negocio" | ✅ Cumplido (7 pruebas de aislamiento) |
+| Criterio del MVP "0 filas de otro negocio" | ✅ Cumplido (7 pruebas de usuarios + 4 de niveles + 9 de clientes) |
 | Migraciones (Alembic) | ✅ Suben, bajan, convierten datos y coinciden con los modelos (9 pruebas) |
 | Hallazgos | ✅ Los 7 corregidos (H1–H7) |
 
@@ -199,13 +199,19 @@ tests/
 │   ├── test_config.py
 │   ├── test_models.py
 │   ├── test_validators.py
-│   └── test_auth_service.py
+│   ├── test_auth_service.py
+│   └── test_customer_service.py
 └── api/
     ├── test_system.py
     ├── test_auth.py
     ├── test_user.py
     ├── test_isolation.py
+    ├── test_tier.py
+    ├── test_isolation_tier.py
+    ├── test_customer.py
+    ├── test_isolation_customer.py
     ├── test_login_limit.py
+    ├── test_error_codes.py
     └── test_known_issues.py
 ├── db/
 │   └── test_migrations.py
@@ -386,7 +392,7 @@ Regla de H5 (`schemas/validators.py`, tipo `PersonName`): quita espacios al inic
 | `TestCors::test_preflight_from_unknown_origin_is_not_allowed` | Otro origen no recibe `allow-origin` | ✅ |
 | `TestCors::test_simple_request_from_allowed_origin` | Petición simple con origen permitido | ✅ |
 
-### 5.5 Autenticación — `tests/api/test_auth.py` (46)
+### 5.5 Autenticación — `tests/api/test_auth.py` (52)
 
 **Login (`POST /api/v1/auth/login`)**
 
@@ -410,7 +416,7 @@ Regla de H5 (`schemas/validators.py`, tipo `PersonName`): quita espacios al inic
 |--------|----------|-----------|
 | `test_me_with_cookie` | Funciona con la cookie (frontend) | ✅ |
 | `test_me_with_bearer_header` | Funciona con `Authorization: Bearer` (Swagger, lector) | ✅ |
-| `test_me_never_exposes_password_hash` | Solo devuelve los 7 campos públicos | ✅ |
+| `test_me_never_exposes_password_hash` | Solo devuelve los 7 campos públicos más `business` | ✅ |
 | `test_cookie_has_priority_over_bearer` | Si llegan ambos, manda la cookie | ✅ |
 | `test_without_token` | 401 con `WWW-Authenticate: Bearer` | ✅ |
 | `test_garbage_token` | Token basura → 401 | ✅ |
@@ -420,6 +426,17 @@ Regla de H5 (`schemas/validators.py`, tipo `PersonName`): quita espacios al inic
 | `test_token_of_deleted_user` | Token de un usuario borrado → 401 | ✅ |
 | `test_user_deactivated_after_login` | Desactivado con sesión abierta → 403 en la siguiente petición | ✅ |
 | `test_role_comes_from_database_not_from_token` | El rol se lee de la BD: un cambio de rol aplica sin volver a iniciar sesión | ✅ |
+
+**Negocio en `/auth/me` (contrato del frontend, sección 2.1)**
+
+| Prueba | Verifica | Resultado |
+|--------|----------|-----------|
+| `test_admin_gets_their_business` | El admin recibe `business` con `id`, `name`, `logo_url` y `status` de su negocio | ✅ |
+| `test_employee_gets_their_business` | El empleado recibe el negocio al que pertenece | ✅ |
+| `test_business_matches_business_id` | `business.id` coincide con `business_id` (negocio B) | ✅ |
+| `test_platform_owner_has_no_business` | `platform` recibe `business: null` | ✅ |
+| `test_status_and_logo_come_from_the_database` | Estado `trial` y `logo_url` salen de la base | ✅ |
+| `test_business_exposes_only_header_fields` | `business` solo trae los 4 campos del encabezado | ✅ |
 
 **Negocio suspendido (H1)**
 
@@ -475,6 +492,25 @@ H4: 5 intentos fallidos por email, después 429 durante 15 minutos. Las pruebas 
 | `test_logout_purges_old_rows` | Cada logout limpia las revocaciones vencidas | ✅ |
 | `test_failed_login_rows_outside_the_window_are_purged` | Se borran los registros de intentos fuera de la ventana | ✅ |
 | `test_clear_failed_logins_without_row_is_harmless` | Reiniciar un contador que no existe no falla | ✅ |
+
+### 5.5d Códigos de error estables — `tests/api/test_error_codes.py` (12)
+
+Contrato del frontend, sección 1.2 (DECISIÓN 7). Cada error de negocio trae `code` además de `detail`; el frontend elige el mensaje con `code`. Lo implementa `ApiError` en `core/errors.py`.
+
+| Prueba | Verifica | Resultado |
+|--------|----------|-----------|
+| `test_wrong_password_is_invalid_credentials` | 401 `invalid_credentials` y conserva `WWW-Authenticate` | ✅ |
+| `test_unknown_email_is_invalid_credentials` | Email inexistente → mismo `invalid_credentials` | ✅ |
+| `test_too_many_attempts_is_login_locked` | Sexto intento → 429 `login_locked` con `Retry-After` | ✅ |
+| `test_inactive_user_is_user_inactive` | Usuario inactivo → 403 `user_inactive` | ✅ |
+| `test_suspended_business_is_business_suspended` | Login de negocio suspendido → 403 `business_suspended` | ✅ |
+| `test_without_session_is_not_authenticated` | Sin sesión → 401 `not_authenticated` | ✅ |
+| `test_garbage_token_is_not_authenticated` | Token basura → 401 `not_authenticated` | ✅ |
+| `test_revoked_token_is_not_authenticated` | Token revocado por logout → 401 `not_authenticated` | ✅ |
+| `test_open_session_of_suspended_business` | Sesión abierta al suspender el negocio → 403 `business_suspended` | ✅ |
+| `test_duplicate_email_is_email_taken` | `/user/create` con email repetido → 409 `email_taken` | ✅ |
+| `test_field_validation_keeps_fastapi_shape` | Los 422 de validación siguen con `detail` en lista y sin `code` | ✅ |
+| `test_errors_outside_the_contract_have_no_code` | Un error fuera de la tabla del contrato (`Permission denied`) no lleva `code` | ✅ |
 
 ### 5.6 Usuarios — `tests/api/test_user.py` (53)
 
@@ -553,6 +589,46 @@ Reproduce dos peticiones que pasan la revisión de email al mismo tiempo: la fix
 | `test_failed_update_leaves_user_unchanged` | Si el cambio falla, ni el email ni el nombre se guardan | ✅ |
 | `test_api_keeps_working_after_the_conflict` | Tras el `rollback`, la siguiente petición funciona | ✅ |
 
+### 5.6b Niveles — `tests/api/test_tier.py` (40)
+
+Contrato del frontend, sección 4. `GET /tier/list` y `PATCH /tier/{tier_id}/update`; las reglas viven en `services/tier_service.py`. El nivel se paga (`price_cents`), no se alcanza por puntos.
+
+**Listado**
+| Prueba | Verifica | Resultado |
+|--------|----------|-----------|
+| `test_ordered_from_cheapest_to_most_expensive` | Los niveles salen del más barato al más caro aunque se hayan creado en otro orden | ✅ |
+| `test_a_price_change_reorders_the_list` | Cambiar un precio cambia el orden | ✅ |
+| `test_tiers_have_no_points_threshold` | La respuesta no trae `min_points` | ✅ |
+| `test_shape_matches_the_contract` | Campos exactos del contrato, `customers_count` en 0 por ahora | ✅ |
+| `test_percents_are_json_numbers` | Los porcentajes son números JSON, no texto | ✅ |
+| `test_employee_can_read_the_tiers` | El cajero puede leerlos (la caja muestra los beneficios) | ✅ |
+| `test_business_without_tiers_gets_empty_list` | Negocio sin niveles → `[]` | ✅ |
+| `test_platform_cannot_read_tiers` | `platform` → 403 | ✅ |
+| `test_requires_session` | Sin sesión → 401 `not_authenticated` | ✅ |
+
+**Edición**
+| Prueba | Verifica | Resultado |
+|--------|----------|-----------|
+| `test_updates_every_field` | Cambia los 6 campos y devuelve el nivel actualizado | ✅ |
+| `test_change_is_persisted` | El cambio queda en la base | ✅ |
+| `test_only_sent_fields_change` | Lo no enviado no cambia | ✅ |
+| `test_null_means_not_sent` | `null` no borra el valor | ✅ |
+| `test_name_is_trimmed` | Se quitan espacios sobrantes del nombre | ✅ |
+| `test_zero_disables_a_benefit` | Los tres beneficios aceptan 0 (= deshabilitado) | ✅ |
+| `test_limits_are_accepted` | 100 % es válido | ✅ |
+| `test_employee_cannot_update` / `test_platform_cannot_update` | Solo el admin edita → 403 | ✅ |
+| `test_unknown_tier_is_404` | Id inexistente → 404 `Tier not found` | ✅ |
+| `test_unknown_finish_keeps_fastapi_shape` | `finish` desconocido es validación de campo (422 de FastAPI) | ✅ |
+
+**Rangos** (422 `tier_invalid`, y el nivel no cambia)
+| Prueba | Verifica | Resultado |
+|--------|----------|-----------|
+| `test_out_of_range_is_tier_invalid[...]` | Porcentajes < 0, > 100 o con 3 decimales; `points_per_ten` < 0 o > 1000; `price_cents` < 0 o > 10⁸; nombre vacío o de más de 60 (13 casos) | ✅ |
+| `test_price_message_says_the_range` | El error de precio dice el rango permitido | ✅ |
+| `test_price_limits_are_accepted` | $0 (nivel gratuito) y $1,000,000.00 son válidos | ✅ |
+| `test_two_tiers_can_share_a_price` | Dos niveles pueden costar lo mismo | ✅ |
+| `test_out_of_range_is_rejected[...]` | Las restricciones `CHECK` de la base rechazan valores fuera de rango aunque se salte el servicio (4 casos) | ✅ |
+
 ### 5.7 Aislamiento multi-negocio — `tests/api/test_isolation.py` (7)
 
 Es la prueba obligatoria del MVP: *"0 filas de otro negocio, comprobado por test automático"*.
@@ -593,6 +669,51 @@ sequenceDiagram
 | `test_user_created_by_a_is_invisible_to_b` | Lo que crea A no aparece para B | ✅ |
 | `test_forged_business_id_in_token_body_has_no_effect` | Un JWT válido con `business_id` alterado no da acceso: el negocio se toma del usuario en la BD | ✅ |
 
+### 5.7b Aislamiento de niveles — `tests/api/test_isolation_tier.py` (4)
+
+| Prueba | Verifica | Resultado |
+|--------|----------|-----------|
+| `test_each_business_sees_only_its_tiers` | El cajero de A ve solo los niveles de A, y el de B solo los de B | ✅ |
+| `test_update_tier_of_other_business_is_404_and_unchanged` | Editar un nivel de B desde A → 404, y en la base sigue igual | ✅ |
+| `test_other_business_and_nonexistent_look_identical` | Misma respuesta para "de otro negocio" e "inexistente" | ✅ |
+| `test_editing_own_tier_leaves_other_business_untouched` | Lo que B edita en sus niveles no toca los de A | ✅ |
+
+### 5.7c Clientes — `tests/api/test_customer.py` (81)
+
+Contrato del frontend, sección 3. Las reglas viven en `services/customer_service.py`. Los casos parametrizados cuentan uno por variante.
+
+| Clase | Qué verifica | Resultado |
+|-------|--------------|-----------|
+| `TestCreate` | Forma exacta del contrato; código `MP-` + 5 caracteres sin `0/O/1/I/L`; vigencia de 12 meses; fechas en UTC; sin `level_id` entra al nivel más barato; email en minúscula; email repetido → 409 `email_taken` (el mismo email en otro negocio sí se acepta); `level_id` inexistente o negocio sin niveles → 422 `tier_invalid`; validación de nombre, email y teléfono | ✅ |
+| `TestStatus` | `active`, por vencer (`expiring_soon`), `expired` y `cancelled` calculados; `cancelled` gana sobre `expired` | ✅ |
+| `TestList` | Orden por nombre; forma paginada; 8 por defecto; segunda página; página fuera de rango → la última; negocio vacío → página 1; `page`/`page_size` inválidos → 422; `page_size=500` para la hoja imprimible; búsqueda sin distinguir mayúsculas en nombre, email y código (`%` no es comodín); filtros por estado y nivel, y combinados | ✅ |
+| `TestSummary` | Conteos de cada estado, y que coinciden con el `total` del filtro correspondiente de la lista | ✅ |
+| `TestLookup` | Normaliza el código (mayúsculas, espacios); código desconocido → 404 `customer_not_found`; responde para vencidas y canceladas; sin `code` → 422 | ✅ |
+| `TestDetail` | Ficha del cliente; id desconocido → 404 `customer_not_found` | ✅ |
+| `TestUpdate` | Datos personales; cambio de nivel con sus beneficios; `code` y fechas no cambian; `phone: null` lo borra; `null` en campos obligatorios se ignora; email ocupado → 409; conservar el propio email; nivel desconocido → 422; cliente desconocido → 404 | ✅ |
+| `TestCancel` | Cancela; es irreversible e idempotente (no cambia `cancelled_at`); cliente desconocido → 404 | ✅ |
+| `TestPermissions` | El cajero solo puede usar `lookup` (las otras 6 rutas → 403); `platform` → 403; sin sesión → 401 | ✅ |
+| `TestTierCount` | `/tier/list` cuenta solo tarjetas no canceladas | ✅ |
+| `TestCodeAndRaces` | Un código ya usado se regenera; tras 10 choques se rinde con error; dos altas con el mismo email a la vez → 409, no 500, y la API sigue respondiendo | ✅ |
+
+### 5.7d Aislamiento de clientes — `tests/api/test_isolation_customer.py` (9)
+
+| Prueba | Verifica | Resultado |
+|--------|----------|-----------|
+| `test_list_has_zero_rows_of_the_other_business` | La lista de A tiene 0 filas de B | ✅ |
+| `test_search_does_not_reach_the_other_business` | Buscar el nombre o el código de B desde A no encuentra nada | ✅ |
+| `test_summary_counts_only_its_business` | Los conteos son solo del propio negocio | ✅ |
+| `test_lookup_of_other_business_code_is_404` | El cajero de A no encuentra una tarjeta de B | ✅ |
+| `test_detail_of_other_business_looks_like_nonexistent` | Misma respuesta para "de otro negocio" e "inexistente" | ✅ |
+| `test_update_and_cancel_of_other_business_are_404_and_unchanged` | Editar o cancelar un cliente de B → 404, y en la base sigue igual | ✅ |
+| `test_cannot_assign_a_tier_of_the_other_business` | Un `level_id` de B → 422 al crear y al editar | ✅ |
+| `test_level_filter_with_other_business_tier_is_empty` | Filtrar por un nivel de B devuelve 0 | ✅ |
+| `test_tier_counts_only_its_customers` | `customers_count` no cuenta clientes de otro negocio | ✅ |
+
+### 5.7e Servicio de clientes — `tests/unit/test_customer_service.py` (10)
+
+`add_months` (mismo día, fin de mes y 29 de febrero), `normalize_code`, y que `generate_code` usa el alfabeto sin caracteres parecidos y produce códigos distintos.
+
 ### 5.8 Hallazgos conocidos — `tests/api/test_known_issues.py` (0)
 
 Hoy no hay hallazgos abiertos. El archivo se conserva vacío para registrar los siguientes como `xfail(strict=True)`.
@@ -614,7 +735,7 @@ Usan su propia fixture `empty_database`, que deja la base sin ninguna tabla (ni 
 | Prueba | Verifica | Resultado |
 |--------|----------|-----------|
 | `test_there_is_a_single_head` | Una sola cabeza: no hay migraciones paralelas sin fusionar | ✅ |
-| `test_upgrade_creates_all_tables` | `upgrade head` crea `businesses`, `users` y `alembic_version` | ✅ |
+| `test_upgrade_creates_all_tables` | `upgrade head` crea todas las tablas (`businesses`, `users`, `revoked_tokens`, `login_attempts`, `tiers`) y `alembic_version` | ✅ |
 | `test_models_and_migrations_are_in_sync` | Los modelos y las migraciones coinciden (detecta migraciones olvidadas) | ✅ |
 | `test_downgrade_removes_tables_and_enums` | `downgrade base` borra tablas y, en PostgreSQL, los tipos `ENUM` | ✅ |
 | `test_upgrade_after_downgrade` | Se puede bajar y volver a subir | ✅ |
@@ -631,9 +752,9 @@ Differences: [('add_column', None, 'users', Column('phone', AutoString(), table=
 
 ---
 
-### 5.10 Seed de demo — `tests/scripts/test_seed.py` (22)
+### 5.10 Seed de demo — `tests/scripts/test_seed.py` (44)
 
-`scripts/seed.py` crea Café Aurora y Gimnasio Titán (`active`) con 4 usuarios: dueño de plataforma, admin y empleado de Café Aurora, y admin de Gimnasio Titán.
+`scripts/seed.py` crea Café Aurora y Gimnasio Titán (`active`) con 4 usuarios (dueño de plataforma, admin y empleado de Café Aurora, y admin de Gimnasio Titán) y sus niveles: Bronce, Plata, Oro y Onyx en Café Aurora (beneficios del contrato, sección 8; precios de demo de $0, $199, $399 y $699) y Básico y Premium en Gimnasio Titán, distintos a propósito.
 
 | Prueba | Verifica | Resultado |
 |--------|----------|-----------|
@@ -642,7 +763,16 @@ Differences: [('add_column', None, 'users', Column('phone', AutoString(), table=
 | `test_users_belong_to_the_right_business` | Cada usuario en su negocio; el dueño sin negocio | ✅ |
 | `test_passwords_are_hashed` | Contraseñas en Argon2id y verificables | ✅ |
 | `test_demo_names_follow_the_name_rule[...]` | Los nombres de demo cumplen `PersonName` (4 casos) | ✅ |
-| `test_second_run_creates_nothing` | Correrlo dos veces no duplica nada | ✅ |
+| `test_cafe_aurora_gets_the_contract_tiers` | Café Aurora tiene los 4 niveles del contrato, vistos desde `/tier/list` | ✅ |
+| `test_gimnasio_titan_gets_different_tiers` | Gimnasio Titán tiene Básico y Premium | ✅ |
+| `test_a_better_tier_costs_more` | En cada negocio, el nivel más caro da igual o más descuento | ✅ |
+| `test_an_edited_tier_is_not_overwritten` | Volver a correr el seed no pisa un nivel editado | ✅ |
+| `test_cafe_aurora_has_twelve_customers_in_every_state` | Café Aurora tiene 12 clientes: activos, 2 por vencer, 1 vencido y 1 cancelado | ✅ |
+| `test_gimnasio_titan_has_its_own_customers` | Gimnasio Titán tiene sus 2 clientes | ✅ |
+| `test_the_contract_card_is_found_at_the_counter` | `MP-4F7K2` (Laura Méndez, Oro) se encuentra en caja | ✅ |
+| `test_tiers_count_the_seeded_customers` | `customers_count` de cada nivel coincide con el seed (sin la cancelada) | ✅ |
+| `test_demo_customers_follow_the_rules[...]` | Nombres válidos y códigos sin caracteres parecidos (14 casos) | ✅ |
+| `test_second_run_creates_nothing` | Correrlo dos veces no duplica nada (26 registros) | ✅ |
 | `test_existing_password_is_never_changed` | Una segunda corrida con otra contraseña no cambia la existente | ✅ |
 | `test_completes_partial_data` | Si ya existe un negocio, crea solo lo que falta | ✅ |
 | `test_admin_a_sees_only_cafe_aurora` | El admin de Café Aurora ve solo a sus 2 usuarios | ✅ |

@@ -8,6 +8,7 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlmodel import Session
 
 from core.config import settings
+from core.errors import ApiError, ErrorCode
 from core.security import decode_access_token
 from db.database import get_session
 from models.business_model import Business, BusinessStatus
@@ -21,9 +22,10 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=F
 
 SessionDep = Annotated[Session, Depends(get_session)]
 
-_credentials_error = HTTPException(
+_credentials_error = ApiError(
     status_code=status.HTTP_401_UNAUTHORIZED,
     detail="Not authenticated or session expired",
+    code=ErrorCode.NOT_AUTHENTICATED,
     headers={"WWW-Authenticate": "Bearer"},
 )
 
@@ -72,11 +74,19 @@ def ensure_user_can_access(session: Session, user: User) -> None:
     owner has no business, so only `is_active` applies to them.
     """
     if not user.is_active:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Inactive user")
+        raise ApiError(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Inactive user",
+            code=ErrorCode.USER_INACTIVE,
+        )
     if user.business_id is not None:
         business = session.get(Business, user.business_id)
         if business is None or business.status == BusinessStatus.SUSPENDED:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Business suspended")
+            raise ApiError(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Business suspended",
+                code=ErrorCode.BUSINESS_SUSPENDED,
+            )
 
 
 def get_current_active_user(
