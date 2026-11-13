@@ -71,10 +71,14 @@ flowchart TB
     MOD --> M5["login_attempt_model.py — LoginAttempt"]
     MOD --> M6["tier_model.py — Tier, TierFinish"]
     MOD --> M7["customer_model.py — Customer (cliente y su tarjeta)"]
+    MOD --> M8["purchase_model.py — Purchase (compra = movimiento = comprobante)"]
     SRV --> SV1["auth_service.py — revocación de tokens · límite de login"]
     SRV --> SV2["tier_service.py — listar y editar niveles · reglas de rango"]
-    SRV --> SV3["customer_service.py — clientes · código · estado · paginación"]
-    SCR --> SC1["seed.py — 2 negocios demo, usuarios, niveles y clientes"]
+    SRV --> SV3["customer_service.py — clientes · código · estado · saldos · paginación"]
+    SRV --> SV4["pricing_service.py — fórmula de caja (pura)"]
+    SRV --> SV5["checkout_service.py — cobrar · comprobante · Idempotency-Key"]
+    SRV --> SV6["movement_service.py — historial · totales · CSV"]
+    SCR --> SC1["seed.py — 2 negocios demo, usuarios, niveles, clientes y compras"]
     SCH --> S1["user_schema.py — UserCreate · UserUpdate · UserResponse · MeResponse"]
     SCH --> S4["business_schema.py — BusinessSummaryResponse"]
     SCH --> S2["token_schema.py — Token · TokenData"]
@@ -82,16 +86,20 @@ flowchart TB
     SCH --> S5["tier_schema.py — TierUpdate · TierResponse"]
     SCH --> S6["customer_schema.py — CustomerCreate · CustomerUpdate · CustomerResponse"]
     SCH --> S7["pagination_schema.py — PageResponse"]
+    SCH --> S8["checkout_schema.py — CheckoutCreate · ReceiptResponse"]
+    SCH --> S9["movement_schema.py — MovementResponse · MovementPageResponse"]
     API --> A1["dependencies.py — CurrentUser · require_roles · BusinessId<br/>ensure_user_can_access"]
     API --> A2["auth_api.py — /auth"]
     API --> A3["user_api.py — /user"]
     API --> A4["tier_api.py — /tier"]
     API --> A5["customer_api.py — /customer"]
+    API --> A6["checkout_api.py — /checkout"]
+    API --> A7["movement_api.py — /movement"]
 ```
 
 ## 3. Modelo de datos actual
 
-Existen las tablas de autenticación, los niveles y los clientes con su tarjeta; `python -m scripts.seed` las llena con dos negocios de demo (Café Aurora y Gimnasio Titán), sus usuarios, sus niveles y sus clientes (12 y 2). Compras y movimientos se agregan con el módulo de caja.
+Existen las tablas de autenticación, los niveles, los clientes con su tarjeta y las compras; `python -m scripts.seed` las llena con dos negocios de demo (Café Aurora y Gimnasio Titán), sus usuarios, sus niveles, sus clientes (12 y 2) y sus compras (12 y 1).
 
 ```mermaid
 erDiagram
@@ -99,6 +107,10 @@ erDiagram
     businesses ||--o{ tiers : "define"
     businesses ||--o{ customers : "tiene"
     tiers ||--o{ customers : "nivel actual"
+    businesses ||--o{ purchases : "registra"
+    customers ||--o{ purchases : "compra"
+    users ||--o{ purchases : "cobra"
+    tiers ||--o{ purchases : "nivel aplicado"
 
     businesses {
         int id PK
@@ -131,6 +143,29 @@ erDiagram
         datetime valid_until "índice"
         datetime cancelled_at "nullable; irreversible"
         datetime created_at
+    }
+
+    purchases {
+        int id PK "también id del comprobante"
+        int business_id FK "índice"
+        int customer_id FK "índice"
+        int cashier_id FK "índice; users.id, sale del token"
+        int tier_id FK "nivel aplicado"
+        string tier_name "copia del nombre aplicado"
+        enum tier_finish "copia del acabado aplicado"
+        enum card_status "active | expired | cancelled al cobrar"
+        string concept "nullable, máx. 120"
+        int amount_cents "> 0"
+        decimal discount_percent "aplicado; 0 si no hubo beneficios"
+        int discount_cents
+        int cashback_used_cents "≥ 0"
+        int total_cents
+        int points_earned
+        int cashback_earned_cents
+        int points_balance_after
+        int cashback_balance_after_cents
+        string idempotency_key "nullable; único por negocio"
+        datetime created_at "índice"
     }
 
     tiers {
@@ -228,6 +263,11 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | GET | `/api/v1/customer/{customer_id}` | admin | Ficha del cliente |
 | PATCH | `/api/v1/customer/{customer_id}/update` | admin | Edita `full_name`, `email`, `phone` (`null` lo borra) o `level_id` (cambio de nivel). 409 `email_taken` |
 | POST | `/api/v1/customer/{customer_id}/cancel` | admin | Cancela la tarjeta; irreversible y repetirlo no cambia nada |
+| POST | `/api/v1/checkout/preview` | admin, employee | Mismo cuerpo que `create`; calcula y no guarda nada |
+| POST | `/api/v1/checkout/create` | admin, employee | Registra la compra (`customer_id`, `amount_cents`, `concept` opcional, `use_cashback`) y devuelve el comprobante (201). Cabecera opcional `Idempotency-Key`. El cajero sale del token |
+| GET | `/api/v1/checkout/{checkout_id}` | admin, employee | Comprobante. El cajero solo ve los suyos; el admin, todos los del negocio |
+| GET | `/api/v1/movement/list` | admin | Historial paginado, más reciente primero, con `summary` del conjunto filtrado. Filtros `q`, `customer_id`, `from`, `to` |
+| GET | `/api/v1/movement/export` | admin | Mismos filtros que `list`, sin paginar, como CSV descargable |
 
 **Respuesta de `/auth/me`** (`MeResponse`): los campos de `UserResponse` más `business`, el resumen del negocio que el frontend muestra en el encabezado del panel y de la caja. No incluye datos de uso ni de clientes.
 
@@ -255,9 +295,12 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | `not_authenticated` | 401 | `get_token_data` / `get_current_user`: sin sesión, token inválido, vencido o revocado |
 | `email_taken` | 409 | `/user/create` y `/user/{user_id}/update`: email en uso |
 | `tier_invalid` | 422 | `/tier/{tier_id}/update`: valor fuera de rango. `/customer/create` y `/customer/{customer_id}/update`: `level_id` inexistente, de otro negocio, o negocio sin niveles |
-| `customer_not_found` | 404 | `/customer/lookup`, `/customer/{customer_id}` y sus acciones: no existe o es de otro negocio |
+| `customer_not_found` | 404 | `/customer/lookup`, `/customer/{customer_id}` y sus acciones, `/checkout/create` y `/checkout/preview`: no existe o es de otro negocio |
+| `amount_invalid` | 422 | `/checkout/create` y `/checkout/preview`: `amount_cents` fuera de 1 a 100 000 000. Un monto que no es entero es validación de campo (422 de FastAPI, sin `code`) |
+| `checkout_not_found` | 404 | `/checkout/{checkout_id}`: no existe, es de otro negocio, o un cajero pide el comprobante de otro cajero |
+| `idempotency_conflict` | 409 | `/checkout/create`: la `Idempotency-Key` ya se usó para otra compra (otro cliente, monto o concepto) |
 
-Los códigos de clientes y caja (`customer_not_found`, `amount_invalid`…) se agregan a `ErrorCode` con su módulo.
+Cada módulo nuevo agrega sus códigos a `ErrorCode` (`core/errors.py`).
 
 **Respuesta de un nivel** (`TierResponse`). Los porcentajes salen como números JSON, no como texto:
 
@@ -288,7 +331,39 @@ Reglas de `PATCH /tier/{tier_id}/update` (`services/tier_service.py`):
 - Vigencia: 12 meses desde `issued_at` (`VALIDITY_MONTHS`, fija mientras la DECISIÓN 9 no la vuelva configurable). El 31 pasa al último día de un mes más corto.
 - `status` no se guarda: `cancelled` si `cancelled_at` tiene fecha (irreversible, gana sobre todo), `expired` si `valid_until` ya pasó, si no `active`. `expiring_soon` marca las activas que vencen en 30 días o menos.
 - Cambio de nivel: el admin lo asigna con `level_id` en `PATCH /customer/{customer_id}/update` (el nivel se paga en caja). Sin `level_id` al crear, entra al nivel más barato.
-- `points_balance`, `cashback_balance_cents` y `last_purchase_at` valen 0, 0 y `null` hasta que exista el módulo de caja: se calcularán sumando movimientos.
+- `points_balance`, `cashback_balance_cents` y `last_purchase_at` se calculan sumando las compras del cliente (`customer_service.balances`), en una sola consulta por página de la lista.
+
+**Caja (`purchases`).** Una compra es a la vez el movimiento y el comprobante (`Receipt.id == Movement.id`). Los saldos del cliente no son columnas: son la suma de sus compras.
+
+Fórmula (`services/pricing_service.py`, puro y sin base de datos; el frontend la repite para el resumen en vivo):
+
+```
+discount_cents      = round_half_up(amount_cents * discount_percent / 100)
+base_cents          = amount_cents - discount_cents
+cashback_used_cents = use_cashback ? min(cashback_balance_cents, base_cents) : 0
+total_cents         = base_cents - cashback_used_cents
+points_earned       = floor(base_cents / 1000) * points_per_ten
+cashback_earned     = round_half_up(base_cents * cashback_percent / 100)
+```
+
+Ejemplo de la rúbrica, $1,000.00 en Oro (15 %, 1 punto por $10, 3 %): descuento 15 000, base 85 000, total 85 000, 85 puntos y 2 550 centavos de cashback. Está probado en `tests/unit/test_pricing_service.py` y en `tests/api/test_checkout.py`.
+
+- Puntos y cashback se ganan sobre `base_cents`: ya descontado y antes de restar el cashback usado (DECISIÓN 4). Los puntos se redondean hacia abajo; descuento y cashback, al centavo con mitad hacia arriba.
+- Solo una tarjeta `active` recibe beneficios. Una vencida o cancelada paga el monto completo y no gana ni usa nada; el comprobante lo indica con `card_status` (DECISIÓN 3).
+- `use_cashback` gasta como máximo el saldo y nunca más que la base: el total puede quedar en 0, nunca negativo.
+- La compra guarda lo que se aplicó (nombre y acabado del nivel, `discount_percent`, `card_status`), y también los saldos que quedaron después de ella. Editar el nivel después no cambia comprobantes viejos.
+- Mientras se escribe la compra, la fila del cliente queda bloqueada (`SELECT … FOR UPDATE` en PostgreSQL), así dos cobros simultáneos no gastan dos veces el mismo cashback.
+- `Idempotency-Key` (cabecera opcional, de 1 a 64 caracteres) es único por negocio. Repetir la misma clave devuelve la compra ya creada (201 con `Idempotent-Replayed: true`) en vez de cobrar otra vez. La misma clave con otro cliente, monto o concepto → 409 `idempotency_conflict`. Si dos reintentos llegan a la vez, el índice único detiene uno y se devuelve la compra del otro.
+- No existe el concepto de "caja" o lector registrado (DECISIÓN 6): cada compra guarda el cajero que la cobró (`cashier_id`, sale del token).
+
+**Movimientos (`/movement`).** No hay tabla nueva: un movimiento es una compra vista desde el historial (`Movement.id == Receipt.id`). La compra es el único tipo de movimiento del MVP. Solo el admin lo ve.
+
+- `list` y `export` aceptan los mismos filtros: `q` (nombre o código del cliente, sin distinguir mayúsculas; no busca en el correo), `customer_id`, `from` y `to` (fechas ISO, **inclusivas**; sin zona horaria se leen como UTC).
+- Orden: más reciente primero (`created_at`, luego `id`). La paginación es la de `/customer/list`: una página más allá del final devuelve la última.
+- `summary` suma **todo el conjunto filtrado**, no solo la página: `count`, `collected_cents` (suma de `total_cents`), `discount_cents` y `cashback_used_cents`. Se calcula con una sola consulta de agregados.
+- Cada movimiento trae `cashier_name` (el usuario que cobró) en lugar de `register_name`: no existe el concepto de caja (DECISIÓN 6). `points_delta` es `points_earned` de la compra.
+- Un `customer_id` de otro negocio no es error: no coincide con nada y la lista sale vacía.
+- `export` responde `text/csv; charset=utf-8` con `Content-Disposition: attachment; filename="movimientos-AAAAMMDD.csv"` y BOM al inicio para que Excel lea los acentos. Columnas: Fecha (ISO UTC), Cajero, Cliente, Código, Concepto, Monto, Descuento, Total, Puntos, Cashback ganado, Cashback usado. Los importes van en pesos con dos decimales (`1000.00`). Un texto que empieza con `=`, `+`, `-` o `@` lleva un `'` delante para que la hoja de cálculo no lo ejecute como fórmula.
 
 
 **Validación de nombres** (`PersonName`, `schemas/validators.py`): se quitan los espacios sobrantes; solo letras (con acentos y ñ), espacios, guion y apóstrofo; mínimo 2 letras y máximo 120 caracteres. Si no se cumple → 422.
@@ -301,7 +376,9 @@ flowchart LR
     ROOT --> USER["/user"]
     ROOT --> TIER["/tier"]
     ROOT --> CUST["/customer"]
-    ROOT -.-> NEXT["Siguientes módulos:<br/>/checkout · /movement · /platform"]
+    ROOT --> CHK["/checkout"]
+    ROOT --> MOV["/movement"]
+    ROOT -.-> NEXT["Siguiente módulo:<br/>/platform"]
 
     AUTH --> L["POST /login"]
     AUTH --> LO["POST /logout"]
@@ -322,6 +399,13 @@ flowchart LR
     CUST --> CG["GET /{customer_id}"]
     CUST --> CU["PATCH /{customer_id}/update"]
     CUST --> CX["POST /{customer_id}/cancel"]
+
+    CHK --> KP["POST /preview"]
+    CHK --> KC["POST /create"]
+    CHK --> KG["GET /{checkout_id}"]
+
+    MOV --> VL["GET /list"]
+    MOV --> VE["GET /export"]
 ```
 
 ## 5. Inicio y cierre de sesión

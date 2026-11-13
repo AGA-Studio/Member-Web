@@ -14,16 +14,19 @@ API_PREFIX = "/api/v1"
 
 # Documented actions plus the three auth verbs already in use. Adding an action
 # is a one-line change here, on purpose: the list is the convention.
-# `summary`, `lookup` and `cancel` come from the frontend API contract (section 3).
+# `summary`, `lookup`, `cancel` (section 3), `preview` (section 5) and `export`
+# (section 6) come from the frontend API contract.
 ALLOWED_ACTIONS = {
     "cancel",
     "create",
     "delete",
+    "export",
     "list",
     "login",
     "logout",
     "lookup",
     "me",
+    "preview",
     "summary",
     "update",
 }

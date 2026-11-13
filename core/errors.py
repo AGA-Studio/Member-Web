@@ -26,6 +26,9 @@ class ErrorCode(StrEnum):
     EMAIL_TAKEN = "email_taken"
     TIER_INVALID = "tier_invalid"
     CUSTOMER_NOT_FOUND = "customer_not_found"
+    AMOUNT_INVALID = "amount_invalid"
+    CHECKOUT_NOT_FOUND = "checkout_not_found"
+    IDEMPOTENCY_CONFLICT = "idempotency_conflict"
 
 
 class ApiError(HTTPException):
