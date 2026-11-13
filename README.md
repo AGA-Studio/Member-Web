@@ -135,8 +135,8 @@ tests/             pytest: api, db, unit, rules
 `main` es la única rama: trabajo en `feature/<nombre>`, PR a `main` y merge del equipo. El CI exige
 `lint`, `test` y `test (postgres)`; el revisor automático comenta pero no bloquea.
 
-Las versiones se cortan con `gh release create vX.Y.Z`, que publica la imagen en GHCR, y el despliegue
-es **deliberado**: Coolify apunta a un tag fijo y se cambia a mano. Mergear a `main` publica imagen,
-no cambia producción.
+**Mergear a `main` despliega**: `image.yml` publica la imagen en GHCR y llama al deploy webhook de
+Coolify, que apunta al tag móvil `latest`. Los releases (`gh release create vX.Y.Z`) marcan el hito y
+publican `0.1.0`/`0.1`, pero ya no son la vía de despliegue.
 
 Proyecto académico de la UTT · *Desarrollo Web Integral* · grupo **9C** · equipo **AGA-Studio**.

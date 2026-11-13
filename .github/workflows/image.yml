@@ -64,10 +64,13 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # Coolify no puede adivinar que hay imagen nueva: se le avisa con su
-      # webhook de deploy. Si el secreto no está configurado, el paso no falla
-      # (repo recién clonado o fork), solo avisa.
+      # Mergear a main DESPLIEGA: la app de Coolify apunta al tag móvil
+      # `latest`, así que se le avisa con su webhook de deploy. Solo en `main`:
+      # un tag v* publica versión y no debe redisparar el deploy del mismo
+      # commit (dos runs en carrera sobre la misma app). Si el secreto no está
+      # configurado, el paso no falla (repo recién clonado o fork), solo avisa.
       - name: Pedir deploy a Coolify
+        if: github.ref == 'refs/heads/main'
         env:
           COOLIFY_WEBHOOK: ${{ secrets.COOLIFY_WEBHOOK }}
           COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
@@ -76,8 +79,16 @@ jobs:
             echo "::notice::Sin COOLIFY_WEBHOOK configurado: la imagen quedó publicada y el deploy es manual."
             exit 0
           fi
+          # El token es opcional: si la URL ya trae `?api_token=...` (el webhook
+          # viejo) no hace falta cabecera, y si la app usa "auth required" sí.
+          # Mandar un Bearer vacío hace que Coolify responda 401 y tumbe el run
+          # después de haber publicado la imagen.
+          auth=()
+          if [ -n "$COOLIFY_TOKEN" ]; then
+            auth=(-H "Authorization: Bearer $COOLIFY_TOKEN")
+          fi
           code=$(curl -sS -o /tmp/coolify.out -w '%{http_code}' --max-time 30 \
-            -H "Authorization: Bearer $COOLIFY_TOKEN" "$COOLIFY_WEBHOOK")
+            "${auth[@]}" "$COOLIFY_WEBHOOK")
           echo "Coolify respondió HTTP $code"
           cat /tmp/coolify.out
           [ "$code" -ge 200 ] && [ "$code" -lt 300 ]
