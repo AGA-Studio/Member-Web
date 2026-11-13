@@ -11,7 +11,7 @@ from api.v1.dependencies import SessionDep
 from core.config import settings
 from core.errors import ApiError, ErrorCode
 from core.rate_limit import SlidingWindowLimiter
-from schemas.card_schema import PublicCardResponse
+from schemas.card_schema import GoogleWalletResponse, PublicCardResponse
 from services import card_service
 from services.card_service import NO_STORE
 
@@ -39,3 +39,9 @@ router = APIRouter(prefix="/card", tags=["card"], dependencies=[Depends(public_g
 def get_card(token: str, session: SessionDep) -> PublicCardResponse:
     """What is needed to draw the card. Never email, phone, points, cashback or ids."""
     return card_service.public_card(session, token)
+
+
+@router.get("/{token}/google-wallet", response_model=GoogleWalletResponse)
+def google_wallet(token: str, session: SessionDep) -> GoogleWalletResponse:
+    """Signed "Save to Google Wallet" link. 503 `wallet_unavailable` without configuration."""
+    return card_service.google_wallet(session, token)
