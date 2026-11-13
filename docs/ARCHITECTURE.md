@@ -77,6 +77,7 @@ flowchart TB
     SRV --> SV3["customer_service.py — clientes · código · estado · saldos · paginación"]
     SRV --> SV4["pricing_service.py — fórmula de caja (pura)"]
     SRV --> SV5["checkout_service.py — cobrar · comprobante · Idempotency-Key"]
+    SRV --> SV6["movement_service.py — historial · totales · CSV"]
     SCR --> SC1["seed.py — 2 negocios demo, usuarios, niveles, clientes y compras"]
     SCH --> S1["user_schema.py — UserCreate · UserUpdate · UserResponse · MeResponse"]
     SCH --> S4["business_schema.py — BusinessSummaryResponse"]
@@ -86,12 +87,14 @@ flowchart TB
     SCH --> S6["customer_schema.py — CustomerCreate · CustomerUpdate · CustomerResponse"]
     SCH --> S7["pagination_schema.py — PageResponse"]
     SCH --> S8["checkout_schema.py — CheckoutCreate · ReceiptResponse"]
+    SCH --> S9["movement_schema.py — MovementResponse · MovementPageResponse"]
     API --> A1["dependencies.py — CurrentUser · require_roles · BusinessId<br/>ensure_user_can_access"]
     API --> A2["auth_api.py — /auth"]
     API --> A3["user_api.py — /user"]
     API --> A4["tier_api.py — /tier"]
     API --> A5["customer_api.py — /customer"]
     API --> A6["checkout_api.py — /checkout"]
+    API --> A7["movement_api.py — /movement"]
 ```
 
 ## 3. Modelo de datos actual
@@ -249,6 +252,8 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | POST | `/api/v1/checkout/preview` | admin, employee | Mismo cuerpo que `create`; calcula y no guarda nada |
 | POST | `/api/v1/checkout/create` | admin, employee | Registra la compra (`customer_id`, `amount_cents`, `concept` opcional, `use_cashback`) y devuelve el comprobante (201). Cabecera opcional `Idempotency-Key`. El cajero sale del token |
 | GET | `/api/v1/checkout/{checkout_id}` | admin, employee | Comprobante. El cajero solo ve los suyos; el admin, todos los del negocio |
+| GET | `/api/v1/movement/list` | admin | Historial paginado, más reciente primero, con `summary` del conjunto filtrado. Filtros `q`, `customer_id`, `from`, `to` |
+| GET | `/api/v1/movement/export` | admin | Mismos filtros que `list`, sin paginar, como CSV descargable |
 
 **Respuesta de `/auth/me`** (`MeResponse`): los campos de `UserResponse` más `business`, el resumen del negocio que el frontend muestra en el encabezado del panel y de la caja. No incluye datos de uso ni de clientes.
 
@@ -337,6 +342,15 @@ Ejemplo de la rúbrica, $1,000.00 en Oro (15 %, 1 punto por $10, 3 %): descuento
 - `Idempotency-Key` (cabecera opcional, de 1 a 64 caracteres) es único por negocio. Repetir la misma clave devuelve la compra ya creada (201 con `Idempotent-Replayed: true`) en vez de cobrar otra vez. La misma clave con otro cliente, monto o concepto → 409 `idempotency_conflict`. Si dos reintentos llegan a la vez, el índice único detiene uno y se devuelve la compra del otro.
 - No existe el concepto de "caja" o lector registrado (DECISIÓN 6): cada compra guarda el cajero que la cobró (`cashier_id`, sale del token).
 
+**Movimientos (`/movement`).** No hay tabla nueva: un movimiento es una compra vista desde el historial (`Movement.id == Receipt.id`). La compra es el único tipo de movimiento del MVP. Solo el admin lo ve.
+
+- `list` y `export` aceptan los mismos filtros: `q` (nombre o código del cliente, sin distinguir mayúsculas; no busca en el correo), `customer_id`, `from` y `to` (fechas ISO, **inclusivas**; sin zona horaria se leen como UTC).
+- Orden: más reciente primero (`created_at`, luego `id`). La paginación es la de `/customer/list`: una página más allá del final devuelve la última.
+- `summary` suma **todo el conjunto filtrado**, no solo la página: `count`, `collected_cents` (suma de `total_cents`), `discount_cents` y `cashback_used_cents`. Se calcula con una sola consulta de agregados.
+- Cada movimiento trae `cashier_name` (el usuario que cobró) en lugar de `register_name`: no existe el concepto de caja (DECISIÓN 6). `points_delta` es `points_earned` de la compra.
+- Un `customer_id` de otro negocio no es error: no coincide con nada y la lista sale vacía.
+- `export` responde `text/csv; charset=utf-8` con `Content-Disposition: attachment; filename="movimientos-AAAAMMDD.csv"` y BOM al inicio para que Excel lea los acentos. Columnas: Fecha (ISO UTC), Cajero, Cliente, Código, Concepto, Monto, Descuento, Total, Puntos, Cashback ganado, Cashback usado. Los importes van en pesos con dos decimales (`1000.00`). Un texto que empieza con `=`, `+`, `-` o `@` lleva un `'` delante para que la hoja de cálculo no lo ejecute como fórmula.
+
 
 **Validación de nombres** (`PersonName`, `schemas/validators.py`): se quitan los espacios sobrantes; solo letras (con acentos y ñ), espacios, guion y apóstrofo; mínimo 2 letras y máximo 120 caracteres. Si no se cumple → 422.
 
@@ -349,7 +363,8 @@ flowchart LR
     ROOT --> TIER["/tier"]
     ROOT --> CUST["/customer"]
     ROOT --> CHK["/checkout"]
-    ROOT -.-> NEXT["Siguientes módulos:<br/>/movement · /platform"]
+    ROOT --> MOV["/movement"]
+    ROOT -.-> NEXT["Siguiente módulo:<br/>/platform"]
 
     AUTH --> L["POST /login"]
     AUTH --> LO["POST /logout"]
@@ -374,6 +389,9 @@ flowchart LR
     CHK --> KP["POST /preview"]
     CHK --> KC["POST /create"]
     CHK --> KG["GET /{checkout_id}"]
+
+    MOV --> VL["GET /list"]
+    MOV --> VE["GET /export"]
 ```
 
 ## 5. Inicio y cierre de sesión
