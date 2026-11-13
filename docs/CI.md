@@ -237,6 +237,7 @@ Necesita `OPENCODE_API_KEY` en **Settings → Secrets and variables → Actions*
 
 - Sin el secreto —por ejemplo en un PR desde un fork— el script no hace nada y sale con 0: el job queda verde sin comentario.
 - El costo de una revisión ronda **$0.001–0.003** del cupo mensual de Go (unas 11 mil tokens de entrada). Diez PRs al día no llegan a dos centavos al mes.
+- El razonamiento del modelo gasta el mismo `max_tokens` que la respuesta. Si se lo come entero (`finish=length`, contenido vacío), el script reintenta con más presupuesto: 8 mil, 16 mil y 24 mil tokens (`TOKEN_BUDGETS`). Con un PR grande (el #30 mandó ~22 mil tokens de entrada) los 12 mil de antes no alcanzaron. En el peor caso los tres intentos tardan unos 6 min, dentro de los 10 del job; cada llamada al modelo espera hasta 5 min (`MODEL_TIMEOUT`).
 
 ### Probar en local
 

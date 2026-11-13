@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Annotated
 
 import jwt
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlmodel import select
 
@@ -15,10 +15,13 @@ from api.v1.dependencies import (
     get_request_token,
 )
 from core.config import settings
+from core.errors import ApiError, ErrorCode
 from core.security import create_access_token, decode_access_token, verify_password
+from models.business_model import Business
 from models.user_model import User
+from schemas.business_schema import BusinessSummaryResponse
 from schemas.token_schema import Token
-from schemas.user_schema import UserResponse
+from schemas.user_schema import MeResponse, UserResponse
 from services.auth_service import (
     clear_failed_logins,
     login_retry_after,
@@ -46,18 +49,20 @@ def login(
     # password; otherwise the lock would not stop a brute-force attack.
     retry_after = login_retry_after(session, email)
     if retry_after is not None:
-        raise HTTPException(
+        raise ApiError(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Too many failed login attempts. Try again later.",
+            code=ErrorCode.LOGIN_LOCKED,
             headers={"Retry-After": str(retry_after)},
         )
 
     user = session.exec(select(User).where(User.email == email)).first()
     if user is None or not verify_password(form.password, user.hashed_password):
         register_failed_login(session, email)
-        raise HTTPException(
+        raise ApiError(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
+            code=ErrorCode.INVALID_CREDENTIALS,
             headers={"WWW-Authenticate": "Bearer"},
         )
     clear_failed_logins(session, email)
@@ -96,6 +101,11 @@ def logout(
     response.delete_cookie(settings.cookie_name)
 
 
-@router.get("/me", response_model=UserResponse)
-def me(user: CurrentUser) -> User:
-    return user
+@router.get("/me", response_model=MeResponse)
+def me(session: SessionDep, user: CurrentUser) -> MeResponse:
+    """Session user and their business (null for the platform owner)."""
+    business = session.get(Business, user.business_id) if user.business_id is not None else None
+    return MeResponse(
+        **UserResponse.model_validate(user).model_dump(),
+        business=BusinessSummaryResponse.model_validate(business) if business else None,
+    )

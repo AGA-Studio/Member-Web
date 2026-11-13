@@ -5,6 +5,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from models.user_model import Role
+from schemas.business_schema import BusinessSummaryResponse
 from schemas.validators import PersonName
 
 
@@ -34,3 +35,12 @@ class UserResponse(BaseModel):
     role: Role
     is_active: bool
     created_at: datetime
+
+
+class MeResponse(UserResponse):
+    """`GET /auth/me`: the session user plus their business, for the frontend header.
+
+    `business` is null for the platform owner, who has no business.
+    """
+
+    business: BusinessSummaryResponse | None

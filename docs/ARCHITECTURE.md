@@ -60,6 +60,7 @@ flowchart TB
     CORE --> C1["config.py — Settings (lee .env)"]
     CORE --> C2["cors.py — setup_cors(app)"]
     CORE --> C3["security.py — Argon2id + JWT"]
+    CORE --> C4["errors.py — ApiError · ErrorCode (code estable en errores)"]
     DBF --> D1["database.py — engine · check_database_connection · get_session"]
     MIGR --> MG1["env.py — conecta Alembic con settings y models"]
     MIGR --> MG2["versions/ — una migración por cambio"]
@@ -68,23 +69,36 @@ flowchart TB
     MOD --> M3["enum_utils.py — enum_values (enums en minúscula)"]
     MOD --> M4["revoked_token_model.py — RevokedToken"]
     MOD --> M5["login_attempt_model.py — LoginAttempt"]
+    MOD --> M6["tier_model.py — Tier, TierFinish"]
+    MOD --> M7["customer_model.py — Customer (cliente y su tarjeta)"]
     SRV --> SV1["auth_service.py — revocación de tokens · límite de login"]
-    SCR --> SC1["seed.py — 2 negocios demo y sus usuarios"]
-    SCH --> S1["user_schema.py — UserCreate · UserUpdate · UserResponse"]
+    SRV --> SV2["tier_service.py — listar y editar niveles · reglas de rango"]
+    SRV --> SV3["customer_service.py — clientes · código · estado · paginación"]
+    SCR --> SC1["seed.py — 2 negocios demo, usuarios, niveles y clientes"]
+    SCH --> S1["user_schema.py — UserCreate · UserUpdate · UserResponse · MeResponse"]
+    SCH --> S4["business_schema.py — BusinessSummaryResponse"]
     SCH --> S2["token_schema.py — Token · TokenData"]
     SCH --> S3["validators.py — PersonName"]
+    SCH --> S5["tier_schema.py — TierUpdate · TierResponse"]
+    SCH --> S6["customer_schema.py — CustomerCreate · CustomerUpdate · CustomerResponse"]
+    SCH --> S7["pagination_schema.py — PageResponse"]
     API --> A1["dependencies.py — CurrentUser · require_roles · BusinessId<br/>ensure_user_can_access"]
     API --> A2["auth_api.py — /auth"]
     API --> A3["user_api.py — /user"]
+    API --> A4["tier_api.py — /tier"]
+    API --> A5["customer_api.py — /customer"]
 ```
 
 ## 3. Modelo de datos actual
 
-Solo existen las tablas necesarias para autenticación; `python -m scripts.seed` las llena con dos negocios de demo (Café Aurora y Gimnasio Titán) y sus usuarios. Clientes, tarjetas, niveles, compras y movimientos se agregan en los hitos H1 y H2 del MVP.
+Existen las tablas de autenticación, los niveles y los clientes con su tarjeta; `python -m scripts.seed` las llena con dos negocios de demo (Café Aurora y Gimnasio Titán), sus usuarios, sus niveles y sus clientes (12 y 2). Compras y movimientos se agregan con el módulo de caja.
 
 ```mermaid
 erDiagram
     businesses ||--o{ users : "tiene"
+    businesses ||--o{ tiers : "define"
+    businesses ||--o{ customers : "tiene"
+    tiers ||--o{ customers : "nivel actual"
 
     businesses {
         int id PK
@@ -105,6 +119,32 @@ erDiagram
         datetime created_at
     }
 
+    customers {
+        int id PK
+        int business_id FK "índice"
+        int tier_id FK "índice"
+        string code "MP-XXXXX; único por negocio"
+        string full_name
+        string email "minúscula; único por negocio"
+        string phone "nullable"
+        datetime issued_at
+        datetime valid_until "índice"
+        datetime cancelled_at "nullable; irreversible"
+        datetime created_at
+    }
+
+    tiers {
+        int id PK
+        int business_id FK "índice"
+        string name "texto libre, máx. 60"
+        enum finish "bronze | silver | gold | onyx"
+        int price_cents "≥ 0; precio por vigencia, centavos MXN"
+        decimal discount_percent "0 a 100, 2 decimales"
+        int points_per_ten "≥ 0; puntos por cada $10"
+        decimal cashback_percent "0 a 100, 2 decimales"
+        datetime created_at
+    }
+
     revoked_tokens {
         string jti PK "id único del JWT"
         datetime expires_at "índice; se purga al pasar"
@@ -118,6 +158,8 @@ erDiagram
         datetime locked_until "nullable"
     }
 ```
+
+**Niveles (`tiers`).** Cada negocio define los suyos; el seed solo carga una plantilla (Bronce, Plata, Oro y Onyx en Café Aurora; Básico y Premium en Gimnasio Titán). `finish` es el acabado visual de la tarjeta y lo elige el negocio; el nombre es libre. Un beneficio en `0` equivale a deshabilitado para ese nivel. **El cliente sube de nivel pagando** (decisión "por cobro": mejor nivel = más beneficio y más costo), así que cada nivel tiene `price_cents` y no hay umbral de puntos; los puntos solo son un saldo. Los rangos se validan en `services/tier_service.py` (422 `tier_invalid`) y la base los repite con restricciones `CHECK` como última defensa.
 
 `revoked_tokens` (H2) y `login_attempts` (H4) son tablas de seguridad, no datos de un negocio: no llevan `business_id` ni se relacionan con `users`. Se limpian solas: un token revocado se borra cuando ya habría expirado, y un registro de intentos se borra al iniciar sesión bien o cuando pasa la ventana de bloqueo.
 
@@ -158,11 +200,82 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | GET | `/health` | — | Estado de la API |
 | POST | `/api/v1/auth/login` | — | Login con email y contraseña; deja cookie y devuelve el token. Tras 5 intentos fallidos por email responde 429 durante 15 min |
 | POST | `/api/v1/auth/logout` | — | Revoca el token de esta sesión (cookie o Bearer) y borra la cookie. Las demás sesiones del usuario siguen abiertas |
-| GET | `/api/v1/auth/me` | cualquier usuario activo | Usuario de la sesión |
+| GET | `/api/v1/auth/me` | cualquier usuario activo | Usuario de la sesión y su negocio (`business`: `id`, `name`, `logo_url`, `status`; `null` para `platform`) |
 | GET | `/api/v1/user/list` | admin | Usuarios de su negocio |
 | POST | `/api/v1/user/create` | admin | Crea un admin o employee en su negocio |
 | GET | `/api/v1/user/{user_id}` | admin | Detalle de un usuario de su negocio |
 | PATCH | `/api/v1/user/{user_id}/update` | admin | Edita nombre, email, contraseña o `is_active`. Un admin no puede desactivarse a sí mismo (400) |
+| GET | `/api/v1/tier/list` | admin, employee | Niveles de su negocio, sin paginar, del más barato al más caro (`price_cents`), con `customers_count` |
+| PATCH | `/api/v1/tier/{tier_id}/update` | admin | Edita `name`, `finish`, `price_cents`, `discount_percent`, `points_per_ten`, `cashback_percent` (todos opcionales). Fuera de rango → 422 `tier_invalid` |
+| GET | `/api/v1/customer/list` | admin | Clientes paginados por `full_name`. Filtros `q` (nombre, email o código), `level_id`, `status` (`active` \| `expiring` \| `expired` \| `cancelled`), `page`, `page_size` (8 por defecto, máx. 500). Una página que no existe devuelve la última |
+| GET | `/api/v1/customer/summary` | admin | Conteos `all`, `active` (incluye las por vencer), `expiring`, `expired`, `cancelled` |
+| GET | `/api/v1/customer/lookup` | admin, employee | Tarjeta por `code` (QR o tecleado; ignora espacios y mayúsculas). Responde también para vencidas y canceladas. 404 `customer_not_found` |
+| POST | `/api/v1/customer/create` | admin | Alta con `full_name`, `email`, `phone` y `level_id` opcionales. Genera `code`, `issued_at` y `valid_until` (+12 meses). 409 `email_taken` |
+| GET | `/api/v1/customer/{customer_id}` | admin | Ficha del cliente |
+| PATCH | `/api/v1/customer/{customer_id}/update` | admin | Edita `full_name`, `email`, `phone` (`null` lo borra) o `level_id` (cambio de nivel). 409 `email_taken` |
+| POST | `/api/v1/customer/{customer_id}/cancel` | admin | Cancela la tarjeta; irreversible y repetirlo no cambia nada |
+
+**Respuesta de `/auth/me`** (`MeResponse`): los campos de `UserResponse` más `business`, el resumen del negocio que el frontend muestra en el encabezado del panel y de la caja. No incluye datos de uso ni de clientes.
+
+```json
+{
+  "id": 3,
+  "business_id": 1,
+  "name": "Luis Pérez",
+  "email": "caja@cafe-aurora.mx",
+  "role": "employee",
+  "is_active": true,
+  "created_at": "2026-11-12T23:28:01.536737Z",
+  "business": { "id": 1, "name": "Café Aurora", "logo_url": null, "status": "active" }
+}
+```
+
+**Errores con código estable** (`core/errors.py`): cada error de negocio responde `{"detail": "...", "code": "..."}`. El frontend elige el mensaje por `code`, así que `detail` se puede redactar distinto sin romperlo. Se lanza con `ApiError(status_code, detail, code)`; `setup_error_handlers(app)` en `main.py` agrega `code` a la respuesta. Los 422 de validación de campos siguen con la forma de FastAPI (`detail` en lista, sin `code`), y los errores que no están en esta tabla (por ejemplo `Permission denied`) solo llevan `detail`.
+
+| `code` | HTTP | Dónde se lanza |
+|--------|------|----------------|
+| `invalid_credentials` | 401 | `POST /api/v1/auth/login`: email o contraseña incorrectos |
+| `login_locked` | 429 | `POST /api/v1/auth/login`: email bloqueado por intentos (con `Retry-After`) |
+| `user_inactive` | 403 | `ensure_user_can_access`: usuario desactivado (login y cada petición) |
+| `business_suspended` | 403 | `ensure_user_can_access`: negocio suspendido (login y cada petición) |
+| `not_authenticated` | 401 | `get_token_data` / `get_current_user`: sin sesión, token inválido, vencido o revocado |
+| `email_taken` | 409 | `/user/create` y `/user/{user_id}/update`: email en uso |
+| `tier_invalid` | 422 | `/tier/{tier_id}/update`: valor fuera de rango. `/customer/create` y `/customer/{customer_id}/update`: `level_id` inexistente, de otro negocio, o negocio sin niveles |
+| `customer_not_found` | 404 | `/customer/lookup`, `/customer/{customer_id}` y sus acciones: no existe o es de otro negocio |
+
+Los códigos de clientes y caja (`customer_not_found`, `amount_invalid`…) se agregan a `ErrorCode` con su módulo.
+
+**Respuesta de un nivel** (`TierResponse`). Los porcentajes salen como números JSON, no como texto:
+
+```json
+{
+  "id": 3,
+  "name": "Oro",
+  "finish": "gold",
+  "price_cents": 39900,
+  "discount_percent": 15.0,
+  "points_per_ten": 1,
+  "cashback_percent": 3.0,
+  "customers_count": 0
+}
+```
+
+Reglas de `PATCH /tier/{tier_id}/update` (`services/tier_service.py`):
+
+- `price_cents` de 0 a 100 000 000 ($1,000,000.00; 0 = nivel gratuito); `points_per_ten` de 0 a 1000; `discount_percent` y `cashback_percent` de 0 a 100 con máximo 2 decimales; `name` de 1 a 60 caracteres (se quitan espacios sobrantes). `finish` desconocido es validación de campo (422 de FastAPI, sin `code`).
+- Dos niveles pueden costar lo mismo; el listado los desempata por `id`.
+- Un campo en `null` cuenta como no enviado.
+- El cambio aplica a compras nuevas; las anteriores guardan los valores que usaron.
+- `customers_count` cuenta las tarjetas no canceladas de cada nivel, en una sola consulta (`GROUP BY`).
+**Clientes y tarjetas (`customers`).** El cliente y su tarjeta son una sola fila: una tarjeta por cliente, con nivel, vigencia y estado. Los clientes no inician sesión.
+
+- `code`: `MP-` más 5 caracteres al azar de un alfabeto sin `0/O` ni `1/I/L` (por ejemplo `MP-4F7K2`), único dentro del negocio. Es lo que lleva el QR y lo que se teclea en caja; la búsqueda ignora espacios y mayúsculas.
+- `email`: se guarda en minúscula y es único por negocio (otro negocio puede tener el mismo).
+- Vigencia: 12 meses desde `issued_at` (`VALIDITY_MONTHS`, fija mientras la DECISIÓN 9 no la vuelva configurable). El 31 pasa al último día de un mes más corto.
+- `status` no se guarda: `cancelled` si `cancelled_at` tiene fecha (irreversible, gana sobre todo), `expired` si `valid_until` ya pasó, si no `active`. `expiring_soon` marca las activas que vencen en 30 días o menos.
+- Cambio de nivel: el admin lo asigna con `level_id` en `PATCH /customer/{customer_id}/update` (el nivel se paga en caja). Sin `level_id` al crear, entra al nivel más barato.
+- `points_balance`, `cashback_balance_cents` y `last_purchase_at` valen 0, 0 y `null` hasta que exista el módulo de caja: se calcularán sumando movimientos.
+
 
 **Validación de nombres** (`PersonName`, `schemas/validators.py`): se quitan los espacios sobrantes; solo letras (con acentos y ñ), espacios, guion y apóstrofo; mínimo 2 letras y máximo 120 caracteres. Si no se cumple → 422.
 
@@ -172,7 +285,9 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 flowchart LR
     ROOT["/api/v1"] --> AUTH["/auth"]
     ROOT --> USER["/user"]
-    ROOT -.-> NEXT["Siguientes módulos:<br/>/customer · /membership · /tier<br/>/checkout · /movement · /platform"]
+    ROOT --> TIER["/tier"]
+    ROOT --> CUST["/customer"]
+    ROOT -.-> NEXT["Siguientes módulos:<br/>/checkout · /movement · /platform"]
 
     AUTH --> L["POST /login"]
     AUTH --> LO["POST /logout"]
@@ -182,6 +297,17 @@ flowchart LR
     USER --> UC["POST /create"]
     USER --> UG["GET /{user_id}"]
     USER --> UU["PATCH /{user_id}/update"]
+
+    TIER --> TL["GET /list"]
+    TIER --> TU["PATCH /{tier_id}/update"]
+
+    CUST --> CL["GET /list"]
+    CUST --> CS["GET /summary"]
+    CUST --> CK["GET /lookup"]
+    CUST --> CC["POST /create"]
+    CUST --> CG["GET /{customer_id}"]
+    CUST --> CU["PATCH /{customer_id}/update"]
+    CUST --> CX["POST /{customer_id}/cancel"]
 ```
 
 ## 5. Inicio y cierre de sesión

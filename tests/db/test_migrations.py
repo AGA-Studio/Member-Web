@@ -22,7 +22,7 @@ from models import Business, Role, User
 from tests.conftest import _DEFAULT_HASH, login
 
 ROOT = Path(__file__).resolve().parents[2]
-APP_TABLES = {"businesses", "users", "revoked_tokens", "login_attempts"}
+APP_TABLES = {"businesses", "users", "revoked_tokens", "login_attempts", "tiers", "customers"}
 
 
 def alembic_config(connection: Connection | None = None) -> Config:
@@ -91,7 +91,7 @@ def test_downgrade_removes_tables_and_enums(empty_database) -> None:
     run("upgrade", "head")
     run("downgrade", "base")
     assert table_names() == {"alembic_version"}
-    assert enum_types() & {"role", "businessstatus"} == set()
+    assert enum_types() & {"role", "businessstatus", "tierfinish"} == set()
 
 
 def test_upgrade_after_downgrade(empty_database) -> None:
