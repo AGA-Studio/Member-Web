@@ -34,7 +34,9 @@ ALLOWED_ACTIONS = {
 # A resource seen from another one. `/platform/business/list` (contract, section 7):
 # the platform owner lists the businesses, so `business` sits between the resource
 # and the action.
-SUB_RESOURCES = {"business"}
+# `card-link` (section 13): the link to a customer's digital card; the name comes
+# from the contract.
+SUB_RESOURCES = {"business", "card-link"}
 
 # The only endpoint allowed outside the versioned prefix.
 UNVERSIONED = {"/health"}

@@ -19,6 +19,7 @@ from fastapi import FastAPI
 
 from api.v1 import (
     auth_api,
+    card_api,
     checkout_api,
     customer_api,
     movement_api,
@@ -42,6 +43,7 @@ API_V1_ROUTERS = [
     checkout_api.router,
     movement_api.router,
     platform_api.router,
+    card_api.router,
 ]
 
 

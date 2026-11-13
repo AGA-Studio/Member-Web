@@ -61,6 +61,7 @@ flowchart TB
     CORE --> C2["cors.py — setup_cors(app)"]
     CORE --> C3["security.py — Argon2id + JWT"]
     CORE --> C4["errors.py — ApiError · ErrorCode (code estable en errores)"]
+    CORE --> C5["rate_limit.py — SlidingWindowLimiter (límite por IP en memoria)"]
     DBF --> D1["database.py — engine · check_database_connection · get_session"]
     MIGR --> MG1["env.py — conecta Alembic con settings y models"]
     MIGR --> MG2["versions/ — una migración por cambio"]
@@ -72,6 +73,7 @@ flowchart TB
     MOD --> M6["tier_model.py — Tier, TierFinish"]
     MOD --> M7["customer_model.py — Customer (cliente y su tarjeta)"]
     MOD --> M8["purchase_model.py — Purchase (compra = movimiento = comprobante)"]
+    MOD --> M9["card_delivery_model.py — CardDelivery (enlace a la tarjeta digital)"]
     SRV --> SV1["auth_service.py — revocación de tokens · límite de login"]
     SRV --> SV2["tier_service.py — listar y editar niveles · reglas de rango"]
     SRV --> SV3["customer_service.py — clientes · código · estado · saldos · paginación"]
@@ -79,6 +81,7 @@ flowchart TB
     SRV --> SV5["checkout_service.py — cobrar · comprobante · Idempotency-Key"]
     SRV --> SV6["movement_service.py — historial · totales · CSV"]
     SRV --> SV7["platform_service.py — negocios vistos por la plataforma"]
+    SRV --> SV8["card_service.py — enlace · tarjeta pública"]
     SCR --> SC1["seed.py — 2 negocios demo, usuarios, niveles, clientes y compras"]
     SCH --> S1["user_schema.py — UserCreate · UserUpdate · UserResponse · MeResponse"]
     SCH --> S4["business_schema.py — BusinessSummaryResponse"]
@@ -90,6 +93,7 @@ flowchart TB
     SCH --> S8["checkout_schema.py — CheckoutCreate · ReceiptResponse"]
     SCH --> S9["movement_schema.py — MovementResponse · MovementPageResponse"]
     SCH --> S10["platform_schema.py — PlatformBusinessResponse"]
+    SCH --> S11["card_schema.py — CardLinkResponse · PublicCardResponse"]
     API --> A1["dependencies.py — CurrentUser · require_roles · BusinessId<br/>ensure_user_can_access"]
     API --> A2["auth_api.py — /auth"]
     API --> A3["user_api.py — /user"]
@@ -98,11 +102,12 @@ flowchart TB
     API --> A6["checkout_api.py — /checkout"]
     API --> A7["movement_api.py — /movement"]
     API --> A8["platform_api.py — /platform"]
+    API --> A9["card_api.py — /card (público, sin sesión)"]
 ```
 
 ## 3. Modelo de datos actual
 
-Existen las tablas de autenticación, los niveles, los clientes con su tarjeta y las compras; `python -m scripts.seed` las llena con dos negocios de demo (Café Aurora y Gimnasio Titán), sus usuarios, sus niveles, sus clientes (12 y 2) y sus compras (12 y 1).
+Existen las tablas de autenticación, los niveles, los clientes con su tarjeta, las compras y la entrega de la tarjeta digital; `python -m scripts.seed` las llena con dos negocios de demo (Café Aurora y Gimnasio Titán), sus usuarios, sus niveles, sus clientes (12 y 2), y sus compras (12 y 1).
 
 ```mermaid
 erDiagram
@@ -114,6 +119,7 @@ erDiagram
     customers ||--o{ purchases : "compra"
     users ||--o{ purchases : "cobra"
     tiers ||--o{ purchases : "nivel aplicado"
+    customers ||--o{ card_deliveries : "enlace"
 
     businesses {
         int id PK
@@ -181,6 +187,16 @@ erDiagram
         int points_per_ten "≥ 0; puntos por cada $10"
         decimal cashback_percent "0 a 100, 2 decimales"
         datetime created_at
+    }
+
+    card_deliveries {
+        int id PK
+        int business_id FK "índice"
+        int customer_id FK "índice"
+        string token_hash UK "SHA-256 del token, hex"
+        datetime created_at
+        datetime revoked_at "nullable; al regenerar o cancelar"
+        datetime last_sent_at "nullable"
     }
 
     revoked_tokens {
@@ -251,13 +267,15 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | POST | `/api/v1/customer/create` | admin | Alta con `full_name`, `email`, `phone` y `level_id` opcionales. Genera `code`, `issued_at` y `valid_until` (+12 meses). 409 `email_taken` |
 | GET | `/api/v1/customer/{customer_id}` | admin | Ficha del cliente |
 | PATCH | `/api/v1/customer/{customer_id}/update` | admin | Edita `full_name`, `email`, `phone` (`null` lo borra) o `level_id` (cambio de nivel). 409 `email_taken` |
-| POST | `/api/v1/customer/{customer_id}/cancel` | admin | Cancela la tarjeta; irreversible y repetirlo no cambia nada |
+| POST | `/api/v1/customer/{customer_id}/cancel` | admin | Cancela la tarjeta y revoca su enlace; irreversible y repetirlo no cambia nada |
+| POST | `/api/v1/customer/{customer_id}/card-link` | admin | Enlace nuevo a la tarjeta digital (`url`, `expires_at` = `valid_until`); revoca el anterior. 409 `customer_cancelled` o `customer_expired` |
 | POST | `/api/v1/checkout/preview` | admin, employee | Mismo cuerpo que `create`; calcula y no guarda nada |
 | POST | `/api/v1/checkout/create` | admin, employee | Registra la compra (`customer_id`, `amount_cents`, `concept` opcional, `use_cashback`) y devuelve el comprobante (201). Cabecera opcional `Idempotency-Key`. El cajero sale del token |
 | GET | `/api/v1/checkout/{checkout_id}` | admin, employee | Comprobante. El cajero solo ve los suyos; el admin, todos los del negocio |
 | GET | `/api/v1/movement/list` | admin | Historial paginado, más reciente primero, con `summary` del conjunto filtrado. Filtros `q`, `customer_id`, `from`, `to` |
 | GET | `/api/v1/movement/export` | admin | Mismos filtros que `list`, sin paginar, como CSV descargable |
 | GET | `/api/v1/platform/business/list` | platform | Negocios con su estado y `customers_count`, paginados por nombre. Filtros `q` y `status`. Nunca datos de clientes |
+| GET | `/api/v1/card/{token}` | — (público) | Tarjeta pública del enlace: negocio, nombre, código, nivel, vigencia y `wallet.google`. 404 `card_link_not_found` |
 
 **Respuesta de `/auth/me`** (`MeResponse`): los campos de `UserResponse` más `business`, el resumen del negocio que el frontend muestra en el encabezado del panel y de la caja. No incluye datos de uso ni de clientes.
 
@@ -289,6 +307,10 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | `amount_invalid` | 422 | `/checkout/create` y `/checkout/preview`: `amount_cents` fuera de 1 a 100 000 000. Un monto que no es entero es validación de campo (422 de FastAPI, sin `code`) |
 | `checkout_not_found` | 404 | `/checkout/{checkout_id}`: no existe, es de otro negocio, o un cajero pide el comprobante de otro cajero |
 | `idempotency_conflict` | 409 | `/checkout/create`: la `Idempotency-Key` ya se usó para otra compra (otro cliente, monto o concepto) |
+| `customer_cancelled` | 409 | `/customer/{customer_id}/card-link`: la tarjeta está cancelada |
+| `customer_expired` | 409 | `/customer/{customer_id}/card-link`: la tarjeta venció (el enlace no abriría) |
+| `card_link_not_found` | 404 | `/card/{token}`: token desconocido, revocado, tarjeta vencida o cancelada, o negocio suspendido. Siempre el mismo cuerpo |
+| `rate_limited` | 429 | `/card/...`: más de `CARD_RATE_LIMIT_PER_MINUTE` peticiones por minuto desde la misma IP (con `Retry-After`) |
 
 Cada módulo nuevo agrega sus códigos a `ErrorCode` (`core/errors.py`).
 
@@ -361,10 +383,18 @@ Ejemplo de la rúbrica, $1,000.00 en Oro (15 %, 1 punto por $10, 3 %): descuento
 - Filtros: `q` (nombre del negocio, sin distinguir mayúsculas) y `status` (`trial`, `active`, `suspended`).
 - `customers_count` cuenta las tarjetas **no canceladas**, con la misma regla que `customers_count` de un nivel. Sale de una sola consulta por página.
 
+**Tarjeta digital (`card_deliveries`, `/card`).** El cliente recibe un enlace a `{FRONTEND_PUBLIC_URL}/tarjeta/<token>`; esa página del frontend pide `GET /card/{token}`, dibuja la tarjeta y arma la imagen y el PDF en el navegador. Reglas (`services/card_service.py`):
+
+- El token son 32 bytes aleatorios (`secrets.token_urlsafe(32)`); en la base solo se guarda su SHA-256. No se deriva del `code` ni del `id`.
+- Un enlace activo por cliente: crear uno revoca el anterior.
+- El enlace vive lo que vive la tarjeta (DECISIÓN 10): no tiene vencimiento propio, `expires_at` es `valid_until`. Si se renueva la tarjeta, el enlace vuelve a abrir. Token desconocido, revocado, tarjeta vencida o cancelada, o negocio suspendido: siempre el mismo 404 `card_link_not_found`.
+- Cancelar la tarjeta llena `revoked_at` de su enlace.
+- `GET /card/{token}` solo devuelve negocio (`name`, `logo_url`), `full_name`, `code`, nivel (`name`, `finish`), `status`, `valid_until` y `wallet.google` (DECISIÓN 11; por ahora siempre `false`). Nada de correo, teléfono, puntos, cashback ni ids.
+- Las rutas `/card` no usan sesión ni cookie. Todas sus respuestas, errores incluidos, llevan `Cache-Control: no-store`, y cada IP tiene `CARD_RATE_LIMIT_PER_MINUTE` peticiones por minuto (30 por defecto; `core/rate_limit.py`, en memoria por proceso; la IP es la reenviada por el proxy gracias a `--proxy-headers`).
 
 **Validación de nombres** (`PersonName`, `schemas/validators.py`): se quitan los espacios sobrantes; solo letras (con acentos y ñ), espacios, guion y apóstrofo; mínimo 2 letras y máximo 120 caracteres. Si no se cumple → 422.
 
-**Convención de rutas:** `/<recurso en singular>/<acción>` (`/user/create`, `/user/list`, `/user/{id}/update`). Los módulos nuevos siguen la misma forma, por ejemplo `/customer/create`. La única ruta con un subrecurso es `/platform/business/list` (la plataforma lista los negocios); `tests/rules/test_routes.py` la permite con `SUB_RESOURCES`.
+**Convención de rutas:** `/<recurso en singular>/<acción>` (`/user/create`, `/user/list`, `/user/{id}/update`). Los módulos nuevos siguen la misma forma, por ejemplo `/customer/create`. Los subrecursos son `/platform/business/list` (la plataforma lista los negocios) y `/customer/{customer_id}/card-link` (el enlace a la tarjeta); `tests/rules/test_routes.py` los permite con `SUB_RESOURCES`. El nombre con guion viene del contrato del frontend.
 
 ```mermaid
 flowchart LR
@@ -375,6 +405,7 @@ flowchart LR
     ROOT --> CHK["/checkout"]
     ROOT --> MOV["/movement"]
     ROOT --> PLAT["/platform"]
+    ROOT --> CARD["/card (público)"]
 
     AUTH --> L["POST /login"]
     AUTH --> LO["POST /logout"]
@@ -395,6 +426,7 @@ flowchart LR
     CUST --> CG["GET /{customer_id}"]
     CUST --> CU["PATCH /{customer_id}/update"]
     CUST --> CX["POST /{customer_id}/cancel"]
+    CUST --> CLK["POST /{customer_id}/card-link"]
 
     CHK --> KP["POST /preview"]
     CHK --> KC["POST /create"]
@@ -404,6 +436,8 @@ flowchart LR
     MOV --> VE["GET /export"]
 
     PLAT --> PB["GET /business/list"]
+
+    CARD --> DG["GET /{token}"]
 ```
 
 ## 5. Inicio y cierre de sesión
