@@ -68,6 +68,9 @@ uv add <paquete>                     # nueva dependencia (uv add --dev para desa
   `main`; guía en `docs/CI.md`. Es un archivo compartido: avisa antes de modificarlo.
 - **Imagen**: `.github/workflows/image.yml` la construye y publica en GHCR, y avisa a Coolify;
   guía en `docs/DEPLOY.md`. También es compartido: si lo rompes, nadie despliega.
+- **Imágenes**: van a un bucket S3 por `services/storage_service.py` (RustFS en local, servicio
+  `storage` del compose); en la base se guarda la clave, nunca la URL; toda subida pasa por
+  `services/image_service.py`. Guía en `docs/STORAGE.md`. Fotos de clientes: no (decisión cerrada).
 - Si creas una carpeta nueva con código Python, agrega su `COPY` en el `Dockerfile`; si no, la
   construcción de la imagen falla en el paso `import main`.
 
@@ -80,7 +83,7 @@ db/database.py   engine, check_database_connection, get_session
 migrations/      Alembic: env.py y versions/ (una migración por cambio)
 models/          tablas SQLModel (table=True), una por archivo: <nombre>_model.py
 schemas/         DTOs Pydantic: <nombre>_schema.py (XCreate, XUpdate, XResponse)
-services/        lógica de negocio y cálculo (hoy: auth_service.py, revocación y límite de login)
+services/        lógica de negocio y cálculo (auth, niveles, clientes, imágenes y almacenamiento S3)
 scripts/         scripts de terminal (`python -m scripts.<nombre>`); hoy: seed.py
 api/v1/          dependencies.py y un router por módulo: <nombre>_api.py
 tests/           pytest; tests/rules/ valida las convenciones leyendo el código (TESTING.md, sección 5.11)

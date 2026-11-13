@@ -117,6 +117,7 @@ El webhook automático (sección 4, paso 7) es **opcional** y solo tiene sentido
 | `LOGIN_MAX_ATTEMPTS` | `5` | Opcional. Intentos fallidos por email antes de bloquearlo (H4) |
 | `LOGIN_LOCKOUT_MINUTES` | `15` | Opcional. Cuánto dura el bloqueo; responde 429 con `Retry-After` |
 | `SEED_PASSWORD` | 16+ caracteres aleatorios | Solo para correr `python -m scripts.seed`; contraseña de los usuarios de demo. Obligatoria en producción |
+| `S3_ENDPOINT_URL`, `S3_PUBLIC_ENDPOINT_URL`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET` | — | Opcionales. Almacenamiento de imágenes; sin `S3_ENDPOINT_URL` la API funciona igual y `/logo/update` responde 503. Opciones (RustFS en Coolify o Cloudflare R2) en [STORAGE.md](STORAGE.md#8-producción) |
 | `PORT` | `8000` | Lo lee el entrypoint; Coolify puede inyectarlo |
 
 Nada de esto va en el repo. `.env.example` documenta las claves con valores falsos.
