@@ -60,6 +60,7 @@ flowchart TB
     CORE --> C1["config.py — Settings (lee .env)"]
     CORE --> C2["cors.py — setup_cors(app)"]
     CORE --> C3["security.py — Argon2id + JWT"]
+    CORE --> C4["errors.py — ApiError · ErrorCode (code estable en errores)"]
     DBF --> D1["database.py — engine · check_database_connection · get_session"]
     MIGR --> MG1["env.py — conecta Alembic con settings y models"]
     MIGR --> MG2["versions/ — una migración por cambio"]
@@ -179,6 +180,19 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
   "business": { "id": 1, "name": "Café Aurora", "logo_url": null, "status": "active" }
 }
 ```
+
+**Errores con código estable** (`core/errors.py`): cada error de negocio responde `{"detail": "...", "code": "..."}`. El frontend elige el mensaje por `code`, así que `detail` se puede redactar distinto sin romperlo. Se lanza con `ApiError(status_code, detail, code)`; `setup_error_handlers(app)` en `main.py` agrega `code` a la respuesta. Los 422 de validación de campos siguen con la forma de FastAPI (`detail` en lista, sin `code`), y los errores que no están en esta tabla (por ejemplo `Permission denied`) solo llevan `detail`.
+
+| `code` | HTTP | Dónde se lanza |
+|--------|------|----------------|
+| `invalid_credentials` | 401 | `POST /api/v1/auth/login`: email o contraseña incorrectos |
+| `login_locked` | 429 | `POST /api/v1/auth/login`: email bloqueado por intentos (con `Retry-After`) |
+| `user_inactive` | 403 | `ensure_user_can_access`: usuario desactivado (login y cada petición) |
+| `business_suspended` | 403 | `ensure_user_can_access`: negocio suspendido (login y cada petición) |
+| `not_authenticated` | 401 | `get_token_data` / `get_current_user`: sin sesión, token inválido, vencido o revocado |
+| `email_taken` | 409 | `/user/create` y `/user/{user_id}/update`: email en uso |
+
+Los códigos de clientes, caja y niveles (`customer_not_found`, `amount_invalid`, `tier_invalid`…) se agregan a `ErrorCode` con su módulo.
 
 **Validación de nombres** (`PersonName`, `schemas/validators.py`): se quitan los espacios sobrantes; solo letras (con acentos y ñ), espacios, guion y apóstrofo; mínimo 2 letras y máximo 120 caracteres. Si no se cumple → 422.
 

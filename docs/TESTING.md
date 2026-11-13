@@ -206,6 +206,7 @@ tests/
     ├── test_user.py
     ├── test_isolation.py
     ├── test_login_limit.py
+    ├── test_error_codes.py
     └── test_known_issues.py
 ├── db/
 │   └── test_migrations.py
@@ -386,7 +387,7 @@ Regla de H5 (`schemas/validators.py`, tipo `PersonName`): quita espacios al inic
 | `TestCors::test_preflight_from_unknown_origin_is_not_allowed` | Otro origen no recibe `allow-origin` | ✅ |
 | `TestCors::test_simple_request_from_allowed_origin` | Petición simple con origen permitido | ✅ |
 
-### 5.5 Autenticación — `tests/api/test_auth.py` (46)
+### 5.5 Autenticación — `tests/api/test_auth.py` (52)
 
 **Login (`POST /api/v1/auth/login`)**
 
@@ -410,7 +411,7 @@ Regla de H5 (`schemas/validators.py`, tipo `PersonName`): quita espacios al inic
 |--------|----------|-----------|
 | `test_me_with_cookie` | Funciona con la cookie (frontend) | ✅ |
 | `test_me_with_bearer_header` | Funciona con `Authorization: Bearer` (Swagger, lector) | ✅ |
-| `test_me_never_exposes_password_hash` | Solo devuelve los 7 campos públicos | ✅ |
+| `test_me_never_exposes_password_hash` | Solo devuelve los 7 campos públicos más `business` | ✅ |
 | `test_cookie_has_priority_over_bearer` | Si llegan ambos, manda la cookie | ✅ |
 | `test_without_token` | 401 con `WWW-Authenticate: Bearer` | ✅ |
 | `test_garbage_token` | Token basura → 401 | ✅ |
@@ -420,6 +421,17 @@ Regla de H5 (`schemas/validators.py`, tipo `PersonName`): quita espacios al inic
 | `test_token_of_deleted_user` | Token de un usuario borrado → 401 | ✅ |
 | `test_user_deactivated_after_login` | Desactivado con sesión abierta → 403 en la siguiente petición | ✅ |
 | `test_role_comes_from_database_not_from_token` | El rol se lee de la BD: un cambio de rol aplica sin volver a iniciar sesión | ✅ |
+
+**Negocio en `/auth/me` (contrato del frontend, sección 2.1)**
+
+| Prueba | Verifica | Resultado |
+|--------|----------|-----------|
+| `test_admin_gets_their_business` | El admin recibe `business` con `id`, `name`, `logo_url` y `status` de su negocio | ✅ |
+| `test_employee_gets_their_business` | El empleado recibe el negocio al que pertenece | ✅ |
+| `test_business_matches_business_id` | `business.id` coincide con `business_id` (negocio B) | ✅ |
+| `test_platform_owner_has_no_business` | `platform` recibe `business: null` | ✅ |
+| `test_status_and_logo_come_from_the_database` | Estado `trial` y `logo_url` salen de la base | ✅ |
+| `test_business_exposes_only_header_fields` | `business` solo trae los 4 campos del encabezado | ✅ |
 
 **Negocio suspendido (H1)**
 
@@ -475,6 +487,25 @@ H4: 5 intentos fallidos por email, después 429 durante 15 minutos. Las pruebas 
 | `test_logout_purges_old_rows` | Cada logout limpia las revocaciones vencidas | ✅ |
 | `test_failed_login_rows_outside_the_window_are_purged` | Se borran los registros de intentos fuera de la ventana | ✅ |
 | `test_clear_failed_logins_without_row_is_harmless` | Reiniciar un contador que no existe no falla | ✅ |
+
+### 5.5d Códigos de error estables — `tests/api/test_error_codes.py` (12)
+
+Contrato del frontend, sección 1.2 (DECISIÓN 7). Cada error de negocio trae `code` además de `detail`; el frontend elige el mensaje con `code`. Lo implementa `ApiError` en `core/errors.py`.
+
+| Prueba | Verifica | Resultado |
+|--------|----------|-----------|
+| `test_wrong_password_is_invalid_credentials` | 401 `invalid_credentials` y conserva `WWW-Authenticate` | ✅ |
+| `test_unknown_email_is_invalid_credentials` | Email inexistente → mismo `invalid_credentials` | ✅ |
+| `test_too_many_attempts_is_login_locked` | Sexto intento → 429 `login_locked` con `Retry-After` | ✅ |
+| `test_inactive_user_is_user_inactive` | Usuario inactivo → 403 `user_inactive` | ✅ |
+| `test_suspended_business_is_business_suspended` | Login de negocio suspendido → 403 `business_suspended` | ✅ |
+| `test_without_session_is_not_authenticated` | Sin sesión → 401 `not_authenticated` | ✅ |
+| `test_garbage_token_is_not_authenticated` | Token basura → 401 `not_authenticated` | ✅ |
+| `test_revoked_token_is_not_authenticated` | Token revocado por logout → 401 `not_authenticated` | ✅ |
+| `test_open_session_of_suspended_business` | Sesión abierta al suspender el negocio → 403 `business_suspended` | ✅ |
+| `test_duplicate_email_is_email_taken` | `/user/create` con email repetido → 409 `email_taken` | ✅ |
+| `test_field_validation_keeps_fastapi_shape` | Los 422 de validación siguen con `detail` en lista y sin `code` | ✅ |
+| `test_errors_outside_the_contract_have_no_code` | Un error fuera de la tabla del contrato (`Permission denied`) no lleva `code` | ✅ |
 
 ### 5.6 Usuarios — `tests/api/test_user.py` (53)
 
