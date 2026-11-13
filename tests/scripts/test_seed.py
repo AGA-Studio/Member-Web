@@ -6,7 +6,7 @@ from sqlmodel import Session, select
 
 from core.config import settings
 from core.security import verify_password
-from models import Business, BusinessStatus, Role, User
+from models import Business, BusinessStatus, Role, Tier, User
 from schemas.validators import normalize_person_name
 from scripts import seed as seed_module
 from scripts.seed import DEMO_PASSWORD, USERS, SeedError, resolve_password, seed
@@ -58,15 +58,65 @@ class TestSeedData:
         assert normalize_person_name(name) == name
 
 
+class TestSeedTiers:
+    def test_cafe_aurora_gets_the_contract_tiers(
+        self, session: Session, client: TestClient
+    ) -> None:
+        seed(session, PASSWORD)
+        login(client, "caja@cafe-aurora.mx", PASSWORD)
+        tiers = [
+            (
+                t["name"],
+                t["finish"],
+                t["min_points"],
+                t["discount_percent"],
+                t["points_per_ten"],
+                t["cashback_percent"],
+            )
+            for t in client.get("/api/v1/tier/list").json()
+        ]
+        assert tiers == [
+            ("Bronce", "bronze", 0, 5, 1, 0),
+            ("Plata", "silver", 400, 10, 1, 1),
+            ("Oro", "gold", 1000, 15, 1, 3),
+            ("Onyx", "onyx", 1500, 20, 2, 5),
+        ]
+
+    def test_gimnasio_titan_gets_different_tiers(
+        self, session: Session, client: TestClient
+    ) -> None:
+        seed(session, PASSWORD)
+        login(client, "admin@gimnasio-titan.mx", PASSWORD)
+        names = [t["name"] for t in client.get("/api/v1/tier/list").json()]
+        assert names == ["Básico", "Premium"]
+
+    def test_every_business_has_a_tier_at_zero_points(self, session: Session) -> None:
+        seed(session, PASSWORD)
+        for business in session.exec(select(Business)).all():
+            tiers = session.exec(select(Tier).where(Tier.business_id == business.id)).all()
+            assert min(t.min_points for t in tiers) == 0
+
+    def test_an_edited_tier_is_not_overwritten(self, session: Session) -> None:
+        seed(session, PASSWORD)
+        gold = session.exec(select(Tier).where(Tier.name == "Oro")).one()
+        gold.min_points = 1200
+        session.add(gold)
+        session.commit()
+        seed(session, PASSWORD)
+        session.refresh(gold)
+        assert gold.min_points == 1200
+
+
 class TestIdempotency:
     def test_second_run_creates_nothing(self, session: Session) -> None:
         first = seed(session, PASSWORD)
         second = seed(session, PASSWORD)
-        assert len(first.created) == 6
+        assert len(first.created) == 12
         assert second.created == []
-        assert len(second.existing) == 6
+        assert len(second.existing) == 12
         assert len(session.exec(select(Business)).all()) == 2
         assert len(session.exec(select(User)).all()) == 4
+        assert len(session.exec(select(Tier)).all()) == 6
 
     def test_existing_password_is_never_changed(self, session: Session) -> None:
         seed(session, PASSWORD)

@@ -1,4 +1,4 @@
-"""Demo data: two businesses that must never see each other, plus their users.
+"""Demo data: two businesses that must never see each other, their users and tiers.
 
 Run after the migrations:
 
@@ -6,8 +6,8 @@ Run after the migrations:
     uv run python -m scripts.seed
 
 It is idempotent: anything that already exists (business by name, user by
-email) is left untouched, so it can run any number of times. It never changes
-an existing user's password.
+email, tier by business and name) is left untouched, so it can run any number
+of times. It never changes an existing user's password or an edited tier.
 
 Password for the demo users:
 - SEED_PASSWORD from the environment or .env, if set (at least 8 characters).
@@ -17,13 +17,14 @@ Password for the demo users:
 
 import sys
 from dataclasses import dataclass, field
+from decimal import Decimal
 
 from sqlmodel import Session, select
 
 from core.config import settings
 from core.security import hash_password
 from db.database import engine
-from models import Business, BusinessStatus, Role, User
+from models import Business, BusinessStatus, Role, Tier, TierFinish, User
 
 DEMO_PASSWORD = "demo12345"
 MIN_PASSWORD_LENGTH = 8
@@ -39,6 +40,18 @@ USERS = [
     ("admin@cafe-aurora.mx", "Ana Torres", Role.ADMIN, "aurora"),
     ("caja@cafe-aurora.mx", "Luis Pérez", Role.EMPLOYEE, "aurora"),
     ("admin@gimnasio-titan.mx", "Marco Ruiz", Role.ADMIN, "titan"),
+]
+
+# (business key, name, finish, min_points, discount %, points per $10, cashback %)
+# Café Aurora follows the API contract (section 8). Gimnasio Titán gets different
+# tiers on purpose: the frontend's isolation check compares both businesses.
+TIERS = [
+    ("aurora", "Bronce", TierFinish.BRONZE, 0, "5", 1, "0"),
+    ("aurora", "Plata", TierFinish.SILVER, 400, "10", 1, "1"),
+    ("aurora", "Oro", TierFinish.GOLD, 1000, "15", 1, "3"),
+    ("aurora", "Onyx", TierFinish.ONYX, 1500, "20", 2, "5"),
+    ("titan", "Básico", TierFinish.SILVER, 0, "0", 1, "0"),
+    ("titan", "Premium", TierFinish.ONYX, 800, "10", 2, "2"),
 ]
 
 
@@ -94,6 +107,26 @@ def seed(session: Session, password: str) -> SeedResult:
             )
         )
         result.created.append(f"user      {email} ({role})")
+
+    for key, name, finish, min_points, discount, points, cashback in TIERS:
+        business = businesses[key]
+        label = f"tier      {business.name} / {name}"
+        query = select(Tier).where(Tier.business_id == business.id, Tier.name == name)
+        if session.exec(query).first() is not None:
+            result.existing.append(label)
+            continue
+        session.add(
+            Tier(
+                business_id=business.id,
+                name=name,
+                finish=finish,
+                min_points=min_points,
+                discount_percent=Decimal(discount),
+                points_per_ten=points,
+                cashback_percent=Decimal(cashback),
+            )
+        )
+        result.created.append(label)
 
     session.commit()
     return result
