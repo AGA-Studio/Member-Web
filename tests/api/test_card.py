@@ -1,16 +1,19 @@
-"""Digital card delivery: link, email and public card (contract, section 13)."""
+"""Digital card delivery: link, email, public card and Google Wallet (contract, section 13)."""
 
 import hashlib
 import json
 from datetime import UTC, datetime, timedelta
 
+import jwt
 import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
 from core.config import settings
 from models import BusinessStatus, CardDelivery, CardEmail, Customer, TierFinish
-from services import email_service
+from services import email_service, wallet_service
 from tests.api.test_customer import add_customer, add_tier
 from tests.conftest import login
 from tests.smtp_server import SmtpServer
@@ -372,6 +375,116 @@ class TestPublicCard:
         assert response.json()["code"] == "rate_limited"
         assert int(response.headers["Retry-After"]) >= 1
         assert response.headers["Cache-Control"] == "no-store"
+
+
+@pytest.fixture
+def wallet_key() -> rsa.RSAPrivateKey:
+    return rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+
+@pytest.fixture
+def wallet(monkeypatch, wallet_key) -> rsa.RSAPublicKey:
+    """Google Wallet configured with a test key (never a real one)."""
+    pem = wallet_key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    ).decode()
+    account = {"client_email": "wallet@test.iam.gserviceaccount.com", "private_key": pem}
+    monkeypatch.setattr(settings, "google_wallet_issuer_id", "3388000000012345678")
+    monkeypatch.setattr(settings, "google_wallet_service_account_json", json.dumps(account))
+    monkeypatch.setattr(settings, "google_wallet_origins", ["http://localhost:3000"])
+    monkeypatch.setattr(settings, "google_wallet_logo_url", "https://memberplus.mx/logo.png")
+    return wallet_key.public_key()
+
+
+def decode_save_url(save_url: str, public_key) -> dict:
+    assert save_url.startswith("https://pay.google.com/gp/v/save/")
+    token = save_url.removeprefix("https://pay.google.com/gp/v/save/")
+    return jwt.decode(token, public_key, algorithms=["RS256"], audience="google")
+
+
+class TestGoogleWallet:
+    def url(self, token: str) -> str:
+        return f"{CARD}/{token}/google-wallet"
+
+    def test_without_configuration_is_503(self, admin, cards) -> None:
+        token = new_link(admin, cards["active"])
+        response = admin.get(self.url(token))
+        assert response.status_code == 503
+        assert response.json()["code"] == "wallet_unavailable"
+        assert response.headers["Cache-Control"] == "no-store"
+
+    def test_unknown_token_is_404_before_503(self, client: TestClient) -> None:
+        response = client.get(self.url("unknown"))
+        assert (response.status_code, response.json()) == (404, NOT_FOUND)
+
+    def test_cancelled_card_is_404(self, admin, cards, wallet) -> None:
+        token = new_link(admin, cards["active"])
+        admin.post(f"{CUSTOMER}/{cards['active'].id}/cancel")
+        assert admin.get(self.url(token)).json() == NOT_FOUND
+
+    def test_card_says_when_wallet_is_available(self, admin, cards, wallet) -> None:
+        token = new_link(admin, cards["active"])
+        assert admin.get(f"{CARD}/{token}").json()["wallet"] == {"google": True}
+
+    def test_jwt_is_signed_with_the_service_account(self, admin, cards, wallet) -> None:
+        token = new_link(admin, cards["active"])
+        response = admin.get(self.url(token))
+        assert response.status_code == 200
+        assert set(response.json()) == {"save_url"}
+        claims = decode_save_url(response.json()["save_url"], wallet)
+        assert claims["iss"] == "wallet@test.iam.gserviceaccount.com"
+        assert claims["aud"] == "google"
+        assert claims["typ"] == "savetowallet"
+        assert claims["origins"] == ["http://localhost:3000"]
+
+    def test_jwt_carries_the_class_and_the_object(self, admin, cards, wallet) -> None:
+        token = new_link(admin, cards["active"])
+        claims = decode_save_url(admin.get(self.url(token)).json()["save_url"], wallet)
+        business, customer = cards["business"], cards["active"]
+        [loyalty_class] = claims["payload"]["loyaltyClasses"]
+        [loyalty_object] = claims["payload"]["loyaltyObjects"]
+        assert loyalty_class["id"] == f"3388000000012345678.business_{business.id}"
+        assert loyalty_class["programName"] == "Business A"
+        assert loyalty_class["issuerName"] == "Member+"
+        assert loyalty_class["programLogo"]["sourceUri"]["uri"] == "https://memberplus.mx/logo.png"
+        assert loyalty_object["id"] == f"3388000000012345678.customer_{customer.id}"
+        assert loyalty_object["classId"] == loyalty_class["id"]
+        assert loyalty_object["state"] == "ACTIVE"
+        assert loyalty_object["accountName"] == "Laura Méndez"
+        assert loyalty_object["accountId"] == "MP-4F7K2"
+        assert loyalty_object["barcode"]["type"] == "QR_CODE"
+        assert loyalty_object["barcode"]["value"] == "MP-4F7K2"
+        assert loyalty_object["textModulesData"][0]["body"] == "Oro"
+        assert loyalty_object["validTimeInterval"]["end"]["date"].endswith("Z")
+
+    def test_uses_the_business_logo_when_it_is_https(
+        self, admin, cards, wallet, session: Session
+    ) -> None:
+        business = cards["business"]
+        business.logo_url = "https://cdn.example.com/aurora.png"
+        session.add(business)
+        session.commit()
+        token = new_link(admin, cards["active"])
+        claims = decode_save_url(admin.get(self.url(token)).json()["save_url"], wallet)
+        logo = claims["payload"]["loyaltyClasses"][0]["programLogo"]["sourceUri"]["uri"]
+        assert logo == "https://cdn.example.com/aurora.png"
+
+    @pytest.mark.parametrize(
+        "account", ["", "not json", "[]", '{"client_email": "a@b.c"}', '{"private_key": "k"}']
+    )
+    def test_a_broken_service_account_is_not_configured(
+        self, wallet, monkeypatch, account: str
+    ) -> None:
+        monkeypatch.setattr(settings, "google_wallet_service_account_json", account)
+        assert wallet_service.is_configured() is False
+
+    @pytest.mark.parametrize("missing", ["google_wallet_issuer_id", "google_wallet_logo_url"])
+    def test_every_variable_is_needed(self, wallet, monkeypatch, missing: str) -> None:
+        assert wallet_service.is_configured() is True
+        monkeypatch.setattr(settings, missing, "")
+        assert wallet_service.is_configured() is False
 
 
 class TestPermissions:
