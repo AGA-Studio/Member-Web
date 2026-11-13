@@ -17,7 +17,7 @@ def add_tier(
     session: Session,
     business: Business,
     name: str,
-    min_points: int,
+    price_cents: int,
     finish: TierFinish = TierFinish.BRONZE,
     discount: str = "0",
     points: int = 1,
@@ -27,7 +27,7 @@ def add_tier(
         business_id=business.id,
         name=name,
         finish=finish,
-        min_points=min_points,
+        price_cents=price_cents,
         discount_percent=Decimal(discount),
         points_per_ten=points,
         cashback_percent=Decimal(cashback),
@@ -40,12 +40,12 @@ def add_tier(
 
 @pytest.fixture
 def tiers(session: Session, two_businesses) -> dict[str, Tier]:
-    """Business A: Bronce (0), Oro (1000), Plata (400), inserted out of order."""
+    """Business A: Bronce ($0), Oro ($399), Plata ($199), inserted out of order."""
     business = two_businesses["business_a"]
     return {
         "bronce": add_tier(session, business, "Bronce", 0, discount="5"),
-        "oro": add_tier(session, business, "Oro", 1000, TierFinish.GOLD, "15", 1, "3"),
-        "plata": add_tier(session, business, "Plata", 400, TierFinish.SILVER, "10", 1, "1"),
+        "oro": add_tier(session, business, "Oro", 39_900, TierFinish.GOLD, "15", 1, "3"),
+        "plata": add_tier(session, business, "Plata", 19_900, TierFinish.SILVER, "10", 1, "1"),
     }
 
 
@@ -54,11 +54,22 @@ def patch(client: TestClient, tier: Tier, **changes):
 
 
 class TestList:
-    def test_ordered_by_min_points(self, client: TestClient, tiers) -> None:
+    def test_ordered_from_cheapest_to_most_expensive(self, client: TestClient, tiers) -> None:
         login(client, "admin.a@demo.mx")
         response = client.get(f"{BASE}/list")
         assert response.status_code == 200
         assert [t["name"] for t in response.json()] == ["Bronce", "Plata", "Oro"]
+
+    def test_a_price_change_reorders_the_list(self, client: TestClient, tiers) -> None:
+        login(client, "admin.a@demo.mx")
+        patch(client, tiers["plata"], price_cents=50_000)
+        names = [t["name"] for t in client.get(f"{BASE}/list").json()]
+        assert names == ["Bronce", "Oro", "Plata"]
+
+    def test_tiers_have_no_points_threshold(self, client: TestClient, tiers) -> None:
+        # The tier is paid for ("por cobro"), not reached by points.
+        login(client, "admin.a@demo.mx")
+        assert "min_points" not in client.get(f"{BASE}/list").json()[0]
 
     def test_shape_matches_the_contract(self, client: TestClient, tiers) -> None:
         login(client, "admin.a@demo.mx")
@@ -67,7 +78,7 @@ class TestList:
             "id": tiers["oro"].id,
             "name": "Oro",
             "finish": "gold",
-            "min_points": 1000,
+            "price_cents": 39_900,
             "discount_percent": 15,
             "points_per_ten": 1,
             "cashback_percent": 3,
@@ -107,7 +118,7 @@ class TestUpdate:
             tiers["oro"],
             name="Oro Plus",
             finish="onyx",
-            min_points=1200,
+            price_cents=45_000,
             discount_percent=17.5,
             points_per_ten=2,
             cashback_percent=4.25,
@@ -117,7 +128,7 @@ class TestUpdate:
             "id": tiers["oro"].id,
             "name": "Oro Plus",
             "finish": "onyx",
-            "min_points": 1200,
+            "price_cents": 45_000,
             "discount_percent": 17.5,
             "points_per_ten": 2,
             "cashback_percent": 4.25,
@@ -133,7 +144,11 @@ class TestUpdate:
     def test_only_sent_fields_change(self, client: TestClient, tiers) -> None:
         login(client, "admin.a@demo.mx")
         body = patch(client, tiers["plata"], cashback_percent=2).json()
-        assert (body["name"], body["min_points"], body["discount_percent"]) == ("Plata", 400, 10)
+        assert (body["name"], body["price_cents"], body["discount_percent"]) == (
+            "Plata",
+            19_900,
+            10,
+        )
 
     def test_null_means_not_sent(self, client: TestClient, tiers) -> None:
         login(client, "admin.a@demo.mx")
@@ -192,8 +207,8 @@ class TestUpdateValidation:
             {"cashback_percent": 1.001},
             {"points_per_ten": -1},
             {"points_per_ten": 1001},
-            {"min_points": -10},
-            {"min_points": 1_000_000_001},
+            {"price_cents": -1},
+            {"price_cents": 100_000_001},
             {"name": ""},
             {"name": "   "},
             {"name": "x" * 61},
@@ -209,35 +224,25 @@ class TestUpdateValidation:
 
         session.expire_all()
         unchanged = session.get(Tier, tiers["oro"].id)
-        assert (unchanged.name, unchanged.min_points) == ("Oro", 1000)
+        assert (unchanged.name, unchanged.price_cents) == ("Oro", 39_900)
         assert unchanged.discount_percent == Decimal("15")
 
-    def test_lowest_tier_must_stay_at_zero(self, client: TestClient, tiers) -> None:
+    def test_price_message_says_the_range(self, client: TestClient, tiers) -> None:
         login(client, "admin.a@demo.mx")
-        response = patch(client, tiers["bronce"], min_points=100)
-        assert response.status_code == 422
+        response = patch(client, tiers["oro"], price_cents=-1)
         assert response.json() == {
-            "detail": "The lowest tier must keep min_points = 0",
+            "detail": "price_cents must be between 0 and 100000000",
             "code": "tier_invalid",
         }
 
-    def test_entry_tier_stays_the_entry_tier(self, client: TestClient, tiers) -> None:
-        # One PATCH changes one tier, so the tier at 0 cannot hand that role to another:
-        # Plata cannot take 0 (Bronce has it) and Bronce cannot leave 0. Others move freely.
+    def test_price_limits_are_accepted(self, client: TestClient, tiers) -> None:
         login(client, "admin.a@demo.mx")
-        assert patch(client, tiers["plata"], min_points=0).status_code == 422
-        assert patch(client, tiers["bronce"], min_points=200).status_code == 422
-        assert patch(client, tiers["oro"], min_points=500).status_code == 200
+        assert patch(client, tiers["oro"], price_cents=0).status_code == 200
+        assert patch(client, tiers["oro"], price_cents=100_000_000).status_code == 200
 
-    def test_two_tiers_cannot_share_min_points(self, client: TestClient, tiers) -> None:
+    def test_two_tiers_can_share_a_price(self, client: TestClient, tiers) -> None:
         login(client, "admin.a@demo.mx")
-        response = patch(client, tiers["oro"], min_points=400)
-        assert response.status_code == 422
-        assert response.json()["code"] == "tier_invalid"
-
-    def test_keeping_its_own_min_points_is_fine(self, client: TestClient, tiers) -> None:
-        login(client, "admin.a@demo.mx")
-        assert patch(client, tiers["oro"], min_points=1000).status_code == 200
+        assert patch(client, tiers["oro"], price_cents=19_900).status_code == 200
 
 
 class TestDatabaseConstraints:
@@ -246,7 +251,7 @@ class TestDatabaseConstraints:
     @pytest.mark.parametrize(
         ("field", "value"),
         [
-            ("min_points", -1),
+            ("price_cents", -1),
             ("points_per_ten", -1),
             ("discount_percent", Decimal("101")),
             ("cashback_percent", Decimal("-1")),

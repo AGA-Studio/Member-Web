@@ -14,12 +14,12 @@ BASE = "/api/v1/tier"
 
 @pytest.fixture
 def tiers(session: Session, two_businesses) -> dict[str, Tier]:
-    def add(business_key: str, name: str, min_points: int) -> Tier:
+    def add(business_key: str, name: str, price_cents: int) -> Tier:
         tier = Tier(
             business_id=two_businesses[business_key].id,
             name=name,
             finish=TierFinish.GOLD,
-            min_points=min_points,
+            price_cents=price_cents,
             discount_percent=Decimal("10"),
             points_per_ten=1,
             cashback_percent=Decimal("1"),
@@ -31,7 +31,7 @@ def tiers(session: Session, two_businesses) -> dict[str, Tier]:
 
     return {
         "a_base": add("business_a", "Base A", 0),
-        "a_top": add("business_a", "Top A", 500),
+        "a_top": add("business_a", "Top A", 50_000),
         "b_base": add("business_b", "Base B", 0),
     }
 
@@ -64,13 +64,14 @@ def test_other_business_and_nonexistent_look_identical(client: TestClient, tiers
     assert (other.status_code, other.json()) == (missing.status_code, missing.json())
 
 
-def test_thresholds_of_other_business_do_not_count(client: TestClient, tiers) -> None:
-    """The min_points rules only look at the tiers of the same business."""
+def test_editing_own_tier_leaves_other_business_untouched(
+    client: TestClient, session: Session, tiers
+) -> None:
     login(client, "admin.b@demo.mx")
     target = tiers["b_base"]
-    # A also has a tier at 0 points: it does not count as a clash for B.
-    assert client.patch(f"{BASE}/{target.id}/update", json={"min_points": 0}).status_code == 200
-    # A's tier at 0 does not cover B either: B's only tier must stay at 0.
-    response = client.patch(f"{BASE}/{target.id}/update", json={"min_points": 500})
-    assert response.status_code == 422
-    assert response.json()["code"] == "tier_invalid"
+    response = client.patch(f"{BASE}/{target.id}/update", json={"price_cents": 99_900})
+    assert response.status_code == 200
+
+    session.expire_all()
+    assert session.get(Tier, tiers["a_base"].id).price_cents == 0
+    assert session.get(Tier, tiers["a_top"].id).price_cents == 50_000

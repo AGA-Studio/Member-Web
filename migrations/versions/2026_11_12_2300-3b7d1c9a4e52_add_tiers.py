@@ -28,12 +28,12 @@ def upgrade() -> None:
             sa.Enum("bronze", "silver", "gold", "onyx", name="tierfinish"),
             nullable=False,
         ),
-        sa.Column("min_points", sa.Integer(), nullable=False),
+        sa.Column("price_cents", sa.Integer(), nullable=False),
         sa.Column("discount_percent", sa.Numeric(precision=5, scale=2), nullable=False),
         sa.Column("points_per_ten", sa.Integer(), nullable=False),
         sa.Column("cashback_percent", sa.Numeric(precision=5, scale=2), nullable=False),
         sa.Column("created_at", sqlmodel.sql.sqltypes.UTCDateTime(), nullable=False),
-        sa.CheckConstraint("min_points >= 0", name="ck_tiers_min_points"),
+        sa.CheckConstraint("price_cents >= 0", name="ck_tiers_price_cents"),
         sa.CheckConstraint(
             "discount_percent >= 0 AND discount_percent <= 100", name="ck_tiers_discount_percent"
         ),

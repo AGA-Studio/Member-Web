@@ -42,16 +42,17 @@ USERS = [
     ("admin@gimnasio-titan.mx", "Marco Ruiz", Role.ADMIN, "titan"),
 ]
 
-# (business key, name, finish, min_points, discount %, points per $10, cashback %)
-# Café Aurora follows the API contract (section 8). Gimnasio Titán gets different
-# tiers on purpose: the frontend's isolation check compares both businesses.
+# (business key, name, finish, price in cents, discount %, points per $10, cashback %)
+# Café Aurora uses the benefits of the API contract (section 8); the prices are demo
+# values (a better tier costs more). Gimnasio Titán gets different tiers on purpose:
+# the frontend's isolation check compares both businesses.
 TIERS = [
     ("aurora", "Bronce", TierFinish.BRONZE, 0, "5", 1, "0"),
-    ("aurora", "Plata", TierFinish.SILVER, 400, "10", 1, "1"),
-    ("aurora", "Oro", TierFinish.GOLD, 1000, "15", 1, "3"),
-    ("aurora", "Onyx", TierFinish.ONYX, 1500, "20", 2, "5"),
-    ("titan", "Básico", TierFinish.SILVER, 0, "0", 1, "0"),
-    ("titan", "Premium", TierFinish.ONYX, 800, "10", 2, "2"),
+    ("aurora", "Plata", TierFinish.SILVER, 19_900, "10", 1, "1"),
+    ("aurora", "Oro", TierFinish.GOLD, 39_900, "15", 1, "3"),
+    ("aurora", "Onyx", TierFinish.ONYX, 69_900, "20", 2, "5"),
+    ("titan", "Básico", TierFinish.SILVER, 29_900, "0", 1, "0"),
+    ("titan", "Premium", TierFinish.ONYX, 59_900, "10", 2, "2"),
 ]
 
 
@@ -108,7 +109,7 @@ def seed(session: Session, password: str) -> SeedResult:
         )
         result.created.append(f"user      {email} ({role})")
 
-    for key, name, finish, min_points, discount, points, cashback in TIERS:
+    for key, name, finish, price_cents, discount, points, cashback in TIERS:
         business = businesses[key]
         label = f"tier      {business.name} / {name}"
         query = select(Tier).where(Tier.business_id == business.id, Tier.name == name)
@@ -120,7 +121,7 @@ def seed(session: Session, password: str) -> SeedResult:
                 business_id=business.id,
                 name=name,
                 finish=finish,
-                min_points=min_points,
+                price_cents=price_cents,
                 discount_percent=Decimal(discount),
                 points_per_ten=points,
                 cashback_percent=Decimal(cashback),

@@ -17,7 +17,7 @@ class TierUpdate(BaseModel):
 
     name: str | None = None
     finish: TierFinish | None = None
-    min_points: int | None = None
+    price_cents: int | None = None
     discount_percent: Decimal | None = None
     points_per_ten: int | None = None
     cashback_percent: Decimal | None = None
@@ -29,7 +29,7 @@ class TierResponse(BaseModel):
     id: int
     name: str
     finish: TierFinish
-    min_points: int
+    price_cents: int
     # Numbers in JSON (15.0), not the strings Pydantic uses for Decimal.
     discount_percent: float
     points_per_ten: int

@@ -20,7 +20,7 @@ router = APIRouter(prefix="/tier", tags=["tier"])
     dependencies=[Depends(require_roles(Role.ADMIN, Role.EMPLOYEE))],
 )
 def list_tiers(session: SessionDep, business_id: BusinessId) -> list[TierResponse]:
-    """All the business's tiers, without pagination, by `min_points` ascending."""
+    """All the business's tiers, without pagination, from the cheapest to the most expensive."""
     return tier_service.list_tiers(session, business_id)
 
 

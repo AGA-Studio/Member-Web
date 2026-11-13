@@ -4,6 +4,9 @@ Each business defines its own tiers; the seed only loads a starting template.
 A customer's tier sets the benefits applied at checkout: discount first, then
 points and cashback on the discounted total.
 
+A customer moves up by paying for a better tier ("por cobro": more benefits,
+higher price), not by accumulating points. Points are only a balance.
+
 A benefit set to 0 means it is disabled for that tier (no extra flag).
 """
 
@@ -30,7 +33,7 @@ class Tier(SQLModel, table=True):
     __tablename__ = "tiers"
     # Last line of defense; the service answers 422 `tier_invalid` before these fire.
     __table_args__ = (
-        sa.CheckConstraint("min_points >= 0", name="ck_tiers_min_points"),
+        sa.CheckConstraint("price_cents >= 0", name="ck_tiers_price_cents"),
         sa.CheckConstraint(
             "discount_percent >= 0 AND discount_percent <= 100", name="ck_tiers_discount_percent"
         ),
@@ -46,8 +49,8 @@ class Tier(SQLModel, table=True):
     finish: TierFinish = Field(
         sa_type=sa.Enum(TierFinish, name="tierfinish", values_callable=enum_values),
     )
-    # Accumulated points needed to enter the tier. The lowest tier of a business is 0.
-    min_points: int = Field(default=0)
+    # Price of the membership at this tier, per validity period, in MXN cents. 0 = free.
+    price_cents: int = Field(default=0)
     discount_percent: Decimal = Field(default=Decimal(0), max_digits=5, decimal_places=2)
     # Points earned per $10 (1000 cents) of the discounted total.
     points_per_ten: int = Field(default=0)
