@@ -13,13 +13,15 @@ from models.user_model import Role, User
 from schemas.card_schema import CardEmailSentResponse, CardLinkResponse, CustomerCreatedResponse
 from schemas.customer_schema import (
     CustomerCreate,
+    CustomerRenew,
     CustomerResponse,
     CustomerStatusFilter,
     CustomerSummaryResponse,
     CustomerUpdate,
 )
 from schemas.pagination_schema import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, PageResponse
-from services import card_service, customer_service
+from schemas.payment_schema import MembershipPaymentResponse
+from services import card_service, customer_service, payment_service
 
 router = APIRouter(prefix="/customer", tags=["customer"])
 
@@ -118,3 +120,33 @@ def send_card_link(
 ) -> CardEmailSentResponse:
     """Email the customer a new card link. One per minute and five per hour."""
     return card_service.send_link(session, business_id, customer_id)
+
+
+@router.post("/{customer_id}/renew", response_model=CustomerResponse)
+def renew_customer(
+    customer_id: int,
+    data: CustomerRenew,
+    session: SessionDep,
+    business_id: BusinessId,
+    admin: AdminUser,
+) -> CustomerResponse:
+    """Extend the card and record its payment. A cancelled card is 409."""
+    return customer_service.renew_customer(session, business_id, customer_id, data, admin.id)
+
+
+@router.get(
+    "/{customer_id}/payment/list",
+    response_model=PageResponse[MembershipPaymentResponse],
+    dependencies=admin_only,
+)
+def list_payments(
+    customer_id: int,
+    session: SessionDep,
+    business_id: BusinessId,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = DEFAULT_PAGE_SIZE,
+) -> PageResponse[MembershipPaymentResponse]:
+    """Membership payments of the customer, most recent first."""
+    return payment_service.list_payments(
+        session, business_id, customer_id, page=page, page_size=page_size
+    )
