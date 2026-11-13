@@ -20,6 +20,7 @@ from sqlmodel import Session, select
 from core.errors import ApiError, ErrorCode
 from models.tier_model import Tier
 from schemas.tier_schema import TierResponse, TierUpdate
+from services import customer_service
 
 NAME_MAX_LENGTH = 60
 MAX_PRICE_CENTS = 100_000_000  # $1,000,000.00; fits PostgreSQL's INTEGER with room to spare.
@@ -41,12 +42,8 @@ def _business_tiers(session: Session, business_id: int) -> list[Tier]:
 
 
 def _customers_count_by_tier(session: Session, business_id: int) -> dict[int, int]:
-    """Customers with a non-cancelled card per tier.
-
-    The customers module does not exist yet, so every tier has 0. When it lands,
-    this becomes a single GROUP BY query (no query per tier).
-    """
-    return {}
+    """Customers with a non-cancelled card per tier (one GROUP BY query)."""
+    return customer_service.counts_by_tier(session, business_id)
 
 
 def _to_response(tier: Tier, counts: dict[int, int]) -> TierResponse:
