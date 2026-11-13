@@ -7,6 +7,8 @@ EXPECTED_PATHS = {
     "/api/v1/auth/login",
     "/api/v1/auth/logout",
     "/api/v1/auth/me",
+    "/api/v1/logo/update",
+    "/api/v1/logo/delete",
     "/api/v1/user/list",
     "/api/v1/user/create",
     "/api/v1/user/{user_id}",
