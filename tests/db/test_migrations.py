@@ -31,6 +31,7 @@ APP_TABLES = {
     "customers",
     "purchases",
     "card_deliveries",
+    "card_emails",
 }
 
 
