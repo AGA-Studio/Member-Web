@@ -1,5 +1,5 @@
 # Local database plus a full stack for the demo backup.
-#   docker compose up -d                    → solo db (desarrollo diario)
+#   docker compose up -d                    → db + mail (desarrollo diario)
 #   docker compose --profile stack up -d    → db + api + web (respaldo de la demo)
 #
 # El perfil `stack` solo hace pull de imágenes publicadas en GHCR: no construye
@@ -25,6 +25,16 @@ services:
       timeout: 5s
       retries: 10
 
+  # SMTP de desarrollo: atrapa los correos (tarjeta digital) sin enviarlos.
+  # Bandeja en http://localhost:8025; la API envía a localhost:1025.
+  mail:
+    image: axllent/mailpit:v1.33
+    container_name: memberplus-mail
+    restart: unless-stopped
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
   api:
     profiles: ["stack"]
     image: ghcr.io/aga-studio/member-web:${API_IMAGE_TAG:-0.0.1}
@@ -40,11 +50,17 @@ services:
       COOKIE_SECURE: "false"
       CORS_ORIGINS: http://localhost:3000
       SEED_PASSWORD: ${SEED_PASSWORD:-}
+      FRONTEND_PUBLIC_URL: http://localhost:3000
+      SMTP_HOST: mail
+      SMTP_PORT: "1025"
+      SMTP_TLS: none
     ports:
       - "8000:8000"
     depends_on:
       db:
         condition: service_healthy
+      mail:
+        condition: service_started
 
   web:
     profiles: ["stack"]
