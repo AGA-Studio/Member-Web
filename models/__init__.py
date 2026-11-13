@@ -3,6 +3,7 @@
 from models.business_model import Business, BusinessStatus
 from models.customer_model import Customer
 from models.login_attempt_model import LoginAttempt
+from models.purchase_model import CardStatus, Purchase
 from models.revoked_token_model import RevokedToken
 from models.tier_model import Tier, TierFinish
 from models.user_model import Role, User
@@ -10,8 +11,10 @@ from models.user_model import Role, User
 __all__ = [
     "Business",
     "BusinessStatus",
+    "CardStatus",
     "Customer",
     "LoginAttempt",
+    "Purchase",
     "RevokedToken",
     "Role",
     "Tier",
