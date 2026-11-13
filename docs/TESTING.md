@@ -22,7 +22,7 @@ Documentación de la suite de pruebas automatizadas del backend: qué se prueba,
 | Métrica | Valor |
 |---------|-------|
 | Fecha de ejecución | 12 de noviembre de 2026 |
-| Pruebas | **608**, todas pasan (0 `xfail`); conteo del 13 nov 2026 con niveles, clientes, caja, movimientos, plataforma y entrega de la tarjeta digital (enlace y correo) |
+| Pruebas | **622**, todas pasan (0 `xfail`); conteo del 13 nov 2026 con niveles, clientes, caja, movimientos, plataforma y entrega de la tarjeta digital (enlace, correo y Google Wallet) |
 | Fallas | **0** |
 | Cobertura de líneas y ramas | **100 %** en `api/`, `core/`, `models/`, `schemas/`, `services/` y `scripts/seed.py`. `scripts/review_pr.py` (revisor del CI) queda en 60 %, por eso el total marca 92 % |
 | Bases de datos probadas | SQLite y **PostgreSQL 18.6** |
@@ -775,9 +775,9 @@ Contrato del frontend, sección 7. No usa `BusinessId`, así que no lleva prueba
 | `TestPrivacy` | La respuesta no trae nombres, códigos, correos, puntos ni cashback de clientes; solo las 5 llaves del contrato | ✅ |
 | `TestPermissions` | `admin` y `employee` → 403; sin sesión → 401 | ✅ |
 
-### 5.7l Entrega de la tarjeta digital — `tests/api/test_card.py` (45)
+### 5.7l Entrega de la tarjeta digital — `tests/api/test_card.py` (59)
 
-Contrato del frontend, sección 13 (enlace, correo y tarjeta pública). Las rutas `/card` no usan sesión. El correo se prueba sin mocks: sin `SMTP_HOST` va a la bandeja en memoria (`email_service.OUTBOX`), y `tests/smtp_server.py` levanta un servidor SMTP real en `127.0.0.1` que acepta, rechaza o tarda.
+Contrato del frontend, sección 13 (enlace, correo, tarjeta pública y Google Wallet). Las rutas `/card` no usan sesión. El correo se prueba sin mocks: sin `SMTP_HOST` va a la bandeja en memoria (`email_service.OUTBOX`), y `tests/smtp_server.py` levanta un servidor SMTP real en `127.0.0.1` que acepta, rechaza o tarda.
 
 | Clase | Qué verifica | Resultado |
 |-------|--------------|-----------|
@@ -786,6 +786,7 @@ Contrato del frontend, sección 13 (enlace, correo y tarjeta pública). Las ruta
 | `TestSmtp` | Envía por SMTP real; el proveedor que cierra la conexión → 502 `email_failed`; en producción sin `SMTP_HOST` → 502 | ✅ |
 | `TestCreateCustomer` | El alta envía la tarjeta por defecto (`card_email.status` = `sent`) y el enlace abre; `send_card_email: false` → `skipped` y sin enlace; un correo fallido no falla el alta (`failed`, 201); un proveedor lento → `pending` sin pasar del plazo; el alta cuenta para el límite de envíos | ✅ |
 | `TestPublicCard` | Forma exacta del contrato (sin sesión); no trae correo, teléfono, puntos, cashback ni ids; `Cache-Control: no-store` en 200 y en 404; token desconocido, largo o revocado → mismo 404 `card_link_not_found`; cancelar revoca el enlace; tarjeta vencida o negocio suspendido → mismo 404; tarjeta renovada vuelve a abrir; más de `CARD_RATE_LIMIT_PER_MINUTE` por IP → 429 `rate_limited` con `Retry-After` | ✅ |
+| `TestGoogleWallet` | Sin configuración → 503 `wallet_unavailable` con `no-store`; token desconocido → 404 antes que el 503; tarjeta cancelada → 404; con configuración la tarjeta dice `wallet.google = true`; el JWT se firma con RS256 y se decodifica con la llave pública de prueba (`iss`, `aud`, `typ`, `origins`); lleva la clase del negocio y el objeto del cliente con el QR igual al `code`; usa el logo `https` del negocio si existe; una cuenta de servicio rota o una variable vacía → sin configurar | ✅ |
 | `TestPermissions` | `card-link` y `card-link/send`: `employee` y `platform` → 403; sin sesión → 401. La tarjeta pública abre sin sesión | ✅ |
 
 ### 5.7m Aislamiento del enlace — `tests/api/test_isolation_card.py` (3)

@@ -84,6 +84,7 @@ flowchart TB
     SRV --> SV7["platform_service.py — negocios vistos por la plataforma"]
     SRV --> SV8["card_service.py — enlace · correo · tarjeta pública"]
     SRV --> SV9["email_service.py — SMTP con plazo máximo · bandeja en memoria"]
+    SRV --> SV10["wallet_service.py — JWT de Google Wallet"]
     SCR --> SC1["seed.py — 2 negocios demo, usuarios, niveles, clientes, compras y un enlace"]
     SCH --> S1["user_schema.py — UserCreate · UserUpdate · UserResponse · MeResponse"]
     SCH --> S4["business_schema.py — BusinessSummaryResponse"]
@@ -287,6 +288,7 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | GET | `/api/v1/movement/export` | admin | Mismos filtros que `list`, sin paginar, como CSV descargable |
 | GET | `/api/v1/platform/business/list` | platform | Negocios con su estado y `customers_count`, paginados por nombre. Filtros `q` y `status`. Nunca datos de clientes |
 | GET | `/api/v1/card/{token}` | — (público) | Tarjeta pública del enlace: negocio, nombre, código, nivel, vigencia y `wallet.google`. 404 `card_link_not_found` |
+| GET | `/api/v1/card/{token}/google-wallet` | — (público) | `save_url` firmado para guardar la tarjeta en Google Wallet. 503 `wallet_unavailable` sin configuración |
 
 **Respuesta de `/auth/me`** (`MeResponse`): los campos de `UserResponse` más `business`, el resumen del negocio que el frontend muestra en el encabezado del panel y de la caja. No incluye datos de uso ni de clientes.
 
@@ -322,7 +324,8 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | `customer_expired` | 409 | `/customer/{customer_id}/card-link` y `/send`: la tarjeta venció (el enlace no abriría) |
 | `card_email_rate_limited` | 429 | `/customer/{customer_id}/card-link/send`: ya se envió hace menos de 1 minuto o 5 veces en una hora (con `Retry-After`) |
 | `email_failed` | 502 | `/customer/{customer_id}/card-link/send`: el proveedor de correo falló |
-| `card_link_not_found` | 404 | `/card/{token}`: token desconocido, revocado, tarjeta vencida o cancelada, o negocio suspendido. Siempre el mismo cuerpo |
+| `card_link_not_found` | 404 | `/card/{token}` y `/google-wallet`: token desconocido, revocado, tarjeta vencida o cancelada, o negocio suspendido. Siempre el mismo cuerpo |
+| `wallet_unavailable` | 503 | `/card/{token}/google-wallet`: Google Wallet sin configurar en este entorno |
 | `rate_limited` | 429 | `/card/...`: más de `CARD_RATE_LIMIT_PER_MINUTE` peticiones por minuto desde la misma IP (con `Retry-After`) |
 
 Cada módulo nuevo agrega sus códigos a `ErrorCode` (`core/errors.py`).
@@ -402,7 +405,7 @@ Ejemplo de la rúbrica, $1,000.00 en Oro (15 %, 1 punto por $10, 3 %): descuento
 - Un enlace activo por cliente: crear uno revoca el anterior. Como el token en claro no se guarda, **cada correo lleva un enlace nuevo** y revoca el que se copió o envió antes.
 - El enlace vive lo que vive la tarjeta (DECISIÓN 10): no tiene vencimiento propio, `expires_at` es `valid_until`. Si se renueva la tarjeta, el enlace vuelve a abrir. Token desconocido, revocado, tarjeta vencida o cancelada, o negocio suspendido: siempre el mismo 404 `card_link_not_found`.
 - Cancelar la tarjeta llena `revoked_at` de su enlace.
-- `GET /card/{token}` solo devuelve negocio (`name`, `logo_url`), `full_name`, `code`, nivel (`name`, `finish`), `status`, `valid_until` y `wallet.google` (DECISIÓN 11; por ahora siempre `false`). Nada de correo, teléfono, puntos, cashback ni ids.
+- `GET /card/{token}` solo devuelve negocio (`name`, `logo_url`), `full_name`, `code`, nivel (`name`, `finish`), `status`, `valid_until` y `wallet.google` (DECISIÓN 11). Nada de correo, teléfono, puntos, cashback ni ids.
 - Las rutas `/card` no usan sesión ni cookie. Todas sus respuestas, errores incluidos, llevan `Cache-Control: no-store`, y cada IP tiene `CARD_RATE_LIMIT_PER_MINUTE` peticiones por minuto (30 por defecto; `core/rate_limit.py`, en memoria por proceso; la IP es la reenviada por el proxy gracias a `--proxy-headers`).
 
 Correo (`services/email_service.py`):
@@ -412,10 +415,17 @@ Correo (`services/email_service.py`):
 - Asunto `Tu tarjeta de {negocio}`, remitente con el nombre del negocio y la dirección de `MAIL_FROM`. El cuerpo (texto y HTML) no lleva el código de la tarjeta, ni puntos ni saldo.
 - Límite por cliente: un correo por minuto y cinco por hora (`card_emails`; los intentos fallidos cuentan). El alta con `send_card_email` también cuenta.
 
+Google Wallet (`services/wallet_service.py`):
+
+- `save_url` es `https://pay.google.com/gp/v/save/<jwt>`. El JWT se firma con RS256 usando la llave de la cuenta de servicio (`iss` = su correo, `aud` = `google`, `typ` = `savetowallet`, `origins` = `GOOGLE_WALLET_ORIGINS`).
+- El JWT lleva la `LoyaltyClass` del negocio (`<issuer>.business_<business_id>`) y el `LoyaltyObject` del cliente (`<issuer>.customer_<customer_id>`): Google crea los dos la primera vez que se guarda la tarjeta, así que el backend no llama a la API de Wallet. El QR del pase vale exactamente el `code`.
+- El pase es una foto fija (DECISIÓN 13): no se actualiza si cambian el nivel o el nombre.
+- Necesita `GOOGLE_WALLET_ISSUER_ID`, `GOOGLE_WALLET_SERVICE_ACCOUNT_JSON` y `GOOGLE_WALLET_LOGO_URL` (logo `https` para el pase si el negocio no tiene uno `https`). Si falta alguna, `wallet.google` es `false` y el endpoint responde 503 `wallet_unavailable`.
+
 
 **Validación de nombres** (`PersonName`, `schemas/validators.py`): se quitan los espacios sobrantes; solo letras (con acentos y ñ), espacios, guion y apóstrofo; mínimo 2 letras y máximo 120 caracteres. Si no se cumple → 422.
 
-**Convención de rutas:** `/<recurso en singular>/<acción>` (`/user/create`, `/user/list`, `/user/{id}/update`). Los módulos nuevos siguen la misma forma, por ejemplo `/customer/create`. Los subrecursos son `/platform/business/list` (la plataforma lista los negocios) y `/customer/{customer_id}/card-link` (el enlace a la tarjeta, con la acción `send`); `tests/rules/test_routes.py` los permite con `SUB_RESOURCES`. El nombre con guion viene del contrato del frontend.
+**Convención de rutas:** `/<recurso en singular>/<acción>` (`/user/create`, `/user/list`, `/user/{id}/update`). Los módulos nuevos siguen la misma forma, por ejemplo `/customer/create`. Los subrecursos son `/platform/business/list` (la plataforma lista los negocios), `/customer/{customer_id}/card-link` (el enlace a la tarjeta, con la acción `send`) y `/card/{token}/google-wallet`; `tests/rules/test_routes.py` los permite con `SUB_RESOURCES`. Sus nombres con guion vienen del contrato del frontend.
 
 ```mermaid
 flowchart LR
@@ -460,6 +470,7 @@ flowchart LR
     PLAT --> PB["GET /business/list"]
 
     CARD --> DG["GET /{token}"]
+    CARD --> DW["GET /{token}/google-wallet"]
 ```
 
 ## 5. Inicio y cierre de sesión

@@ -29,6 +29,7 @@ EXPECTED_PATHS = {
     "/api/v1/movement/export",
     "/api/v1/platform/business/list",
     "/api/v1/card/{token}",
+    "/api/v1/card/{token}/google-wallet",
 }
 
 

@@ -66,3 +66,7 @@ class PublicCardResponse(BaseModel):
     status: CustomerStatus
     valid_until: datetime
     wallet: WalletAvailabilityResponse
+
+
+class GoogleWalletResponse(BaseModel):
+    save_url: str
