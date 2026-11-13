@@ -22,12 +22,12 @@ Documentación de la suite de pruebas automatizadas del backend: qué se prueba,
 | Métrica | Valor |
 |---------|-------|
 | Fecha de ejecución | 12 de noviembre de 2026 |
-| Pruebas | **491**, todas pasan (0 `xfail`); conteo del 13 nov 2026 con niveles, clientes y caja |
+| Pruebas | **535**, todas pasan (0 `xfail`); conteo del 13 nov 2026 con niveles, clientes, caja y movimientos |
 | Fallas | **0** |
 | Cobertura de líneas y ramas | **100 %** en `api/`, `core/`, `models/`, `schemas/`, `services/` y `scripts/seed.py`. `scripts/review_pr.py` (revisor del CI) queda en 60 %, por eso el total marca 92 % |
 | Bases de datos probadas | SQLite y **PostgreSQL 18.6** |
 | Tiempo | ~17 s en SQLite · ~42 s en PostgreSQL (equipo local) |
-| Criterio del MVP "0 filas de otro negocio" | ✅ Cumplido (7 pruebas de usuarios + 4 de niveles + 9 de clientes + 4 de caja) |
+| Criterio del MVP "0 filas de otro negocio" | ✅ Cumplido (7 pruebas de usuarios + 4 de niveles + 9 de clientes + 4 de caja + 3 de movimientos) |
 | Migraciones (Alembic) | ✅ Suben, bajan, convierten datos y coinciden con los modelos (9 pruebas) |
 | Hallazgos | ✅ Los 7 corregidos (H1–H7) |
 
@@ -213,6 +213,8 @@ tests/
     ├── test_isolation_customer.py
     ├── test_checkout.py
     ├── test_isolation_checkout.py
+    ├── test_movement.py
+    ├── test_isolation_movement.py
     ├── test_login_limit.py
     ├── test_error_codes.py
     └── test_known_issues.py
@@ -742,6 +744,25 @@ Contrato del frontend, sección 5. Los casos parametrizados cuentan uno por vari
 | `test_receipt_of_the_other_business_looks_like_nonexistent` | El comprobante de B responde igual que uno inexistente | ✅ |
 | `test_balances_count_zero_rows_of_the_other_business` | Los saldos de A no suman compras de B | ✅ |
 | `test_idempotency_keys_are_per_business` | La misma `Idempotency-Key` en dos negocios son dos compras | ✅ |
+
+### 5.7i Movimientos — `tests/api/test_movement.py` (41)
+
+Contrato del frontend, sección 6. Las compras se registran con `/checkout/create` y después se mueven en el tiempo. Los casos parametrizados cuentan uno por variante.
+
+| Clase | Qué verifica | Resultado |
+|-------|--------------|-----------|
+| `TestList` | Forma exacta del movimiento (`cashier_name`, `points_delta`, sin `register_name`); su id es el del comprobante; más reciente primero; `summary` suma todo el conjunto filtrado aunque la página sea de 1; sin compras todo en 0; filtro por cliente; `q` por nombre o código sin distinguir mayúsculas, no por correo; `from`/`to` inclusivos y sin zona = UTC; "últimos 7 días"; página fuera de rango → la última; cliente desconocido → lista vacía; parámetros inválidos → 422 | ✅ |
+| `TestExport` | `text/csv; charset=utf-8`, `attachment` con nombre `movimientos-AAAAMMDD.csv` y BOM; columnas en orden e importes en pesos (`1000.00`, `25.50`); mismos filtros que `list` sin paginar; sin compras solo el encabezado; una celda que empieza con `=` sale con `'` | ✅ |
+| `TestHelpers` | `pesos` (0, centavos sueltos, negativos) y `safe_cell` (`=`, `+`, `-`, `@`, vacío) | ✅ |
+| `TestPermissions` | `employee` y `platform` → 403 en las dos rutas; sin sesión → 401 | ✅ |
+
+### 5.7j Aislamiento de movimientos — `tests/api/test_isolation_movement.py` (3)
+
+| Prueba | Verifica | Resultado |
+|--------|----------|-----------|
+| `test_list_shows_zero_rows_of_the_other_business` | La lista y su `summary` de A no cuentan compras de B | ✅ |
+| `test_filtering_by_a_customer_of_the_other_business_finds_nothing` | `customer_id` o `q` de un cliente de B → lista vacía | ✅ |
+| `test_export_has_zero_rows_of_the_other_business` | El CSV de A no trae filas de B, ni filtrando por su cliente | ✅ |
 
 ### 5.8 Hallazgos conocidos — `tests/api/test_known_issues.py` (0)
 
