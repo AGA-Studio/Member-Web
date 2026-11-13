@@ -70,28 +70,35 @@ flowchart TB
     MOD --> M4["revoked_token_model.py — RevokedToken"]
     MOD --> M5["login_attempt_model.py — LoginAttempt"]
     MOD --> M6["tier_model.py — Tier, TierFinish"]
+    MOD --> M7["customer_model.py — Customer (cliente y su tarjeta)"]
     SRV --> SV1["auth_service.py — revocación de tokens · límite de login"]
     SRV --> SV2["tier_service.py — listar y editar niveles · reglas de rango"]
-    SCR --> SC1["seed.py — 2 negocios demo, sus usuarios y niveles"]
+    SRV --> SV3["customer_service.py — clientes · código · estado · paginación"]
+    SCR --> SC1["seed.py — 2 negocios demo, usuarios, niveles y clientes"]
     SCH --> S1["user_schema.py — UserCreate · UserUpdate · UserResponse · MeResponse"]
     SCH --> S4["business_schema.py — BusinessSummaryResponse"]
     SCH --> S2["token_schema.py — Token · TokenData"]
     SCH --> S3["validators.py — PersonName"]
     SCH --> S5["tier_schema.py — TierUpdate · TierResponse"]
+    SCH --> S6["customer_schema.py — CustomerCreate · CustomerUpdate · CustomerResponse"]
+    SCH --> S7["pagination_schema.py — PageResponse"]
     API --> A1["dependencies.py — CurrentUser · require_roles · BusinessId<br/>ensure_user_can_access"]
     API --> A2["auth_api.py — /auth"]
     API --> A3["user_api.py — /user"]
     API --> A4["tier_api.py — /tier"]
+    API --> A5["customer_api.py — /customer"]
 ```
 
 ## 3. Modelo de datos actual
 
-Existen las tablas de autenticación y los niveles; `python -m scripts.seed` las llena con dos negocios de demo (Café Aurora y Gimnasio Titán), sus usuarios y sus niveles. Clientes, tarjetas, compras y movimientos se agregan en los hitos H1 y H2 del MVP.
+Existen las tablas de autenticación, los niveles y los clientes con su tarjeta; `python -m scripts.seed` las llena con dos negocios de demo (Café Aurora y Gimnasio Titán), sus usuarios, sus niveles y sus clientes (12 y 2). Compras y movimientos se agregan con el módulo de caja.
 
 ```mermaid
 erDiagram
     businesses ||--o{ users : "tiene"
     businesses ||--o{ tiers : "define"
+    businesses ||--o{ customers : "tiene"
+    tiers ||--o{ customers : "nivel actual"
 
     businesses {
         int id PK
@@ -109,6 +116,20 @@ erDiagram
         string hashed_password "Argon2id"
         enum role "platform | admin | employee"
         bool is_active
+        datetime created_at
+    }
+
+    customers {
+        int id PK
+        int business_id FK "índice"
+        int tier_id FK "índice"
+        string code "MP-XXXXX; único por negocio"
+        string full_name
+        string email "minúscula; único por negocio"
+        string phone "nullable"
+        datetime issued_at
+        datetime valid_until "índice"
+        datetime cancelled_at "nullable; irreversible"
         datetime created_at
     }
 
@@ -186,6 +207,13 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | PATCH | `/api/v1/user/{user_id}/update` | admin | Edita nombre, email, contraseña o `is_active`. Un admin no puede desactivarse a sí mismo (400) |
 | GET | `/api/v1/tier/list` | admin, employee | Niveles de su negocio, sin paginar, del más barato al más caro (`price_cents`), con `customers_count` |
 | PATCH | `/api/v1/tier/{tier_id}/update` | admin | Edita `name`, `finish`, `price_cents`, `discount_percent`, `points_per_ten`, `cashback_percent` (todos opcionales). Fuera de rango → 422 `tier_invalid` |
+| GET | `/api/v1/customer/list` | admin | Clientes paginados por `full_name`. Filtros `q` (nombre, email o código), `level_id`, `status` (`active` \| `expiring` \| `expired` \| `cancelled`), `page`, `page_size` (8 por defecto, máx. 500). Una página que no existe devuelve la última |
+| GET | `/api/v1/customer/summary` | admin | Conteos `all`, `active` (incluye las por vencer), `expiring`, `expired`, `cancelled` |
+| GET | `/api/v1/customer/lookup` | admin, employee | Tarjeta por `code` (QR o tecleado; ignora espacios y mayúsculas). Responde también para vencidas y canceladas. 404 `customer_not_found` |
+| POST | `/api/v1/customer/create` | admin | Alta con `full_name`, `email`, `phone` y `level_id` opcionales. Genera `code`, `issued_at` y `valid_until` (+12 meses). 409 `email_taken` |
+| GET | `/api/v1/customer/{customer_id}` | admin | Ficha del cliente |
+| PATCH | `/api/v1/customer/{customer_id}/update` | admin | Edita `full_name`, `email`, `phone` (`null` lo borra) o `level_id` (cambio de nivel). 409 `email_taken` |
+| POST | `/api/v1/customer/{customer_id}/cancel` | admin | Cancela la tarjeta; irreversible y repetirlo no cambia nada |
 
 **Respuesta de `/auth/me`** (`MeResponse`): los campos de `UserResponse` más `business`, el resumen del negocio que el frontend muestra en el encabezado del panel y de la caja. No incluye datos de uso ni de clientes.
 
@@ -212,7 +240,8 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | `business_suspended` | 403 | `ensure_user_can_access`: negocio suspendido (login y cada petición) |
 | `not_authenticated` | 401 | `get_token_data` / `get_current_user`: sin sesión, token inválido, vencido o revocado |
 | `email_taken` | 409 | `/user/create` y `/user/{user_id}/update`: email en uso |
-| `tier_invalid` | 422 | `/tier/{tier_id}/update`: valor fuera de rango |
+| `tier_invalid` | 422 | `/tier/{tier_id}/update`: valor fuera de rango. `/customer/create` y `/customer/{customer_id}/update`: `level_id` inexistente, de otro negocio, o negocio sin niveles |
+| `customer_not_found` | 404 | `/customer/lookup`, `/customer/{customer_id}` y sus acciones: no existe o es de otro negocio |
 
 Los códigos de clientes y caja (`customer_not_found`, `amount_invalid`…) se agregan a `ErrorCode` con su módulo.
 
@@ -237,7 +266,16 @@ Reglas de `PATCH /tier/{tier_id}/update` (`services/tier_service.py`):
 - Dos niveles pueden costar lo mismo; el listado los desempata por `id`.
 - Un campo en `null` cuenta como no enviado.
 - El cambio aplica a compras nuevas; las anteriores guardan los valores que usaron.
-- `customers_count` vale 0 hasta que exista el módulo de clientes; entonces contará las tarjetas no canceladas de cada nivel en una sola consulta.
+- `customers_count` cuenta las tarjetas no canceladas de cada nivel, en una sola consulta (`GROUP BY`).
+**Clientes y tarjetas (`customers`).** El cliente y su tarjeta son una sola fila: una tarjeta por cliente, con nivel, vigencia y estado. Los clientes no inician sesión.
+
+- `code`: `MP-` más 5 caracteres al azar de un alfabeto sin `0/O` ni `1/I/L` (por ejemplo `MP-4F7K2`), único dentro del negocio. Es lo que lleva el QR y lo que se teclea en caja; la búsqueda ignora espacios y mayúsculas.
+- `email`: se guarda en minúscula y es único por negocio (otro negocio puede tener el mismo).
+- Vigencia: 12 meses desde `issued_at` (`VALIDITY_MONTHS`, fija mientras la DECISIÓN 9 no la vuelva configurable). El 31 pasa al último día de un mes más corto.
+- `status` no se guarda: `cancelled` si `cancelled_at` tiene fecha (irreversible, gana sobre todo), `expired` si `valid_until` ya pasó, si no `active`. `expiring_soon` marca las activas que vencen en 30 días o menos.
+- Cambio de nivel: el admin lo asigna con `level_id` en `PATCH /customer/{customer_id}/update` (el nivel se paga en caja). Sin `level_id` al crear, entra al nivel más barato.
+- `points_balance`, `cashback_balance_cents` y `last_purchase_at` valen 0, 0 y `null` hasta que exista el módulo de caja: se calcularán sumando movimientos.
+
 
 **Validación de nombres** (`PersonName`, `schemas/validators.py`): se quitan los espacios sobrantes; solo letras (con acentos y ñ), espacios, guion y apóstrofo; mínimo 2 letras y máximo 120 caracteres. Si no se cumple → 422.
 
@@ -248,7 +286,8 @@ flowchart LR
     ROOT["/api/v1"] --> AUTH["/auth"]
     ROOT --> USER["/user"]
     ROOT --> TIER["/tier"]
-    ROOT -.-> NEXT["Siguientes módulos:<br/>/customer · /membership<br/>/checkout · /movement · /platform"]
+    ROOT --> CUST["/customer"]
+    ROOT -.-> NEXT["Siguientes módulos:<br/>/checkout · /movement · /platform"]
 
     AUTH --> L["POST /login"]
     AUTH --> LO["POST /logout"]
@@ -261,6 +300,14 @@ flowchart LR
 
     TIER --> TL["GET /list"]
     TIER --> TU["PATCH /{tier_id}/update"]
+
+    CUST --> CL["GET /list"]
+    CUST --> CS["GET /summary"]
+    CUST --> CK["GET /lookup"]
+    CUST --> CC["POST /create"]
+    CUST --> CG["GET /{customer_id}"]
+    CUST --> CU["PATCH /{customer_id}/update"]
+    CUST --> CX["POST /{customer_id}/cancel"]
 ```
 
 ## 5. Inicio y cierre de sesión
