@@ -79,6 +79,13 @@ jobs:
             echo "::notice::Sin COOLIFY_WEBHOOK configurado: la imagen quedó publicada y el deploy es manual."
             exit 0
           fi
+          # Pegar la URL desde un shell deja escapes (`\?uuid\=...`). Con barra
+          # invertida el path no matchea la excepción del WAF, Cloudflare contesta
+          # su challenge (403 con HTML) y el error parece del webhook.
+          if [ "$COOLIFY_WEBHOOK" != "${COOLIFY_WEBHOOK//\\/}" ]; then
+            echo "::warning::COOLIFY_WEBHOOK trae barras invertidas; se limpian. Guarda el secreto con la URL tal cual."
+          fi
+          COOLIFY_WEBHOOK="${COOLIFY_WEBHOOK//\\/}"
           # El token es opcional: si la URL ya trae `?api_token=...` (el webhook
           # viejo) no hace falta cabecera, y si la app usa "auth required" sí.
           # Mandar un Bearer vacío hace que Coolify responda 401 y tumbe el run
