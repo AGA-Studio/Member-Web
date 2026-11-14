@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Annotated
 
 import jwt
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Header, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlmodel import select
 
@@ -28,6 +28,7 @@ from services.auth_service import (
     register_failed_login,
     revoke_token,
 )
+from services.turnstile_service import verify_turnstile
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -37,12 +38,23 @@ def login(
     response: Response,
     session: SessionDep,
     form: Annotated[OAuth2PasswordRequestForm, Depends()],
+    turnstile_token: Annotated[str | None, Header(alias="X-Turnstile-Token")] = None,
 ) -> Token:
     """Log in with email (`username` field) and password.
 
     Sets the JWT in an httpOnly cookie for the frontend and also returns it in the
-    body for Swagger and the cashier reader.
+    body for Swagger and the cashier reader. With `TURNSTILE_ENABLED`, the
+    `X-Turnstile-Token` header is required (400 `turnstile_failed`).
     """
+    # Turnstile goes first: a bot that fails it never reaches the H4 counter, so it
+    # cannot lock a real user's email.
+    if not verify_turnstile(turnstile_token):
+        raise ApiError(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="turnstile_failed",
+            code=ErrorCode.TURNSTILE_FAILED,
+        )
+
     email = form.username.lower()
 
     # H4: after `login_max_attempts` failures the email is locked, even for the right
