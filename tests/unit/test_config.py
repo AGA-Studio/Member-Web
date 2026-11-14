@@ -68,3 +68,17 @@ def test_login_limits_must_be_positive(field: str) -> None:
 def test_invalid_environment_is_rejected() -> None:
     with pytest.raises(ValidationError):
         make_settings(secret_key="k", environment="staging")
+
+
+def test_turnstile_is_off_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    for var in ("TURNSTILE_ENABLED", "TURNSTILE_SECRET"):
+        monkeypatch.delenv(var, raising=False)
+    s = make_settings(secret_key="k")
+    assert s.turnstile_enabled is False
+    assert s.turnstile_secret == ""
+    assert s.turnstile_siteverify_url.startswith("https://challenges.cloudflare.com/")
+
+
+def test_turnstile_hostname_comes_from_the_frontend_url() -> None:
+    s = make_settings(secret_key="k", frontend_public_url="https://memberplus.neyzt.org/")
+    assert s.turnstile_hostname == "memberplus.neyzt.org"

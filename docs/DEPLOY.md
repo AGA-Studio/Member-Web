@@ -140,9 +140,21 @@ Cómo se comporta:
 | `LOGIN_LOCKOUT_MINUTES` | `15` | Opcional. Cuánto dura el bloqueo; responde 429 con `Retry-After` |
 | `SEED_PASSWORD` | 16+ caracteres aleatorios | Solo para correr `python -m scripts.seed`; contraseña de los usuarios de demo. Obligatoria en producción |
 | `S3_ENDPOINT_URL`, `S3_PUBLIC_ENDPOINT_URL`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET` | — | Opcionales. Almacenamiento de imágenes; sin `S3_ENDPOINT_URL` la API funciona igual y `/logo/update` responde 503. Opciones (RustFS en Coolify o Cloudflare R2) en [STORAGE.md](STORAGE.md#8-producción) |
+| `TURNSTILE_ENABLED` | `true` | Opcional, `false` por defecto. Exige Cloudflare Turnstile en el login. **Se crea al final**, después de desplegar el backend y el frontend con el widget (ver abajo) |
+| `TURNSTILE_SECRET` | — | Secreto del widget «Member+ Login» de Cloudflare. Solo en las variables de Coolify, nunca en el repo ni en la wiki |
 | `PORT` | `8000` | Lo lee el entrypoint; Coolify puede inyectarlo |
 
 Nada de esto va en el repo. `.env.example` documenta las claves con valores falsos.
+
+### Activar Turnstile sin romper el login
+
+El hostname que se valida sale de `FRONTEND_PUBLIC_URL` (`memberplus.neyzt.org`), el único hostname del widget. Como mergear a `main` despliega, el orden de los PR importa:
+
+1. Backend con la bandera **apagada** (sin `TURNSTILE_ENABLED`) y la cabecera ya soportada.
+2. Frontend con el widget: manda `X-Turnstile-Token` y nadie lo exige todavía. Necesita `TURNSTILE_SITEKEY` en su app de Coolify.
+3. `TURNSTILE_ENABLED=true` en la app del API (con `TURNSTILE_SECRET` ya cargado) y redesplegar.
+
+Comprobación: un `curl -X POST https://api-memberplus.neyzt.org/api/v1/auth/login -d 'username=x@x.mx&password=x'` sin cabecera debe responder `400 {"detail": "turnstile_failed", "code": "turnstile_failed"}`. Para apagarlo de urgencia, borrar la variable (o ponerla en `false`) y redesplegar.
 
 ---
 

@@ -22,7 +22,7 @@ Documentación de la suite de pruebas automatizadas del backend: qué se prueba,
 | Métrica | Valor |
 |---------|-------|
 | Fecha de ejecución | 12 de noviembre de 2026 |
-| Pruebas | **710**, todas pasan (0 `xfail`); conteo del 13 nov 2026 con niveles, clientes, caja, movimientos, plataforma, entrega de la tarjeta digital, pagos de membresía y logo con almacenamiento S3 |
+| Pruebas | **734**, todas pasan (0 `xfail`); conteo del 13 nov 2026 con niveles, clientes, caja, movimientos, plataforma, entrega de la tarjeta digital, pagos de membresía, logo con almacenamiento S3 y Turnstile en el login |
 | Fallas | **0** |
 | Cobertura de líneas y ramas | **100 %** en `api/`, `core/`, `models/`, `schemas/`, `services/` y `scripts/seed.py`. `scripts/review_pr.py` (revisor del CI) queda en 60 %, por eso el total marca 92 % |
 | Bases de datos probadas | SQLite y **PostgreSQL 18.6** |
@@ -217,6 +217,7 @@ tests/
     ├── test_isolation_movement.py
     ├── test_platform.py
     ├── test_login_limit.py
+    ├── test_turnstile.py
     ├── test_error_codes.py
     └── test_known_issues.py
 ├── db/
@@ -352,7 +353,7 @@ Columna **Resultado**: ✅ pasa en SQLite y PostgreSQL · ⚠️ `xfail` esperad
 | `test_unsigned_token_alg_none_is_rejected` | Ataque `alg: none` → rechazado | ✅ |
 | `test_garbage_token_is_rejected` | Texto que no es JWT → rechazado | ✅ |
 
-### 5.2 Configuración — `tests/unit/test_config.py` (9)
+### 5.2 Configuración — `tests/unit/test_config.py` (11)
 
 | Prueba | Verifica | Resultado |
 |--------|----------|-----------|
@@ -364,6 +365,8 @@ Columna **Resultado**: ✅ pasa en SQLite y PostgreSQL · ⚠️ `xfail` esperad
 | `test_defaults` | HS256, 480 min, cookie `access_token`, `secure=false`, `development`, 5 intentos y 15 min de bloqueo | ✅ |
 | `test_invalid_environment_is_rejected` | `ENVIRONMENT=staging` → error | ✅ |
 | `test_login_limits_must_be_positive[...]` | `LOGIN_MAX_ATTEMPTS=0` o `LOGIN_LOCKOUT_MINUTES=0` → error (2 casos) | ✅ |
+| `test_turnstile_is_off_by_default` | `TURNSTILE_ENABLED=false`, secreto vacío y `siteverify` de Cloudflare por defecto | ✅ |
+| `test_turnstile_hostname_comes_from_the_frontend_url` | El hostname esperado sale de `FRONTEND_PUBLIC_URL` | ✅ |
 
 ### 5.3 Modelos — `tests/unit/test_models.py` (4)
 
@@ -573,6 +576,31 @@ Contrato del frontend, sección 1.2 (DECISIÓN 7). Cada error de negocio trae `c
 | `test_upload_by_b_only_changes_b` | Subir en B no cambia a A | ✅ |
 | `test_delete_by_b_does_not_touch_a` | Borrar en B no borra el archivo de A | ✅ |
 | `test_files_are_separated_by_business_prefix` | Cada negocio en su prefijo `businesses/{id}/` | ✅ |
+
+### 5.5f Turnstile en el login — `tests/api/test_turnstile.py` (22)
+
+Solo se reemplaza Cloudflare, igual que S3 con moto: el fixture `siteverify` pone un `httpx.MockTransport` en `services.turnstile_service._transport` que responde como `siteverify` con los **secretos de prueba que publica Cloudflare** (`1x0000000000000000000000000000000AA` siempre pasa, `2x0000000000000000000000000000000AA` siempre falla). Así el CI y la demo no dependen de internet, y del endpoint a la petición HTTP corre el código real. `turnstile_on` enciende la bandera con `monkeypatch`.
+
+| Prueba | Verifica | Resultado |
+|--------|----------|-----------|
+| `TestFlagOff::test_header_is_ignored` | Bandera apagada: una cabecera basura no importa y no se llama a Cloudflare | ✅ |
+| `TestFlagOff::test_login_without_header_works_as_before` | Bandera apagada: login sin cabecera → 200 | ✅ |
+| `TestFlagOn::test_passing_secret_logs_in` | Secreto `1x…` → 200 con cookie, una sola llamada a `siteverify` | ✅ |
+| `TestFlagOn::test_failing_secret_is_400` | Secreto `2x…` → 400 `{"detail": "turnstile_failed", "code": "turnstile_failed"}`, sin cookie | ✅ |
+| `TestFlagOn::test_missing_header_is_400_without_calling_cloudflare` | Sin cabecera → 400, sin llamar a Cloudflare | ✅ |
+| `TestFlagOn::test_empty_header_is_400` | Cabecera vacía → 400 | ✅ |
+| `TestFlagOn::test_wrong_password_with_valid_token_is_still_401` | Token válido y contraseña mala → 401 `invalid_credentials` | ✅ |
+| `TestFlagOn::test_siteverify_timeout_is_400` | `siteverify` no responde a tiempo → 400 (*fail-closed*) | ✅ |
+| `TestOrder::test_turnstile_failure_does_not_count_login_attempts` | 10 fallos de Turnstile con contraseña mala: `login_attempts` sigue vacío y después se entra | ✅ |
+| `TestOrder::test_turnstile_is_checked_before_the_lock` | Con el email bloqueado, un token que falla da 400 y no 429 | ✅ |
+| `TestSiteverifyRequest::test_sends_secret_and_token_without_remoteip` | `POST` a la URL configurada con solo `secret` y `response` | ✅ |
+| `TestSiteverifyRequest::test_uses_a_5_second_timeout` | El cliente HTTP usa 5 s de plazo | ✅ |
+| `TestSiteverifyRequest::test_flag_off_never_touches_the_network` | Bandera apagada: `verify_turnstile` pasa sin red | ✅ |
+| `TestSiteverifyRequest::test_oversized_token_is_rejected_locally` | Token de más de 2048 caracteres → falla sin llamar a Cloudflare | ✅ |
+| `TestSiteverifyAnswers::test_unexpected_answers_fail_closed[...]` | HTTP 500, no JSON, JSON que no es objeto, `success` como texto o ausente → falla (5 casos) | ✅ |
+| `TestSiteverifyAnswers::test_connection_error_fails_closed` | Sin conexión → falla | ✅ |
+| `TestSiteverifyAnswers::test_token_solved_on_another_hostname_fails` | `success: true` pero otro hostname → falla | ✅ |
+| `TestSiteverifyAnswers::test_logs_error_codes_but_never_the_secret` | El log trae `invalid-input-response` y nunca el secreto | ✅ |
 
 ### 5.6 Usuarios — `tests/api/test_user.py` (53)
 
