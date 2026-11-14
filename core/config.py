@@ -2,6 +2,7 @@
 
 from functools import lru_cache
 from typing import Annotated, Literal
+from urllib.parse import urlsplit
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -75,6 +76,12 @@ class Settings(BaseSettings):
     # Requests per minute and IP to the public card endpoints.
     card_rate_limit_per_minute: int = Field(default=30, ge=1)
 
+    # Cloudflare Turnstile on the login. Off in development and CI: the header is
+    # ignored. On (production), every login needs a valid `X-Turnstile-Token`.
+    turnstile_enabled: bool = False
+    turnstile_secret: str = ""
+    turnstile_siteverify_url: str = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+
     @field_validator("cors_origins", "google_wallet_origins", mode="before")
     @classmethod
     def _split_origins(cls, value: str | list[str]) -> list[str]:
@@ -93,6 +100,11 @@ class Settings(BaseSettings):
     @property
     def effective_s3_public_endpoint_url(self) -> str:
         return self.s3_public_endpoint_url or self.s3_endpoint_url
+
+    @property
+    def turnstile_hostname(self) -> str:
+        """Hostname the Turnstile widget must have been solved on: the frontend's."""
+        return urlsplit(self.frontend_public_url).hostname or ""
 
 
 @lru_cache

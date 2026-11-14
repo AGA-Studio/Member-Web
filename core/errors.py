@@ -36,6 +36,7 @@ class ErrorCode(StrEnum):
     EMAIL_FAILED = "email_failed"
     WALLET_UNAVAILABLE = "wallet_unavailable"
     RATE_LIMITED = "rate_limited"
+    TURNSTILE_FAILED = "turnstile_failed"
 
 
 class ApiError(HTTPException):
