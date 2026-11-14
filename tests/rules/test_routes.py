@@ -15,7 +15,7 @@ API_PREFIX = "/api/v1"
 # Documented actions plus the three auth verbs already in use. Adding an action
 # is a one-line change here, on purpose: the list is the convention.
 # `summary`, `lookup`, `cancel` (section 3), `preview` (section 5) and `export`
-# (section 6) come from the frontend API contract.
+# (section 6), `send` (section 13) and `renew` (section 9) come from the frontend API contract.
 ALLOWED_ACTIONS = {
     "cancel",
     "create",
@@ -27,9 +27,19 @@ ALLOWED_ACTIONS = {
     "lookup",
     "me",
     "preview",
+    "renew",
+    "send",
     "summary",
     "update",
 }
+
+# A resource seen from another one. `/platform/business/list` (contract, section 7):
+# the platform owner lists the businesses, so `business` sits between the resource
+# and the action.
+# `card-link` and `google-wallet` (section 13): the link to a customer's digital
+# card and its Google Wallet pass; their names come from the contract.
+# `payment` (section 9): the membership payments of a customer.
+SUB_RESOURCES = {"business", "card-link", "google-wallet", "payment"}
 
 # The only endpoint allowed outside the versioned prefix.
 UNVERSIONED = {"/health"}
@@ -61,7 +71,7 @@ def test_every_route_matches_the_resource_action_shape() -> None:
                 if parameter != parameter.lower() or "-" in parameter:
                     problems.append(f"{path}: path parameter '{parameter}' must be snake_case")
                 continue
-            if segment not in ALLOWED_ACTIONS:
+            if segment not in ALLOWED_ACTIONS | SUB_RESOURCES:
                 problems.append(
                     f"{path}: '{segment}' is not one of the allowed actions "
                     f"{sorted(ALLOWED_ACTIONS)}"

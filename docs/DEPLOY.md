@@ -2,11 +2,11 @@
 
 El API se despliega como **imagen Docker** construida en GitHub Actions y publicada en **GHCR**. Coolify no construye nada: solo hace `docker pull` y arranca el contenedor.
 
-**Estado actual (12 nov 2026).** Sirviendo en `https://api-memberplus.neyzt.org` — proyecto **Member+** de Coolify, imagen `ghcr.io/aga-studio/member-web:0.0.1`, base `memberplus` en el PostgreSQL del mismo proyecto. **El deploy es deliberado**: un merge a `main` publica imagen pero **no** despliega; para publicar se cambia el tag de la app y se redespliega.
+**Estado actual (13 nov 2026).** Sirviendo en `https://api-memberplus.neyzt.org` (API) y `https://memberplus.neyzt.org` (frontend) — proyecto **Member+** de Coolify, imágenes `ghcr.io/aga-studio/member-web:latest` y `ghcr.io/aga-studio/member-plus-frontend:latest`, base `memberplus` en el PostgreSQL del mismo proyecto. **Mergear a `main` despliega**: el workflow *Image* publica la imagen y llama al deploy webhook de Coolify. No hay releases obligatorios y la demo **es** producción: un solo entorno.
 
 | Host | Qué sirve |
 |---|---|
-| `memberplus.neyzt.org` | **Frontend** — reservado, todavía sin desplegar |
+| `memberplus.neyzt.org` | **Frontend** — desplegado (imagen `member-plus-frontend:latest`) |
 | `api-memberplus.neyzt.org` | **API** — en producción desde el 12 nov 2026 |
 
 **El navegador no llama al API directo.** Pide `/api/*` en el host del frontend y Next lo reescribe hacia el API: así la cookie httpOnly es de primera parte (sin CORS en producción y sin `SameSite=None`). El único cliente que pega al API de frente es el lector ESP32, con su token de dispositivo.
@@ -58,26 +58,32 @@ La imagen final no lleva `tests/`, ni `.git`, ni `.env`, ni el CLI de uv. Todo l
 
 ## 3. Qué publica cada evento
 
-| Evento | Tags en GHCR |
-|---|---|
-| push a `main` | `sha-<7>`, `latest` |
-| release `v0.0.1` | `sha-<7>`, `0.0.1`, `0.0` |
-| `workflow_dispatch` | `sha-<7>` |
+| Evento | Tags en GHCR | ¿Despliega? |
+|---|---|---|
+| push a `main` | `sha-<7>`, `main`, `latest` | **Sí**: el paso *Pedir deploy a Coolify* llama al webhook |
+| release `v0.0.1` | `sha-<7>`, `0.0.1`, `0.0` | No: marca el hito, no toca producción |
+| `workflow_dispatch` | `sha-<7>` (de la rama elegida) | Solo si se lanzó desde `main` |
 
 **El tag de la imagen no lleva la `v`.** `docker/metadata-action` con `pattern={{version}}` quita el prefijo: un release `v0.0.1` publica `0.0.1` y `0.0`, no `v0.0.1`. Verificado en GHCR.
 
-`sha-<7>` es el que se usa para rollback: es inmutable y apunta a un commit exacto. `latest` se mueve en cada push a `main`; **para producción se pinnea el tag de la versión (`0.0.1`), nunca `latest`**.
+`sha-<7>` es el que se usa para rollback: es inmutable y apunta a un commit exacto. `latest` (y su gemelo `main`) se mueven en cada push a la rama por defecto — **nunca** con un tag `v*` — y es el que sirve Coolify: es un tag móvil a propósito, ese es el mecanismo del despliegue automático.
 
-**Despliegue deliberado.** La app de Coolify apunta a un tag de versión fijo, así que mergear a `main` o publicar una imagen nueva **no** cambia producción. El flujo es:
+**Mergear a `main` despliega.** El equipo trabajaba en cambios chicos y constantes, y cortar un release por cada uno era trabajo de más; desde el 13 nov 2026 el merge es el botón de publicar:
 
 ```bash
-gh release create v0.0.2 --target main --generate-notes   # 1. publica la imagen
-# 2. en Coolify: cambiar el tag de la app a 0.0.2 y Redeploy
+git push origin main    # 1. el workflow Image construye y publica
+# 2. el mismo run llama al webhook de Coolify (paso "Pedir deploy a Coolify")
+# 3. Coolify hace pull del tag `latest` y reemplaza el contenedor
 ```
 
-Rollback: mismo procedimiento hacia atrás con el tag anterior. Los tags `v*` de prerelease (`v0.1.0-rc.1`) generan imagen para probar, pero no se despliegan salvo que alguien mueva el tag a mano — que es justo lo que se quiere.
+Cómo se comporta:
 
-El webhook automático (sección 4, paso 7) es **opcional** y solo tiene sentido con un tag móvil. Mientras el modelo sea deliberado, no hace falta.
+- **Si el paso del webhook falla**, la imagen queda publicada y el sitio con la versión anterior: relanzar el workflow a mano (`gh workflow run image.yml`) lo resuelve.
+- **Si el secreto no existe**, el paso imprime un aviso y el deploy queda manual. Es lo que pasa en un fork o en un repo recién clonado.
+- **Dos merges seguidos**: `concurrency` cancela el run anterior, así que solo el último publica y despliega. Es lo que se quiere: gana el estado final de `main`.
+- **Los releases `vX.Y.Z` siguen existiendo** para marcar el hito que se presenta en la entrega (producen `0.1.0` y `0.1`), pero ya no son la vía de despliegue: un tag no dispara el webhook.
+- **Cada merge aplica las migraciones** en la base de la demo (el entrypoint corre `alembic upgrade head`). Una migración rota tumba el sitio hasta redesplegar el `sha-<7>` anterior: ver la sección 7.
+- **No hay entorno de demo separado.** Se evaluó una segunda app en Coolify y se descartó: duplicaría base, seed y migraciones para probar lo mismo que ya se prueba en `main`.
 
 ---
 
@@ -86,7 +92,7 @@ El webhook automático (sección 4, paso 7) es **opcional** y solo tiene sentido
 1. **Paquete público en GHCR.** El paquete nace privado aunque el repo sea público. En GitHub → *Packages* → `member-web` → *Package settings* → *Change visibility* → **Public**. Si prefieres dejarlo privado, agrega en Coolify una credencial de registro con un token de solo lectura (`read:packages`).
 2. **Postgres.** Crear el servicio PostgreSQL 18 en Coolify (sin puerto público) y anotar su URL **interna**. No uses el compose de desarrollo como base de Coolify: ese es solo para tu máquina (sección 9).
    - **Crea una base propia**, en el terminal del recurso: `psql -U postgres -c "CREATE DATABASE memberplus;"`. La URL interna que entrega Coolify termina en `/postgres`; si se deja así, las tablas viven en la base por defecto y `memberplus` queda vacía (un `pg_dump` de ella saldría en blanco).
-3. **Aplicación.** Nuevo recurso → *Docker Image* → `ghcr.io/aga-studio/member-web:<versión>` (p. ej. `0.0.1`). Puerto expuesto **8000**.
+3. **Aplicación.** Nuevo recurso → *Docker Image* → `ghcr.io/aga-studio/member-web:latest`. Puerto expuesto **8000**. El tag es `latest` a propósito: es el que mueve cada push a `main` y el que hace funcionar el despliegue automático.
    - **Deja el healthcheck de Coolify apagado.** Para recursos de tipo *Docker Image*, Coolify lo implementa con `curl` o `wget` **dentro** del contenedor, y `python:3.14-slim` no trae ninguno de los dos: el contenedor quedaría `unhealthy` para siempre aunque la API responda, y el deploy se marcaría fallido. La imagen ya declara su propio `HEALTHCHECK` contra `/health` usando la stdlib, y Coolify muestra ese estado sin configurar nada. Si de todos modos quieres que Coolify lo evalúe, usa el tipo **`cmd`** con `python -c "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=3)"`, nunca `http`.
 4. **Variables** (ver sección 5). Como mínimo, `DATABASE_URL`, `SECRET_KEY`, `COOKIE_SECURE=true` y `CORS_ORIGINS`.
 5. **Dominio.** `api-memberplus.neyzt.org` sobre el wildcard `*.neyzt.org` que ya apunta al LXC. Traefik emite el router por app; no hay que abrir puertos.
@@ -100,7 +106,22 @@ El webhook automático (sección 4, paso 7) es **opcional** y solo tiene sentido
    ```
 
    Crea Café Aurora, Gimnasio Titán y sus usuarios (ver el README). Se puede repetir sin duplicar nada y nunca cambia la contraseña de un usuario que ya existe. Sin `SEED_PASSWORD` en producción, se niega a correr.
-7. **Webhook de deploy (opcional).** Solo sirve si la app apunta a un tag **móvil**. *Application → Webhooks* → copiar la URL de deploy y el token de API, y guardarlos en el repo como secretos `COOLIFY_WEBHOOK` y `COOLIFY_TOKEN`. Con un tag de versión fijo, el webhook redespliega la misma imagen: no aporta nada al modelo deliberado.
+7. **Webhook de deploy (obligatorio: es el despliegue automático).** Dos piezas, una vez:
+   - En Coolify → *Keys & Tokens* → *API Tokens* → crear un token con permiso **`deploy`** (solo ese). El valor se muestra una sola vez.
+   - En la app → *Webhooks* → copiar **Deploy Webhook (auth required)**: `https://coolify.neyzt.org/api/v1/deploy?uuid=<uuid-de-la-app>&force=false`.
+
+   Después, en **cada repo** (el webhook es por app; el token es el mismo):
+
+   ```bash
+   gh secret set COOLIFY_WEBHOOK --body '<url-del-deploy-webhook>'
+   gh secret set COOLIFY_TOKEN --body '<token-con-permiso-deploy>'
+   ```
+
+   Con eso, el paso *Pedir deploy a Coolify* de `image.yml` hace `POST` al webhook (con `GET`, Coolify responde `405 This endpoint has changed to a POST request.`) y contesta `200` con `{"deployments":[{"resource_uuid":"…","deployment_uuid":"…"}]}`.
+
+   **El `resource_uuid` de la respuesta es la app que se desplegó**: si no es la de este repo, el secreto `COOLIFY_WEBHOOK` está apuntando a la otra app (pasó el 13 nov: el backend desplegaba el frontend y el suyo no). El webhook es **por app**; el token es el mismo para las dos. Sin `COOLIFY_WEBHOOK` el paso solo avisa y el deploy sigue siendo manual.
+
+   **`COOLIFY_TOKEN` es opcional** y solo se necesita si copiaste la URL de *auth required*: si la URL ya trae `?api_token=...` (el formato viejo), el paso detecta el token vacío y no manda cabecera. Mandar un `Bearer` vacío provoca 401 y tumba el run **después** de publicar la imagen.
 
 ---
 
@@ -143,9 +164,10 @@ pg_dump "$DATABASE_URL" -Fc -f respaldo-previa-$(date +%F).dump
 
 ## 7. Rollback
 
-1. En Coolify, cambiar el tag de la app al `sha-<7>` anterior y redesplegar.
-2. Si el esquema ya avanzó, el contenedor **se niega a arrancar** (Alembic no encuentra esa revisión en la imagen vieja). Es intencional: falla ruidoso en vez de servir con columnas que ya no existen.
-3. Las dos salidas, en orden de preferencia:
+1. En Coolify → *Deployments*, o fijando el tag: poner el `sha-<7>` anterior y redesplegar. Esa imagen sigue en GHCR y es el commit exacto que funcionaba.
+2. Cuando el fix esté en `main`, volver el tag a `latest` y redesplegar; los pushes a `main` lo siguen moviendo solos. Dejarlo pinneado en el `sha-<7>` congela la app sin frenar a nadie: el webhook redespliega la misma imagen que ya tiene.
+3. Si el esquema ya avanzó, el contenedor **se niega a arrancar** (Alembic no encuentra esa revisión en la imagen vieja). Es intencional: falla ruidoso en vez de servir con columnas que ya no existen.
+4. Las dos salidas, en orden de preferencia:
    - **Volver a desplegar hacia adelante** con un tag nuevo que corrija el problema.
    - **Bajar el esquema a mano**: `alembic downgrade <revision>` desde un contenedor con la imagen nueva, y después arrancar la vieja.
 
@@ -180,15 +202,18 @@ El compose de desarrollo levanta solo Postgres. Para el ensayo sin internet, el 
 |---|---|---|
 | `db` | `postgres:18` | Base del stack (volumen `pgdata`) |
 | `api` | `ghcr.io/aga-studio/member-web:${API_IMAGE_TAG:-0.0.1}` | API, la misma imagen que producción |
-| `web` | `ghcr.io/aga-studio/member-plus-frontend:${WEB_IMAGE_TAG:-stack}` | Frontend compilado con `API_INTERNAL_URL=http://api:8000` |
+| `web` | `ghcr.io/aga-studio/member-plus-frontend:${WEB_IMAGE_TAG:-sha-local-stack}` | Frontend compilado con `API_INTERNAL_URL=http://api:8000` |
 
-**Por qué el frontend usa el tag `stack` y no la imagen normal.** El `rewrite` de `/api/*` se evalúa en `next build` y queda horneado en la imagen. La imagen de producción apunta a `https://api-memberplus.neyzt.org`, así que en localhost y sin internet el navegador intentaría llamar a producción. La imagen `:stack` se construye con el build-arg interno y **solo sirve para este compose**: no se despliega en Coolify. Se publica desde el workflow *Image* del repo del frontend con `workflow_dispatch` y la casilla `stack`.
+**Por qué el frontend usa una imagen `-stack` y no la normal.** El `rewrite` de `/api/*` se evalúa en `next build` y queda horneado en la imagen. La imagen de producción apunta a `https://api-memberplus.neyzt.org`, así que en localhost y sin internet el navegador intentaría llamar a producción. La imagen `-stack` se construye con el build-arg interno y **solo sirve para este compose**: no se despliega en Coolify. Se publica desde el workflow *Image* del repo del frontend con `workflow_dispatch` y la casilla `stack`; el run imprime el tag `sha-<7>-stack` — inmutable, ligado al commit, como el resto de las imágenes — y aquí se fija a mano con `WEB_IMAGE_TAG`, igual que el tag de versión en Coolify.
 
-Con `pull_policy: missing` un `up` normal no refresca un tag que ya está local: después de mover `stack` (o de cambiar `API_IMAGE_TAG`/`WEB_IMAGE_TAG`), correr `docker compose --profile stack pull`.
+Con `pull_policy: missing` un `up` normal no refresca una imagen que ya está local: después de publicar un tag nuevo, correr `docker compose --profile stack pull`.
 
 ### Antes del ensayo (con internet)
 
+Con el tag que imprimió el workflow en `WEB_IMAGE_TAG` (en `.env` o exportado en la sesión):
+
 ```bash
+export WEB_IMAGE_TAG=sha-abc1234-stack   # el tag que imprimió el run del workflow
 docker compose --profile stack pull
 docker compose --profile stack up -d --wait
 docker compose --profile stack exec api python -m scripts.seed

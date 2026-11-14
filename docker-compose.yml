@@ -1,5 +1,5 @@
-# Local database, image storage, plus a full stack for the demo backup.
-#   docker compose up -d                    → db + storage (desarrollo diario)
+# Local database, mail catcher, image storage, plus a full stack for the demo backup.
+#   docker compose up -d                    → db + mail + storage (desarrollo diario)
 #   docker compose --profile stack up -d    → db + api + web (respaldo de la demo)
 #
 # El perfil `stack` solo hace pull de imágenes publicadas en GHCR: no construye
@@ -47,6 +47,16 @@ services:
       timeout: 5s
       retries: 10
 
+  # SMTP de desarrollo: atrapa los correos (tarjeta digital) sin enviarlos.
+  # Bandeja en http://localhost:8025; la API envía a localhost:1025.
+  mail:
+    image: axllent/mailpit:v1.33
+    container_name: memberplus-mail
+    restart: unless-stopped
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
   api:
     profiles: ["stack"]
     image: ghcr.io/aga-studio/member-web:${API_IMAGE_TAG:-0.0.1}
@@ -62,6 +72,10 @@ services:
       COOKIE_SECURE: "false"
       CORS_ORIGINS: http://localhost:3000
       SEED_PASSWORD: ${SEED_PASSWORD:-}
+      FRONTEND_PUBLIC_URL: http://localhost:3000
+      SMTP_HOST: mail
+      SMTP_PORT: "1025"
+      SMTP_TLS: none
       # Inside the network the API reaches `storage:9000`; the browser, localhost:9000.
       S3_ENDPOINT_URL: http://storage:9000
       S3_PUBLIC_ENDPOINT_URL: http://localhost:9000
@@ -72,12 +86,16 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      mail:
+        condition: service_started
 
   web:
     profiles: ["stack"]
-    # The :stack tag is built in CI with API_INTERNAL_URL=http://api:8000; the
-    # production image hardcodes the public API host and must not be used here.
-    image: ghcr.io/aga-studio/member-plus-frontend:${WEB_IMAGE_TAG:-stack}
+    # The -stack image is built in CI with API_INTERNAL_URL=http://api:8000 and
+    # tagged sha-<7>-stack (immutable, tied to the commit). Set WEB_IMAGE_TAG to
+    # the tag printed by the Image workflow; the production image hardcodes the
+    # public API host and must not be used here.
+    image: ghcr.io/aga-studio/member-plus-frontend:${WEB_IMAGE_TAG:-sha-local-stack}
     pull_policy: missing
     container_name: memberplus-web
     restart: unless-stopped

@@ -29,6 +29,13 @@ class ErrorCode(StrEnum):
     AMOUNT_INVALID = "amount_invalid"
     CHECKOUT_NOT_FOUND = "checkout_not_found"
     IDEMPOTENCY_CONFLICT = "idempotency_conflict"
+    CUSTOMER_CANCELLED = "customer_cancelled"
+    CUSTOMER_EXPIRED = "customer_expired"
+    CARD_LINK_NOT_FOUND = "card_link_not_found"
+    CARD_EMAIL_RATE_LIMITED = "card_email_rate_limited"
+    EMAIL_FAILED = "email_failed"
+    WALLET_UNAVAILABLE = "wallet_unavailable"
+    RATE_LIMITED = "rate_limited"
 
 
 class ApiError(HTTPException):

@@ -4,7 +4,7 @@ Lo que un cambio no puede romper, en una página.
 
 Este archivo lo lee `scripts/review_pr.py`, que comenta los PRs automáticamente. **No es la fuente de verdad**: la wiki manda (`wiki.neyzt.org`, colección `9no`) y este archivo es su resumen para revisar. Si aquí dice una cosa y la wiki otra, gana la wiki y esto se corrige.
 
-> Última sincronización con la wiki: **12 de noviembre de 2026**.
+> Última sincronización con la wiki: **13 de noviembre de 2026**.
 > Fuentes: *Decisiones por validar*, *MVP*, *Requisitos de referencia*, más `AGENTS.md` y `docs/ARCHITECTURE.md` de este repositorio.
 
 ## 1. Decisiones cerradas
@@ -35,7 +35,8 @@ Un PR no las contradice. Si de verdad hay que cambiarlas, se cambia primero la c
 | Auth | JWT en cookie httpOnly y Argon2id | Sin NextAuth, sin Supabase |
 | Migraciones | Alembic; la app no crea tablas | Cada cambio de modelo lleva su migración en el mismo commit |
 | Ramas | `main` es la única rama de integración | Sin `develop`; PR siempre contra `main` |
-| Despliegue | GHCR + `docker pull` en Coolify | Migraciones en el entrypoint: si fallan, la API no arranca |
+| Despliegue | GHCR + `docker pull` en Coolify; **mergear a `main` despliega** (webhook al tag `latest`) | Migraciones en el entrypoint: si fallan, la API no arranca |
+| Entornos | Uno solo: la demo **es** producción | Sin app de demo aparte; rollback con `sha-<7>` |
 | Hostnames | App en `memberplus.neyzt.org`, API en `api-memberplus.neyzt.org` | Next reescribe `/api/*`: cookie de primera parte, sin CORS en producción. **Guion y no punto**: el SSL Universal de Cloudflare solo cubre un nivel de subdominio |
 | Dueño de los datos | El negocio; Member+ solo los procesa | Dos avisos de privacidad |
 | Respaldo | `pg_dump` diario + restic, restauración probada | — |

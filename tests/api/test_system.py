@@ -22,11 +22,18 @@ EXPECTED_PATHS = {
     "/api/v1/customer/{customer_id}",
     "/api/v1/customer/{customer_id}/update",
     "/api/v1/customer/{customer_id}/cancel",
+    "/api/v1/customer/{customer_id}/renew",
+    "/api/v1/customer/{customer_id}/payment/list",
+    "/api/v1/customer/{customer_id}/card-link",
+    "/api/v1/customer/{customer_id}/card-link/send",
     "/api/v1/checkout/preview",
     "/api/v1/checkout/create",
     "/api/v1/checkout/{checkout_id}",
     "/api/v1/movement/list",
     "/api/v1/movement/export",
+    "/api/v1/platform/business/list",
+    "/api/v1/card/{token}",
+    "/api/v1/card/{token}/google-wallet",
 }
 
 

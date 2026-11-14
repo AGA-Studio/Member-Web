@@ -7,8 +7,8 @@ Rules:
 - The card code is `MP-` plus 5 random characters from an alphabet without the
   look-alikes 0/O and 1/I/L (for example `MP-4F7K2`), unique within the business.
   Lookups ignore spaces and case.
-- The card is valid for `VALIDITY_MONTHS` from the day it is issued (fixed for
-  now; DECISIÓN 9 will make it configurable per business).
+- The card is valid for the business's `validity_months` (12 by default) from
+  the day it is issued (DECISIÓN 9). Creating it records the first payment.
 - Status is computed: `cancelled` if it was cancelled (irreversible), else
   `expired` once `valid_until` passed, else `active`. `expiring_soon` marks
   active cards that expire within `EXPIRING_DAYS`.
@@ -30,12 +30,16 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from core.errors import ApiError, ErrorCode
+from models.business_model import Business
+from models.card_delivery_model import CardDelivery
 from models.customer_model import Customer
+from models.membership_payment_model import PaymentKind
 from models.purchase_model import Purchase
 from models.tier_model import Tier
 from schemas.customer_schema import (
     BenefitsResponse,
     CustomerCreate,
+    CustomerRenew,
     CustomerResponse,
     CustomerStatus,
     CustomerStatusFilter,
@@ -44,6 +48,7 @@ from schemas.customer_schema import (
     TierSummaryResponse,
 )
 from schemas.pagination_schema import PageResponse
+from services import payment_service
 
 CODE_PREFIX = "MP-"
 CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"
@@ -360,11 +365,16 @@ def _commit(session: Session, customer: Customer) -> None:
     session.refresh(customer)
 
 
-def create_customer(session: Session, business_id: int, data: CustomerCreate) -> CustomerResponse:
+def create_customer(
+    session: Session, business_id: int, data: CustomerCreate, recorded_by: int
+) -> CustomerResponse:
+    """New customer and card, with its first payment in the same transaction."""
     email = data.email.lower()
     if _email_in_use(session, business_id, email, exclude_id=None):
         raise _email_taken
     tier = _resolve_tier(session, business_id, data.level_id)
+    amount = payment_service.resolve_amount(tier, data.amount_cents)
+    months = session.get(Business, business_id).validity_months
     issued_at = utc_now()
     customer = Customer(
         business_id=business_id,
@@ -374,7 +384,24 @@ def create_customer(session: Session, business_id: int, data: CustomerCreate) ->
         email=email,
         phone=data.phone,
         issued_at=issued_at,
-        valid_until=add_months(issued_at, VALIDITY_MONTHS),
+        valid_until=add_months(issued_at, months),
+    )
+    session.add(customer)
+    try:
+        session.flush()  # the payment needs the customer id
+    except IntegrityError:
+        session.rollback()
+        raise _email_taken from None
+    payment_service.record(
+        session,
+        customer=customer,
+        tier=tier,
+        kind=PaymentKind.NEW,
+        method=data.payment_method,
+        amount_cents=amount,
+        period_start=issued_at,
+        period_end=customer.valid_until,
+        recorded_by=recorded_by,
     )
     _commit(session, customer)
     return to_response(customer, tier)
@@ -404,9 +431,67 @@ def update_customer(
 
 
 def cancel_customer(session: Session, business_id: int, customer_id: int) -> CustomerResponse:
-    """Irreversible. Cancelling an already cancelled card changes nothing."""
+    """Irreversible, and it revokes the card link. Cancelling again changes nothing."""
     customer, tier = _get_row(session, business_id, customer_id)
     if customer.cancelled_at is None:
-        customer.cancelled_at = utc_now()
+        now = utc_now()
+        customer.cancelled_at = now
+        links = session.exec(
+            select(CardDelivery).where(
+                CardDelivery.business_id == business_id,
+                CardDelivery.customer_id == customer.id,
+                CardDelivery.revoked_at.is_(None),  # type: ignore[union-attr]
+            )
+        ).all()
+        for link in links:
+            link.revoked_at = now
+            session.add(link)
         _commit(session, customer)
+    return _response(session, business_id, customer, tier)
+
+
+_cancelled = ApiError(
+    status_code=status.HTTP_409_CONFLICT,
+    detail="Card is cancelled",
+    code=ErrorCode.CUSTOMER_CANCELLED,
+)
+
+
+def renew_customer(
+    session: Session, business_id: int, customer_id: int, data: CustomerRenew, recorded_by: int
+) -> CustomerResponse:
+    """Extend the card by the business's `validity_months` and record the payment.
+
+    A card still valid renews from its `valid_until` (no paid days are lost); an
+    expired one renews from now. A cancelled card cannot be renewed (409).
+    """
+    row = session.exec(
+        with_tier(business_id).where(Customer.id == customer_id).with_for_update(of=Customer)
+    ).first()
+    if row is None:
+        raise _not_found
+    customer, tier = row
+    if customer.cancelled_at is not None:
+        raise _cancelled
+    if data.level_id is not None:
+        tier = _resolve_tier(session, business_id, data.level_id)
+    amount = payment_service.resolve_amount(tier, data.amount_cents)
+
+    start = max(as_utc(customer.valid_until), utc_now())
+    months = session.get(Business, business_id).validity_months
+    customer.valid_until = add_months(start, months)
+    customer.tier_id = tier.id
+    session.add(customer)
+    payment_service.record(
+        session,
+        customer=customer,
+        tier=tier,
+        kind=PaymentKind.RENEWAL,
+        method=data.payment_method,
+        amount_cents=amount,
+        period_start=start,
+        period_end=customer.valid_until,
+        recorded_by=recorded_by,
+    )
+    _commit(session, customer)
     return _response(session, business_id, customer, tier)
