@@ -19,9 +19,9 @@ from core.errors import ApiError, ErrorCode
 from core.security import create_access_token, decode_access_token, verify_password
 from models.business_model import Business
 from models.user_model import User
-from schemas.business_schema import BusinessSummaryResponse
 from schemas.token_schema import Token
 from schemas.user_schema import MeResponse, UserResponse
+from services import logo_service
 from services.auth_service import (
     clear_failed_logins,
     login_retry_after,
@@ -107,5 +107,5 @@ def me(session: SessionDep, user: CurrentUser) -> MeResponse:
     business = session.get(Business, user.business_id) if user.business_id is not None else None
     return MeResponse(
         **UserResponse.model_validate(user).model_dump(),
-        business=BusinessSummaryResponse.model_validate(business) if business else None,
+        business=logo_service.business_summary(business) if business else None,
     )

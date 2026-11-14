@@ -63,7 +63,7 @@ Requisitos: [uv](https://docs.astral.sh/uv/) y Docker.
 ```bash
 cp .env.example .env          # cambia SECRET_KEY
 uv sync
-docker compose up -d          # PostgreSQL en localhost:5433
+docker compose up -d          # PostgreSQL (localhost:5433) y almacenamiento S3 (localhost:9000)
 uv run alembic upgrade head   # crea o actualiza las tablas
 uv run python -m scripts.seed # datos de demo (se puede correr varias veces)
 uv run uvicorn main:app --reload
@@ -128,6 +128,7 @@ tests/             pytest: api, db, unit, rules
 - [docs/MIGRATIONS.md](docs/MIGRATIONS.md) — Alembic, cómo aplicar y revertir.
 - [docs/CI.md](docs/CI.md) — los jobs, qué corre en cada PR y el revisor automático.
 - [docs/DEPLOY.md](docs/DEPLOY.md) — imagen en GHCR, Coolify, migraciones y rollback.
+- [docs/STORAGE.md](docs/STORAGE.md) — imágenes en un bucket S3 (RustFS en local), URLs firmadas y seguridad.
 - [docs/REVISION.md](docs/REVISION.md) — criterios de revisión del proyecto.
 
 ## Flujo de trabajo

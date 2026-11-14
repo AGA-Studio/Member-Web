@@ -76,6 +76,9 @@ flowchart TB
     MOD --> M9["card_delivery_model.py — CardDelivery (enlace a la tarjeta digital)"]
     MOD --> M10["card_email_model.py — CardEmail (envíos, para el límite)"]
     MOD --> M11["membership_payment_model.py — MembershipPayment, PaymentMethod, PaymentKind"]
+    SRV --> SVL1["logo_service.py — subir · reemplazar · quitar el logo"]
+    SRV --> SVL2["image_service.py — validar · WebP 512 px sin EXIF"]
+    SRV --> SVL3["storage_service.py — bucket S3 · URLs firmadas"]
     SRV --> SV1["auth_service.py — revocación de tokens · límite de login"]
     SRV --> SV2["tier_service.py — listar y editar niveles · reglas de rango"]
     SRV --> SV3["customer_service.py — clientes · código · estado · saldos · paginación"]
@@ -101,6 +104,7 @@ flowchart TB
     SCH --> S11["card_schema.py — CardLinkResponse · PublicCardResponse · CustomerCreatedResponse"]
     API --> A1["dependencies.py — CurrentUser · require_roles · BusinessId<br/>ensure_user_can_access"]
     API --> A2["auth_api.py — /auth"]
+    API --> AL["logo_api.py — /logo"]
     API --> A3["user_api.py — /user"]
     API --> A4["tier_api.py — /tier"]
     API --> A5["customer_api.py — /customer"]
@@ -276,6 +280,18 @@ stateDiagram-v2
 
 En la base los valores de los `ENUM` se guardan en minúscula (`'admin'`, `'suspended'`), igual que en la API. Ver [MIGRATIONS.md](MIGRATIONS.md#7-migraciones-existentes).
 
+### Logo del negocio
+
+`businesses.logo_url` guarda una **clave** del bucket (`businesses/{business_id}/logo/{uuid}.webp`) o una URL externa, nunca una URL firmada. La API la convierte al responder: las claves se vuelven URLs firmadas que caducan en 1 h, las URLs externas pasan tal cual y, sin almacenamiento configurado, las claves se reportan como `null`. La imagen subida se valida, se reduce a 512 px y se guarda como WebP sin metadatos. Por eso no hizo falta una tabla ni una migración nueva. Guía completa en [STORAGE.md](STORAGE.md).
+
+```mermaid
+flowchart LR
+    UP["POST /api/v1/logo/update<br/>(admin)"] --> IMG["image_service<br/>JPEG/PNG/WebP · ≤ 2 MB<br/>→ WebP 512 px sin EXIF"]
+    IMG --> ST["storage_service<br/>bucket S3 privado"]
+    ST --> DB[("businesses.logo_url<br/>= clave")]
+    DB --> ME["GET /api/v1/auth/me<br/>business.logo_url = URL firmada"]
+```
+
 ## 4. Endpoints
 
 Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/docs`.
@@ -286,6 +302,8 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | POST | `/api/v1/auth/login` | — | Login con email y contraseña; deja cookie y devuelve el token. Tras 5 intentos fallidos por email responde 429 durante 15 min |
 | POST | `/api/v1/auth/logout` | — | Revoca el token de esta sesión (cookie o Bearer) y borra la cookie. Las demás sesiones del usuario siguen abiertas |
 | GET | `/api/v1/auth/me` | cualquier usuario activo | Usuario de la sesión y su negocio (`business`: `id`, `name`, `logo_url`, `status`; `null` para `platform`) |
+| POST | `/api/v1/logo/update` | admin | Sube o reemplaza el logo del negocio del token (`multipart/form-data`, campo `file`). JPEG, PNG o WebP de hasta 2 MB; se guarda como WebP de 512 px sin metadatos y borra el anterior. Devuelve el negocio con `logo_url` firmada. 413 `image_too_large`, 422 `image_invalid`, 503 `storage_unavailable` |
+| POST | `/api/v1/logo/delete` | admin | Quita el logo y borra el archivo. Repetirlo no cambia nada |
 | GET | `/api/v1/user/list` | admin | Usuarios de su negocio |
 | POST | `/api/v1/user/create` | admin | Crea un admin o employee en su negocio |
 | GET | `/api/v1/user/{user_id}` | admin | Detalle de un usuario de su negocio |

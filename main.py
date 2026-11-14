@@ -22,6 +22,7 @@ from api.v1 import (
     card_api,
     checkout_api,
     customer_api,
+    logo_api,
     movement_api,
     platform_api,
     tier_api,
@@ -37,6 +38,7 @@ API_V1_PREFIX = "/api/v1"
 # Order = order shown in /docs.
 API_V1_ROUTERS = [
     auth_api.router,
+    logo_api.router,
     user_api.router,
     tier_api.router,
     customer_api.router,

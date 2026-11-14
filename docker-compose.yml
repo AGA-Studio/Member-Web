@@ -1,5 +1,5 @@
-# Local database plus a full stack for the demo backup.
-#   docker compose up -d                    → db + mail (desarrollo diario)
+# Local database, mail catcher, image storage, plus a full stack for the demo backup.
+#   docker compose up -d                    → db + mail + storage (desarrollo diario)
 #   docker compose --profile stack up -d    → db + api + web (respaldo de la demo)
 #
 # El perfil `stack` solo hace pull de imágenes publicadas en GHCR: no construye
@@ -21,6 +21,28 @@ services:
       - pgdata:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # S3-compatible object storage for images (RustFS: MinIO stopped publishing
+  # its Docker images). API on :9000, web console on
+  # http://localhost:9001/rustfs/console/ with the same keys. Guide in docs/STORAGE.md.
+  storage:
+    image: rustfs/rustfs:1.0.4
+    container_name: memberplus-storage
+    restart: unless-stopped
+    environment:
+      RUSTFS_ACCESS_KEY: ${S3_ACCESS_KEY:-memberplus}
+      RUSTFS_SECRET_KEY: ${S3_SECRET_KEY:-memberplus-dev-secret}
+      RUSTFS_CONSOLE_ENABLE: "true"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - storagedata:/data
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:9000/health"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -54,6 +76,11 @@ services:
       SMTP_HOST: mail
       SMTP_PORT: "1025"
       SMTP_TLS: none
+      # Inside the network the API reaches `storage:9000`; the browser, localhost:9000.
+      S3_ENDPOINT_URL: http://storage:9000
+      S3_PUBLIC_ENDPOINT_URL: http://localhost:9000
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-memberplus}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-memberplus-dev-secret}
     ports:
       - "8000:8000"
     depends_on:
@@ -82,3 +109,4 @@ services:
 
 volumes:
   pgdata:
+  storagedata:

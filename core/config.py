@@ -32,6 +32,19 @@ class Settings(BaseSettings):
     # password, allowed only in development.
     seed_password: str = ""
 
+    # Object storage for images, through the S3 API (RustFS locally, any S3
+    # provider in production). Empty endpoint = storage disabled: the API still
+    # runs, logo uploads answer 503 and stored logos are reported as null.
+    s3_endpoint_url: str = ""
+    # Host the browser reaches for signed URLs. Inside Docker the API talks to
+    # `http://storage:9000` but the browser needs `http://localhost:9000`.
+    s3_public_endpoint_url: str = ""
+    s3_access_key: str = ""
+    s3_secret_key: str = ""
+    s3_bucket: str = "memberplus"
+    s3_region: str = "us-east-1"
+    s3_url_expire_seconds: int = Field(default=3600, ge=60, le=604800)
+
     # Session cookie
     cookie_name: str = "access_token"
     cookie_secure: bool = False
@@ -72,6 +85,14 @@ class Settings(BaseSettings):
     @property
     def effective_database_url(self) -> str:
         return self.database_url or SQLITE_FALLBACK_URL
+
+    @property
+    def storage_enabled(self) -> bool:
+        return bool(self.s3_endpoint_url and self.s3_access_key and self.s3_secret_key)
+
+    @property
+    def effective_s3_public_endpoint_url(self) -> str:
+        return self.s3_public_endpoint_url or self.s3_endpoint_url
 
 
 @lru_cache
