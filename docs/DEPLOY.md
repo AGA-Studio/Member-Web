@@ -196,7 +196,7 @@ curl -s http://127.0.0.1:8001/health   # {"status":"ok"}
 
 ## 9. Respaldo local de la demo (perfil `stack`)
 
-El compose de desarrollo levanta solo Postgres. Para el ensayo sin internet, el mismo `docker-compose.yml` trae un perfil `stack` que suma `api` y `web` **sin construir nada**: las dos imágenes se publican en GHCR y en local solo se hace `pull`.
+El compose de desarrollo levanta Postgres, Mailpit (correo) y RustFS (almacenamiento de imágenes, ver [STORAGE.md](STORAGE.md)). Para el ensayo sin internet, el mismo `docker-compose.yml` trae un perfil `stack` que suma `api` y `web` **sin construir nada**: las dos imágenes se publican en GHCR y en local solo se hace `pull`.
 
 | Servicio | Imagen | Qué es |
 |---|---|---|
