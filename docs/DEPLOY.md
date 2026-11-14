@@ -25,6 +25,7 @@ El API se despliega como **imagen Docker** construida en GitHub Actions y public
 8. [Probar la imagen en local](#8-probar-la-imagen-en-local)
 9. [Respaldo local de la demo (perfil stack)](#9-respaldo-local-de-la-demo-perfil-stack)
 10. [Problemas comunes](#10-problemas-comunes)
+11. [Respaldos de producción en Backblaze B2](#11-respaldos-de-producción-en-backblaze-b2)
 
 ---
 
@@ -278,3 +279,49 @@ Tiene dos niveles (`api.algo.neyzt.org`). El certificado Universal de Cloudflare
 
 **`/docs` y `/openapi.json` son públicos.**
 FastAPI los expone salvo que se desactiven. Decisión pendiente: cerrarlos cuando `ENVIRONMENT=production` o dejarlos abiertos a propósito. Hoy están abiertos, y así se documentó.
+
+---
+
+## 11. Respaldos de producción en Backblaze B2
+
+Plan de recuperación (DRP) de la base de producción. La decisión está cerrada en la wiki (*Decisiones por validar*: «`pg_dump` diario + restic, con restauración probada») y el diseño completo está en *Servicios de terceros: Turnstile en el login y respaldos en B2*. **No hay código del API involucrado:** todo vive en el host, fuera del repo.
+
+> Estado: ⬜ **pendiente de la primera corrida.** Falta crear el bucket y la clave en B2, correr el script una vez y probar la restauración. Esta sección se marca como hecha cuando la prueba de restauración pase.
+
+```mermaid
+flowchart LR
+    CRON["cron del host<br/>10 3 * * *"] --> SH["~/backups/scripts/backup-memberplus.sh<br/>(reusa lib.sh: log, avisos, retención)"]
+    SH -->|"lxc exec → pg_dump -Fc memberplus"| PG[("Postgres en coolify-vm")]
+    SH --> STG["staging en /mnt/storage<br/>(1 día de dumps)"]
+    STG -->|"restic backup"| B2[("b2:memberplus-restic:pg<br/>bucket y clave propios")]
+```
+
+| Pieza | Valor |
+|-------|-------|
+| Dump | `pg_dump -Fc` de la base `memberplus`, por `lxc exec` al contenedor de Postgres de `coolify-vm` |
+| Script | `~/backups/scripts/backup-memberplus.sh` en el host (no está en este repo) |
+| Repositorio restic | `b2:memberplus-restic:pg`, con bucket y clave de aplicación propios, separados de la cuenta personal |
+| Cuándo | cron `10 3 * * *`, después del pipeline personal de las 02:30 |
+| Retención | `--keep-daily 7 --keep-weekly 5 --keep-monthly 6`, y un día de dumps en staging |
+
+**Por qué en el host y no dentro de Coolify.** El respaldo no debe vivir dentro de lo que respalda: `coolify-vm` es descartable (sin snapshots, su único rollback es `lxc copy`), su disco es pequeño y no tiene `/mnt/storage`, donde viven la caché y el staging de restic. Si el PaaS se reconstruye, la contraseña del repositorio y el binario tienen que sobrevivir fuera. Los backups nativos de Coolify no cuentan como respaldo de verdad (solo cubren la base, no cifran en el cliente y su restauración no queda probada); siguen sirviendo como conveniencia, por ejemplo el `pg_dump` manual antes de una migración destructiva de la [sección 6](#6-migraciones-y-datos). Se usa cron y no un timer de systemd porque es lo que se vio en clase y basta para el prototipo.
+
+### Pasos pendientes (DevOps)
+
+1. **B2:** crear el bucket privado `memberplus-restic` y una *application key* limitada a ese bucket. La clave y la contraseña de restic se guardan solo en el host (y en el gestor de contraseñas del equipo), nunca en el repo ni en la wiki.
+2. **Inicializar el repositorio** restic `b2:memberplus-restic:pg` y correr el script una vez a mano.
+3. **Agregar la línea de cron** `10 3 * * *` en el host.
+4. **Probar la restauración** en una base desechable (nunca en `memberplus`):
+   - restaurar el último snapshot con `restic restore latest` a un directorio temporal;
+   - crear una base vacía y cargar el dump con `pg_restore --no-owner`;
+   - comprobar que `alembic_version` coincide con producción y que los conteos de `businesses`, `users` y `customers` cuadran;
+   - borrar la base desechable.
+5. Guardar como evidencia para la Etapa 4 la salida de `restic snapshots` y el resultado de la restauración, y marcar el estado de esta sección como ✅.
+
+### Cómo se verifica
+
+| Qué | Cómo |
+|-----|------|
+| Los respaldos corren | `restic snapshots` muestra uno por día |
+| La retención se aplica | `restic forget --dry-run` con la política de arriba no deja más de 7 diarios, 5 semanales y 6 mensuales |
+| Se pueden usar | La restauración del paso 4 termina sin errores y los conteos cuadran |
