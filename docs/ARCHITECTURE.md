@@ -90,6 +90,7 @@ flowchart TB
     SRV --> SV9["email_service.py — SMTP con plazo máximo · bandeja en memoria"]
     SRV --> SV10["wallet_service.py — JWT de Google Wallet"]
     SRV --> SV11["payment_service.py — pagos de membresía"]
+    SRV --> SV12["turnstile_service.py — Cloudflare Turnstile en el login"]
     SCR --> SC1["seed.py — 2 negocios demo, usuarios, niveles, clientes, compras y un enlace"]
     SCH --> S1["user_schema.py — UserCreate · UserUpdate · UserResponse · MeResponse"]
     SCH --> S4["business_schema.py — BusinessSummaryResponse"]
@@ -299,7 +300,7 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | Método | Ruta | Rol requerido | Qué hace |
 |--------|------|---------------|----------|
 | GET | `/health` | — | Estado de la API |
-| POST | `/api/v1/auth/login` | — | Login con email y contraseña; deja cookie y devuelve el token. Tras 5 intentos fallidos por email responde 429 durante 15 min |
+| POST | `/api/v1/auth/login` | — | Login con email y contraseña; deja cookie y devuelve el token. Tras 5 intentos fallidos por email responde 429 durante 15 min. Con `TURNSTILE_ENABLED` exige la cabecera `X-Turnstile-Token` (400 `turnstile_failed`) |
 | POST | `/api/v1/auth/logout` | — | Revoca el token de esta sesión (cookie o Bearer) y borra la cookie. Las demás sesiones del usuario siguen abiertas |
 | GET | `/api/v1/auth/me` | cualquier usuario activo | Usuario de la sesión y su negocio (`business`: `id`, `name`, `logo_url`, `status`; `null` para `platform`) |
 | POST | `/api/v1/logo/update` | admin | Sube o reemplaza el logo del negocio del token (`multipart/form-data`, campo `file`). JPEG, PNG o WebP de hasta 2 MB; se guarda como WebP de 512 px sin metadatos y borra el anterior. Devuelve el negocio con `logo_url` firmada. 413 `image_too_large`, 422 `image_invalid`, 503 `storage_unavailable` |
@@ -367,6 +368,7 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | `card_link_not_found` | 404 | `/card/{token}` y `/google-wallet`: token desconocido, revocado, tarjeta vencida o cancelada, o negocio suspendido. Siempre el mismo cuerpo |
 | `wallet_unavailable` | 503 | `/card/{token}/google-wallet`: Google Wallet sin configurar en este entorno |
 | `rate_limited` | 429 | `/card/...`: más de `CARD_RATE_LIMIT_PER_MINUTE` peticiones por minuto desde la misma IP (con `Retry-After`) |
+| `turnstile_failed` | 400 | `POST /api/v1/auth/login` con `TURNSTILE_ENABLED`: falta `X-Turnstile-Token`, Cloudflare lo rechaza, es de otro hostname o `siteverify` no respondió en 5 s. `detail` también es `turnstile_failed`, como fija el contrato de la wiki |
 
 Cada módulo nuevo agrega sus códigos a `ErrorCode` (`core/errors.py`).
 
@@ -525,12 +527,22 @@ sequenceDiagram
     actor U as Usuario
     participant FE as Frontend
     participant API as auth_api.login
+    participant TS as services/turnstile_service
+    participant CF as Cloudflare siteverify
     participant SVC as services/auth_service
     participant SEC as core/security
     participant DB as PostgreSQL
 
-    U->>FE: email + contraseña
-    FE->>API: POST /api/v1/auth/login (form: username, password)
+    U->>FE: email + contraseña (+ widget Turnstile)
+    FE->>API: POST /api/v1/auth/login (form: username, password; header X-Turnstile-Token)
+    API->>TS: verify_turnstile(token)
+    opt TURNSTILE_ENABLED
+        TS->>CF: POST secret + response (sin remoteip, timeout 5 s)
+        CF-->>TS: success, hostname, error-codes
+    end
+    alt token ausente, inválido o Cloudflare sin responder
+        API-->>FE: 400 turnstile_failed (no toca login_attempts)
+    end
     API->>SVC: login_retry_after(email)
     SVC->>DB: SELECT login_attempts
     alt email bloqueado (5 fallos)
@@ -556,6 +568,20 @@ sequenceDiagram
     end
 ```
 
+### Turnstile en el login
+
+Cloudflare Turnstile frena bots en el login (wiki: *Servicios de terceros: Turnstile en el login y respaldos en B2*). Lo hace `services/turnstile_service.py` y lo llama `auth_api.login` **antes** del bloqueo H4.
+
+| `TURNSTILE_ENABLED` | Comportamiento |
+|---|---|
+| `false` (desarrollo, CI, demo sin internet) | La cabecera se ignora y no se llama a Cloudflare: el login funciona igual que antes |
+| `true` (producción) | Un `POST` a `siteverify` con `TURNSTILE_SECRET` y el token, con 5 s de plazo. Pasa solo si Cloudflare responde `success: true` **y** el `hostname` es el de `FRONTEND_PUBLIC_URL`. Todo lo demás (sin token, token inválido, timeout, error de red, respuesta rara) es 400 `turnstile_failed`: *fail-closed* |
+
+- **Orden: Turnstile → bloqueo H4 → credenciales.** Un bot que no pasa Turnstile nunca suma a `login_attempts`, así que no puede bloquear el email de un usuario real.
+- **Sin `remoteip`.** El entrypoint confía en cualquier `X-Forwarded-For` (`--forwarded-allow-ips '*'`), así que la IP del cliente no es confiable detrás de Cloudflare y Coolify; `siteverify` funciona sin ella.
+- Se registran los `error-codes` de Cloudflare en el log, nunca el secreto.
+- Es una cabecera y no un campo del formulario porque el endpoint es `def` síncrono con `OAuth2PasswordRequestForm`: leer otro campo pediría `await request.form()`, que prohíbe `tests/rules/test_sync.py`.
+
 ### Límite de intentos (H4)
 
 ```mermaid
@@ -573,7 +599,7 @@ stateDiagram-v2
 - Es por email, en minúscula, y cuenta igual para emails que no existen, así que no revela cuáles existen.
 - Durante el bloqueo, ni la contraseña correcta entra; si no, el bloqueo no frenaría un ataque.
 - Configurable con `LOGIN_MAX_ATTEMPTS` (5) y `LOGIN_LOCKOUT_MINUTES` (15).
-- Contra: alguien que conozca un email puede bloquearlo 15 minutos a propósito. Se acepta para el MVP; la alternativa (contar por IP) no es confiable detrás del proxy de Cloudflare y Coolify.
+- Contra: alguien que conozca un email puede bloquearlo 15 minutos a propósito. En producción lo mitiga Turnstile, que va antes del contador. Se acepta para el MVP; la alternativa (contar por IP) no es confiable detrás del proxy de Cloudflare y Coolify.
 
 ### Logout (H2)
 
