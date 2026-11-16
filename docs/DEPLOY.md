@@ -221,6 +221,8 @@ El perfil tiene dos usos: el ensayo del respaldo y el desarrollo del frontend po
 
 **Por qué el frontend usa una imagen `-stack` y no la normal.** El `rewrite` de `/api/*` se evalúa en `next build` y queda horneado en la imagen. La imagen de producción apunta a `https://api-memberplus.neyzt.org`, así que en localhost y sin internet el navegador intentaría llamar a producción. La imagen `-stack` se construye con el build-arg interno y **solo sirve para este compose**: no se despliega en Coolify. Se publica desde el workflow *Image* del repo del frontend con `workflow_dispatch` y la casilla `stack`; el run imprime el tag `sha-<7>-stack` — inmutable, ligado al commit, como el resto de las imágenes — y aquí se fija a mano con `WEB_IMAGE_TAG`, igual que el tag de versión en Coolify.
 
+**Desde dónde se lanza importa.** El workflow *Image* siempre corre el job `build`, que publica `latest` y —si la rama es `main`— pide el deploy a Coolify. Para publicar solo el respaldo sin tocar producción, lanza *Run workflow* desde una rama temporal que apunte al mismo commit que `main`: el tag `sha-<7>-stack` sale idéntico y el paso de Coolify no corre. Si no hay ninguna imagen `-stack` publicada, el `pull` de `web` falla con `manifest unknown`.
+
 Con `pull_policy: missing` un `up` normal no refresca una imagen que ya está local: después de publicar un tag nuevo, correr `docker compose --profile stack pull`.
 
 ### Para quien solo toca el frontend
