@@ -33,7 +33,7 @@ Un PR no las contradice. Si de verdad hay que cambiarlas, se cambia primero la c
 | Tarjeta | Una sola entidad con nivel, estado y vigencia | Una tarjeta por cliente; sin tabla "membresía" aparte |
 | Numeración | Id único global; se imprime un código corto aleatorio `MP-XXXXX`, único por negocio | 5 caracteres sin `0/O/1/I/L`; no es correlativo (corregida el 13 nov 2026) |
 | Caja | QR impreso con código corto y tecleable | El QR lleva solo el código, no un UUID; si el lector falla se teclea |
-| Identidad | **Sin reconocimiento facial en ningún punto** | No se guardan fotos ni datos biométricos; se retiró RF-11 |
+| Identidad | **Sin reconocimiento facial en ningún punto** | Sin datos biométricos; se retiró RF-11. La foto del cliente se guarda **solo para mostrarse** (corregida el 16 nov 2026), se borra al cancelar la membresía y nunca se compara ni se analiza |
 | Auth | JWT en cookie httpOnly y Argon2id | Sin NextAuth, sin Supabase |
 | Migraciones | Alembic; la app no crea tablas | Cada cambio de modelo lleva su migración en el mismo commit |
 | Ramas | `main` es la única rama de integración | Sin `develop`; PR siempre contra `main` |

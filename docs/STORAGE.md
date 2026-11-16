@@ -23,9 +23,18 @@ Las imágenes (hoy, el logo de cada negocio) se guardan en un **bucket compatibl
 
 | Imagen | Estado |
 |--------|--------|
-| Logo del negocio | ✅ Implementado: `POST /api/v1/logo/update` y `POST /api/v1/logo/delete` |
-| Foto de perfil de admins y empleados | Pendiente: necesita una columna nueva en `users` (y su migración) |
-| Foto del cliente del negocio | ❌ **No se guarda.** La wiki (*Decisiones por validar*) cerró "no se guardan fotos ni datos biométricos" |
+| Logo del negocio | ✅ `POST /api/v1/logo/update` y `/logo/delete`. También sale en `/auth/me` y en la lista de plataforma |
+| Foto de perfil (admins, empleados y dueño de plataforma) | ✅ `POST /api/v1/user/photo/update` y `/user/photo/delete`: cada usuario cambia **solo la suya**. Sale en `/auth/me` y en `/user/list` |
+| Foto del cliente del negocio | ✅ `POST /api/v1/customer/{customer_id}/photo/update` y `.../photo/delete` (admin). **Solo para mostrarse** en el panel, las membresías y la caja. Sale en toda respuesta de cliente |
+
+**Reglas de la foto del cliente** (decisión del 16 nov 2026, en la wiki):
+
+- **Solo para mostrarse.** Ningún uso biométrico ni reconocimiento facial: RF-11 sigue fuera y la decisión "sin reconocimiento facial" no cambia.
+- **Se borra al cancelar la membresía:** `/customer/{customer_id}/cancel` borra el archivo y deja `photo_url` en `null`. A una tarjeta cancelada no se le puede subir foto (409 `customer_cancelled`).
+- **El negocio pide el consentimiento** del cliente al tomarle la foto.
+- **Aislamiento:** el `customer_id` va en la ruta, así que un cliente de otro negocio responde 404, igual que uno que no existe.
+
+Las claves de cada imagen están en [ARCHITECTURE.md, sección "Imágenes"](ARCHITECTURE.md#imágenes-logo-foto-del-cliente-y-foto-de-perfil). Las tres usan `services/upload_service.py` (reemplazar o quitar, y borrar el archivo anterior después del `commit`) y `api/v1/uploads.py` (límite de 2 MB y códigos de error).
 
 ---
 
