@@ -2,7 +2,7 @@
 
 All amounts are integer MXN cents. The frontend repeats this exact formula to
 show the summary while the cashier types, so any change here must be mirrored
-in `src/lib/api/pricing.ts` of the frontend.
+in `src/lib/pricing.ts` of the frontend (there is no `src/lib/api/pricing.ts`).
 
     discount_cents      = round_half_up(amount_cents * discount_percent / 100)
     base_cents          = amount_cents - discount_cents
