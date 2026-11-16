@@ -139,7 +139,7 @@ Cómo se comporta:
 | `LOGIN_MAX_ATTEMPTS` | `5` | Opcional. Intentos fallidos por email antes de bloquearlo (H4) |
 | `LOGIN_LOCKOUT_MINUTES` | `15` | Opcional. Cuánto dura el bloqueo; responde 429 con `Retry-After` |
 | `SEED_PASSWORD` | 16+ caracteres aleatorios | Solo para correr `python -m scripts.seed`; contraseña de los usuarios de demo. Obligatoria en producción |
-| `S3_ENDPOINT_URL`, `S3_PUBLIC_ENDPOINT_URL`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET` | — | Opcionales. Almacenamiento de imágenes; sin `S3_ENDPOINT_URL` la API funciona igual y `/logo/update` responde 503. Opciones (RustFS en Coolify o Cloudflare R2) en [STORAGE.md](STORAGE.md#8-producción) |
+| `S3_ENDPOINT_URL`, `S3_PUBLIC_ENDPOINT_URL`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET`, `S3_REGION` | — | Almacenamiento de imágenes. Sin `S3_ENDPOINT_URL` la API funciona igual y `/logo/update` responde 503. **En producción están puestas** desde el 14 nov 2026 con Cloudflare R2 (`S3_REGION=auto` y `S3_PUBLIC_ENDPOINT_URL` vacía); qué son exactamente y cómo se probaron, en [STORAGE.md, sección 8](STORAGE.md#8-producción) |
 | `TURNSTILE_ENABLED` | `true` | Opcional, `false` por defecto. Exige Cloudflare Turnstile en el login. **Se crea al final**, después de desplegar el backend y el frontend con el widget (ver abajo) |
 | `TURNSTILE_SECRET` | — | Secreto del widget «Member+ Login» de Cloudflare. Solo en las variables de Coolify, nunca en el repo ni en la wiki |
 | `PORT` | `8000` | Lo lee el entrypoint; Coolify puede inyectarlo |
@@ -329,6 +329,7 @@ flowchart LR
    - comprobar que `alembic_version` coincide con producción y que los conteos de `businesses`, `users` y `customers` cuadran;
    - borrar la base desechable.
 5. Guardar como evidencia para la Etapa 4 la salida de `restic snapshots` y el resultado de la restauración, y marcar el estado de esta sección como ✅.
+6. **Imágenes en R2 (pendiente, 14 nov 2026).** Este respaldo cubre la base, **no** el bucket de imágenes. Los objetos de `memberplus` en Cloudflare R2 no están en `pg_dump` ni en restic: falta un `rclone sync` R2 → B2 con su propia línea de cron, y una prueba de restauración del bucket tan real como la de la base. Mientras no exista, un borrado accidental en R2 se lleva todos los logos ([STORAGE.md, sección 8](STORAGE.md#8-producción)).
 
 ### Cómo se verifica
 

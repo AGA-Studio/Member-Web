@@ -41,7 +41,7 @@ flowchart LR
         S["services/storage_service.py<br/>S3: put · delete · URL firmada"]
     end
     DB[("PostgreSQL<br/>businesses.logo_url = clave")]
-    BK[("Bucket S3 privado<br/>RustFS en local")]
+    BK[("Bucket S3 privado<br/>RustFS en local · R2 en producción")]
 
     FE -- "multipart: file" --> R
     R --> L
@@ -161,21 +161,49 @@ El logo llega al frontend en `GET /api/v1/auth/me` → `business.logo_url`. Como
 | `S3_ACCESS_KEY` | `memberplus` | Usuario del bucket |
 | `S3_SECRET_KEY` | `memberplus-dev-secret` | Clave del bucket. En producción, una propia y larga |
 | `S3_BUCKET` | `memberplus` | Nombre del bucket |
-| `S3_REGION` | `us-east-1` | Región (RustFS y R2 la ignoran, pero S3 la exige) |
+| `S3_REGION` | `us-east-1` | Región que va en la firma SigV4. En local, RustFS acepta cualquiera; con R2 se pone **`auto`**, que es el valor que pide Cloudflare ([sección 8](#8-producción)) |
 | `S3_URL_EXPIRE_SECONDS` | `3600` | Vigencia de las URLs firmadas (60 s a 7 días) |
 
 ---
 
 ## 8. Producción
 
-Hoy producción **no tiene bucket**: sin `S3_ENDPOINT_URL`, la API arranca igual, `/logo/update` responde 503 `storage_unavailable` y los logos se reportan como `null`. Para activarlo hay dos caminos, sin cambiar código:
+Producción usa **Cloudflare R2** desde el 14 de noviembre de 2026: bucket privado `memberplus`, y el navegador abre cada imagen con una URL firmada que caduca en 1 h. La API firma contra el endpoint de R2, así que la descarga **no pasa por nuestro servidor** y el egreso no se cobra.
 
-| Opción | Cómo | A favor | En contra |
-|--------|------|---------|-----------|
-| RustFS en Coolify | Servicio Docker `rustfs/rustfs:1.0.4` con volumen, en la misma red que la API | Todo en el servidor propio, sin terceros | Un servicio más que mantener y **respaldar** |
-| Cloudflare R2 | Crear un bucket y una llave de API en Cloudflare | 10 GB gratis, sin costo por descarga; ya usan Cloudflare; **cuenta como servicio de terceros** en la consigna | Depende de internet |
+| Variable | Valor en producción |
+|----------|---------------------|
+| `S3_ENDPOINT_URL` | `https://<account_id>.r2.cloudflarestorage.com` |
+| `S3_PUBLIC_ENDPOINT_URL` | **vacía**: se firma contra el mismo endpoint, que el navegador sí alcanza |
+| `S3_ACCESS_KEY`, `S3_SECRET_KEY` | Las de un **token de API de R2 limitado al bucket `memberplus`** (Object Read & Write), no las de la cuenta |
+| `S3_BUCKET` | `memberplus` |
+| `S3_REGION` | `auto` |
 
-La decisión es del equipo; en cualquiera de los dos, los archivos del bucket entran al plan de respaldo (DRP) junto con `pg_dump`.
+Con ese token limitado, `head_bucket` responde bien y `storage_service` encuentra el bucket sin permisos de administración. El bucket se crea a mano en el panel de Cloudflare: dejar que la API lo cree pediría un token de cuenta, que es más de lo que el backend necesita.
+
+### Por qué R2 y no un RustFS en Coolify
+
+| | Cloudflare R2 | RustFS en Coolify |
+|---|---|---|
+| Costo | $0 a este volumen | $0 de dinero, pero ocupa disco del LXC |
+| Mantenimiento | Ninguno: no hay contenedor que actualizar | Un servicio más que vigilar, actualizar y respaldar |
+| Si se reconstruye `coolify-vm` | Los archivos siguen ahí | Se van con el volumen |
+
+El argumento no es el precio: es **dónde vive el archivo**. `coolify-vm` es descartable —sin snapshots, con disco chico— y el respaldo ya se sacó del PaaS justo por eso ([DEPLOY.md, sección 11](DEPLOY.md#11-respaldos-de-producción-en-backblaze-b2)). Un bucket dentro de la máquina que se puede reconstruir es un respaldo que no existe. RustFS se queda **solo para desarrollo local**, en el `docker-compose`.
+
+### Cuánto cuesta
+
+Gratis mientras no se pase, por mes, de **10 GB-mes**, **1 millón** de operaciones clase A (escrituras y listados) y **10 millones** de clase B (lecturas). El egreso no se cobra en ningún plan. Un logo WebP de 512 px pesa ~50 KB, así que 10 GB son del orden de 200 mil logos. Pasado el límite: $0.015 por GB-mes, $4.50 por millón de clase A y $0.36 por millón de clase B.
+
+### Cómo se probó
+
+El 14 de noviembre de 2026, contra producción: un PNG de 512 px subido con `POST /api/v1/logo/update` respondió `200`; la URL firmada se abrió desde fuera como `image/webp` de 512×512, 4 418 bytes y **sin EXIF**, y el objeto apareció en el bucket como `businesses/1/logo/<uuid>.webp`. Sin firma, el mismo objeto responde `400`. La prueba se borró con `/logo/delete` al terminar: producción quedó sin logos.
+
+### Cambiar de proveedor
+
+Se cambian las variables y se redespliega; no se toca código. Dos avisos:
+
+- **Las claves de la base son las mismas** (`businesses/<id>/logo/<uuid>.webp`), así que un bucket nuevo arranca vacío y los logos existentes se reportan como `null` hasta volver a subirlos.
+- **R2 no entra en el respaldo de la base.** Los objetos no están en `pg_dump` ni en restic: falta sumar un `rclone sync` R2 → B2 al DRP (pendiente, [DEPLOY.md, sección 11](DEPLOY.md#11-respaldos-de-producción-en-backblaze-b2)).
 
 ---
 
@@ -183,7 +211,7 @@ La decisión es del equipo; en cualquiera de los dos, los archivos del bucket en
 
 Las pruebas no necesitan un servidor de almacenamiento: el fixture `storage` de `tests/conftest.py` usa **moto**, que simula S3 dentro del proceso. El código real de `boto3` se ejecuta igual; solo cambia quién responde. Es la única excepción a la regla de "sin mocks", porque el CI no debe depender de un servicio externo.
 
-Detalle de los casos en [TESTING.md, sección 5.5e](TESTING.md#55e-logo-y-almacenamiento). Además se probó a mano contra RustFS real: una foto JPEG de 2400×1600 con datos GPS (60 KB) quedó como WebP de 512×341 (404 bytes) sin EXIF; la URL firmada respondió 200 y sin firma 403.
+Detalle de los casos en [TESTING.md, sección 5.5e](TESTING.md#55e-logo-y-almacenamiento). Además se probó a mano contra RustFS real: una foto JPEG de 2400×1600 con datos GPS (60 KB) quedó como WebP de 512×341 (404 bytes) sin EXIF; la URL firmada respondió 200 y sin firma 403. El mismo camino se repitió contra R2 en producción ([sección 8](#8-producción)).
 
 ---
 
@@ -192,6 +220,7 @@ Detalle de los casos en [TESTING.md, sección 5.5e](TESTING.md#55e-logo-y-almace
 | Síntoma | Causa | Solución |
 |---------|-------|----------|
 | `/logo/update` responde 503 `storage_unavailable` | Falta `S3_*` en el `.env` o el contenedor `storage` está apagado | `docker compose up -d` y revisar el `.env` contra `.env.example` |
+| `/logo/update` responde 503 con R2 ya configurado | El token no es de ese bucket, la clave no coincide o `S3_REGION` no es `auto` | Revisar las cinco `S3_*` y que el token de R2 esté limitado a `memberplus` |
 | La imagen no carga en el navegador | La URL firmada apunta a un host que el navegador no alcanza | Definir `S3_PUBLIC_ENDPOINT_URL` con el host público |
 | La imagen dejó de cargar después de un rato | La URL firmada caducó | Volver a pedir `/auth/me` |
 | `422 image_invalid` con una imagen que se ve bien | Es GIF, SVG, HEIC u otro formato | Exportarla como PNG, JPEG o WebP |
