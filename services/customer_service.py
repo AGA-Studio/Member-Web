@@ -23,6 +23,7 @@ import math
 import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from uuid import uuid4
 
 from fastapi import status
 from sqlalchemy import ColumnElement, and_, func, or_
@@ -48,7 +49,7 @@ from schemas.customer_schema import (
     TierSummaryResponse,
 )
 from schemas.pagination_schema import PageResponse
-from services import payment_service
+from services import payment_service, storage_service, upload_service
 
 CODE_PREFIX = "MP-"
 CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"
@@ -177,6 +178,7 @@ def to_response(
         full_name=customer.full_name,
         email=customer.email,
         phone=customer.phone,
+        photo_url=storage_service.public_url(customer.photo_url),
         level=TierSummaryResponse(id=tier.id, name=tier.name, finish=tier.finish),
         status=customer_status(customer, now),
         expiring_soon=is_expiring_soon(customer, now),
@@ -431,11 +433,17 @@ def update_customer(
 
 
 def cancel_customer(session: Session, business_id: int, customer_id: int) -> CustomerResponse:
-    """Irreversible, and it revokes the card link. Cancelling again changes nothing."""
+    """Irreversible: revokes the card link and deletes the photo. Cancelling again changes nothing.
+
+    The photo is personal data kept only to show the customer; once the
+    membership is cancelled it has no use, so it goes (decision of 16 nov 2026).
+    """
     customer, tier = _get_row(session, business_id, customer_id)
     if customer.cancelled_at is None:
         now = utc_now()
         customer.cancelled_at = now
+        photo = customer.photo_url
+        customer.photo_url = None
         links = session.exec(
             select(CardDelivery).where(
                 CardDelivery.business_id == business_id,
@@ -447,6 +455,8 @@ def cancel_customer(session: Session, business_id: int, customer_id: int) -> Cus
             link.revoked_at = now
             session.add(link)
         _commit(session, customer)
+        # After the commit: if it had failed, the photo must still exist.
+        upload_service.delete_stored(photo)
     return _response(session, business_id, customer, tier)
 
 
@@ -455,6 +465,39 @@ _cancelled = ApiError(
     detail="Card is cancelled",
     code=ErrorCode.CUSTOMER_CANCELLED,
 )
+
+
+# --- Photo -------------------------------------------------------------------
+
+
+def photo_key(business_id: int, customer_id: int) -> str:
+    # Under the business prefix, like every object; a fresh name per upload.
+    return f"businesses/{business_id}/customers/{customer_id}/photo/{uuid4().hex}.webp"
+
+
+def set_photo(
+    session: Session, business_id: int, customer_id: int, data: bytes
+) -> CustomerResponse:
+    """Upload or replace the photo. Only shown in the panel and at the counter.
+
+    404 if the customer is not of this business; 409 `customer_cancelled` for a
+    cancelled card, whose photo was deleted on purpose. Raises
+    image_service.ImageRejected or storage_service.StorageUnavailable.
+    """
+    customer, tier = _get_row(session, business_id, customer_id)
+    if customer.cancelled_at is not None:
+        raise _cancelled
+    upload_service.replace_image(
+        session, customer, "photo_url", photo_key(business_id, customer.id), data
+    )
+    return _response(session, business_id, customer, tier)
+
+
+def remove_photo(session: Session, business_id: int, customer_id: int) -> CustomerResponse:
+    """Remove the photo. Without a photo it changes nothing (still 200)."""
+    customer, tier = _get_row(session, business_id, customer_id)
+    upload_service.remove_image(session, customer, "photo_url")
+    return _response(session, business_id, customer, tier)
 
 
 def renew_customer(
