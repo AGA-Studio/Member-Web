@@ -2,11 +2,12 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from models.user_model import Role
 from schemas.business_schema import BusinessSummaryResponse
 from schemas.validators import PersonName
+from services import storage_service
 
 
 class UserCreate(BaseModel):
@@ -35,6 +36,14 @@ class UserResponse(BaseModel):
     role: Role
     is_active: bool
     created_at: datetime
+    # The column keeps the storage key; the API answers with a signed URL that
+    # expires (or null), so a key never reaches the frontend.
+    photo_url: str | None = None
+
+    @field_validator("photo_url", mode="after")
+    @classmethod
+    def _sign_photo(cls, value: str | None) -> str | None:
+        return storage_service.public_url(value)
 
 
 class MeResponse(UserResponse):

@@ -25,6 +25,7 @@ from api.v1 import (
     logo_api,
     movement_api,
     platform_api,
+    profile_api,
     tier_api,
     user_api,
 )
@@ -40,6 +41,7 @@ API_V1_ROUTERS = [
     auth_api.router,
     logo_api.router,
     user_api.router,
+    profile_api.router,
     tier_api.router,
     customer_api.router,
     checkout_api.router,
