@@ -19,6 +19,7 @@ from models.business_model import Business, BusinessStatus
 from models.customer_model import Customer
 from schemas.pagination_schema import PageResponse
 from schemas.platform_schema import PlatformBusinessResponse
+from services import storage_service
 from services.customer_service import as_utc
 
 
@@ -64,6 +65,7 @@ def list_businesses(
             PlatformBusinessResponse(
                 id=business.id,
                 name=business.name,
+                logo_url=storage_service.public_url(business.logo_url),
                 status=business.status,
                 customers_count=counts.get(business.id, 0),
                 created_at=as_utc(business.created_at),

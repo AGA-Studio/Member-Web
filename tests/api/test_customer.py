@@ -116,6 +116,7 @@ class TestCreate:
             "full_name",
             "email",
             "phone",
+            "photo_url",
             "level",
             "status",
             "expiring_soon",

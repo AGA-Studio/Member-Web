@@ -107,6 +107,8 @@ class CustomerResponse(BaseModel):
     full_name: str
     email: EmailStr
     phone: str | None
+    # Signed URL that expires (or null): never cache it, ask for the customer again.
+    photo_url: str | None = None
     level: TierSummaryResponse
     status: CustomerStatus
     expiring_soon: bool

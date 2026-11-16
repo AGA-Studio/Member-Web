@@ -39,7 +39,9 @@ ALLOWED_ACTIONS = {
 # `card-link` and `google-wallet` (section 13): the link to a customer's digital
 # card and its Google Wallet pass; their names come from the contract.
 # `payment` (section 9): the membership payments of a customer.
-SUB_RESOURCES = {"business", "card-link", "google-wallet", "payment"}
+# `photo`: the customer's photo and the user's own profile photo (wiki, "Imágenes:
+# lo que falta en el backend").
+SUB_RESOURCES = {"business", "card-link", "google-wallet", "payment", "photo"}
 
 # The only endpoint allowed outside the versioned prefix.
 UNVERSIONED = {"/health"}

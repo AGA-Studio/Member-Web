@@ -32,4 +32,6 @@ class User(SQLModel, table=True):
         sa_type=sa.Enum(Role, name="role", values_callable=enum_values),
     )
     is_active: bool = Field(default=True)
+    # Storage key of the profile photo (never a URL); each user changes their own.
+    photo_url: str | None = Field(default=None, max_length=500)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

@@ -6,9 +6,10 @@ can only look a card up at the counter; everything else is for the admin.
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, File, Query, UploadFile, status
 
 from api.v1.dependencies import BusinessId, SessionDep, require_roles
+from api.v1.uploads import image_errors, read_image
 from models.user_model import Role, User
 from schemas.card_schema import CardEmailSentResponse, CardLinkResponse, CustomerCreatedResponse
 from schemas.customer_schema import (
@@ -100,8 +101,36 @@ def update_customer(
 def cancel_customer(
     customer_id: int, session: SessionDep, business_id: BusinessId
 ) -> CustomerResponse:
-    """Irreversible: the card stays `cancelled`."""
+    """Irreversible: the card stays `cancelled` and its photo is deleted."""
     return customer_service.cancel_customer(session, business_id, customer_id)
+
+
+@router.post(
+    "/{customer_id}/photo/update", response_model=CustomerResponse, dependencies=admin_only
+)
+def update_customer_photo(
+    customer_id: int,
+    session: SessionDep,
+    business_id: BusinessId,
+    file: Annotated[UploadFile, File(description="JPEG, PNG or WebP, up to 2 MB")],
+) -> CustomerResponse:
+    """Upload or replace the customer's photo (512 px WebP, no metadata).
+
+    Only to show the customer in the panel and at the counter: no biometric use.
+    """
+    data = read_image(file)
+    with image_errors():
+        return customer_service.set_photo(session, business_id, customer_id, data)
+
+
+@router.post(
+    "/{customer_id}/photo/delete", response_model=CustomerResponse, dependencies=admin_only
+)
+def delete_customer_photo(
+    customer_id: int, session: SessionDep, business_id: BusinessId
+) -> CustomerResponse:
+    """Remove the photo. Without a photo it changes nothing."""
+    return customer_service.remove_photo(session, business_id, customer_id)
 
 
 @router.post("/{customer_id}/card-link", response_model=CardLinkResponse, dependencies=admin_only)

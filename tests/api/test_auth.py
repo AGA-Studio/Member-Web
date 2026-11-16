@@ -181,6 +181,7 @@ class TestCurrentUser:
             "role",
             "is_active",
             "created_at",
+            "photo_url",
             "business",
         }
 

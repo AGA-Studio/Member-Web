@@ -31,7 +31,8 @@ No usar como referencia: el **ERS** ni el calendario y los responsables de la *G
 - Sin Supabase: **PostgreSQL 18 propio** (Docker Compose) y JWT propio en cookie httpOnly con
   Argon2id. Sin NextAuth ni pasarela de pagos.
 - **Sin reconocimiento facial.** La cámara —ESP32 o webcam— solo lee el QR; el lector identifica la
-  tarjeta, no a la persona. No se guardan fotos ni datos biométricos.
+  tarjeta, no a la persona. Sin datos biométricos. La foto del cliente solo se muestra (panel y caja)
+  y se borra al cancelar la membresía (corregida el 16 nov 2026).
 - Tres roles: `platform` (nosotros), `admin` y `employee`. Los clientes del negocio no inician sesión.
 - La compra en caja es **monto y concepto libre**: sin catálogo ni inventario. La tarjeta se
   identifica por **QR impreso o tecleo manual del código corto**.
@@ -70,7 +71,8 @@ uv add <paquete>                     # nueva dependencia (uv add --dev para desa
   guía en `docs/DEPLOY.md`. También es compartido: si lo rompes, nadie despliega.
 - **Imágenes**: van a un bucket S3 por `services/storage_service.py` (RustFS en local, servicio
   `storage` del compose); en la base se guarda la clave, nunca la URL; toda subida pasa por
-  `services/image_service.py`. Guía en `docs/STORAGE.md`. Fotos de clientes: no (decisión cerrada).
+  `services/image_service.py`. Guía en `docs/STORAGE.md`. Logo, foto del cliente y foto de perfil usan
+  `services/upload_service.py` y `api/v1/uploads.py`; no repitas esa lógica.
 - Si creas una carpeta nueva con código Python, agrega su `COPY` en el `Dockerfile`; si no, la
   construcción de la imagen falla en el paso `import main`.
 

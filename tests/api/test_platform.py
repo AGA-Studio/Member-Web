@@ -42,6 +42,7 @@ class TestList:
         assert item == {
             "id": platform["a"].id,
             "name": "Business A",
+            "logo_url": None,
             "status": "active",
             "customers_count": 1,
         }
@@ -90,7 +91,8 @@ class TestPrivacy:
         for secret in ("Laura", "MP-AAAA1", "@correo.com", "points", "cashback", "email"):
             assert secret not in text
         keys = {key for item in client.get(URL).json()["items"] for key in item}
-        assert keys == {"id", "name", "status", "customers_count", "created_at"}
+        # The logo is the business's own image, not data of its customers.
+        assert keys == {"id", "name", "logo_url", "status", "customers_count", "created_at"}
 
 
 class TestPermissions:
@@ -105,3 +107,43 @@ class TestPermissions:
 
 def names_of(body: dict) -> list[str]:
     return [item["name"] for item in body["items"]]
+
+
+class TestLogo:
+    """The platform list shows each business's logo, with the /auth/me rule."""
+
+    def test_logo_is_a_signed_url(
+        self, client: TestClient, session: Session, platform, storage
+    ) -> None:
+        from tests.conftest import make_image
+
+        login(client, "admin.a@demo.mx")
+        client.post("/api/v1/logo/update", files={"file": ("l.png", make_image(), "image/png")})
+        client.cookies.clear()
+        login(client, "owner@memberplus.mx")
+        items = {item["name"]: item for item in client.get(URL).json()["items"]}
+        assert "X-Amz-Signature" in items["Business A"]["logo_url"]
+        assert items["Business B"]["logo_url"] is None
+
+    def test_external_url_passes_through(
+        self, client: TestClient, session: Session, platform
+    ) -> None:
+        platform["a"].logo_url = "https://cdn.example.mx/a.png"
+        session.add(platform["a"])
+        session.commit()
+        login(client, "owner@memberplus.mx")
+        items = {item["name"]: item for item in client.get(URL).json()["items"]}
+        assert items["Business A"]["logo_url"] == "https://cdn.example.mx/a.png"
+
+    def test_stored_key_without_storage_is_null(
+        self, client: TestClient, session: Session, platform, monkeypatch
+    ) -> None:
+        from core.config import settings
+
+        monkeypatch.setattr(settings, "s3_endpoint_url", "")
+        platform["a"].logo_url = "businesses/1/logo/x.webp"
+        session.add(platform["a"])
+        session.commit()
+        login(client, "owner@memberplus.mx")
+        items = {item["name"]: item for item in client.get(URL).json()["items"]}
+        assert items["Business A"]["logo_url"] is None

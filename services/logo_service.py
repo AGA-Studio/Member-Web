@@ -11,7 +11,7 @@ from sqlmodel import Session
 
 from models.business_model import Business
 from schemas.business_schema import BusinessSummaryResponse
-from services import image_service, storage_service
+from services import storage_service, upload_service
 
 
 def logo_key(business_id: int) -> str:
@@ -30,28 +30,10 @@ def set_logo(session: Session, business: Business, data: bytes) -> Business:
 
     Raises image_service.ImageRejected or storage_service.StorageUnavailable.
     """
-    webp = image_service.to_webp(data)
-    key = logo_key(business.id)
-    storage_service.put_object(key, webp, image_service.CONTENT_TYPE)
-
-    previous = business.logo_url
-    business.logo_url = key
-    session.add(business)
-    session.commit()
-    session.refresh(business)
-
-    # Only after the commit: if it had failed, the old logo must still exist.
-    if storage_service.is_storage_key(previous):
-        storage_service.delete_object(previous)
+    upload_service.replace_image(session, business, "logo_url", logo_key(business.id), data)
     return business
 
 
 def remove_logo(session: Session, business: Business) -> Business:
-    previous = business.logo_url
-    business.logo_url = None
-    session.add(business)
-    session.commit()
-    session.refresh(business)
-    if storage_service.is_storage_key(previous):
-        storage_service.delete_object(previous)
+    upload_service.remove_image(session, business, "logo_url")
     return business
