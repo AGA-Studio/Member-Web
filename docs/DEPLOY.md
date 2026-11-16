@@ -211,22 +211,46 @@ curl -s http://127.0.0.1:8001/health   # {"status":"ok"}
 
 El compose de desarrollo levanta Postgres, Mailpit (correo) y RustFS (almacenamiento de imágenes, ver [STORAGE.md](STORAGE.md)). Para el ensayo sin internet, el mismo `docker-compose.yml` trae un perfil `stack` que suma `api` y `web` **sin construir nada**: las dos imágenes se publican en GHCR y en local solo se hace `pull`.
 
+El perfil tiene dos usos: el ensayo del respaldo y el desarrollo del frontend por quien no toca el API ([Para quien solo toca el frontend](#para-quien-solo-toca-el-frontend)).
+
 | Servicio | Imagen | Qué es |
 |---|---|---|
 | `db` | `postgres:18` | Base del stack (volumen `pgdata`) |
-| `api` | `ghcr.io/aga-studio/member-web:${API_IMAGE_TAG:-0.0.1}` | API, la misma imagen que producción |
+| `api` | `ghcr.io/aga-studio/member-web:${API_IMAGE_TAG:-latest}` | API, la misma imagen que producción. Sin variable = `latest` |
 | `web` | `ghcr.io/aga-studio/member-plus-frontend:${WEB_IMAGE_TAG:-sha-local-stack}` | Frontend compilado con `API_INTERNAL_URL=http://api:8000` |
 
 **Por qué el frontend usa una imagen `-stack` y no la normal.** El `rewrite` de `/api/*` se evalúa en `next build` y queda horneado en la imagen. La imagen de producción apunta a `https://api-memberplus.neyzt.org`, así que en localhost y sin internet el navegador intentaría llamar a producción. La imagen `-stack` se construye con el build-arg interno y **solo sirve para este compose**: no se despliega en Coolify. Se publica desde el workflow *Image* del repo del frontend con `workflow_dispatch` y la casilla `stack`; el run imprime el tag `sha-<7>-stack` — inmutable, ligado al commit, como el resto de las imágenes — y aquí se fija a mano con `WEB_IMAGE_TAG`, igual que el tag de versión en Coolify.
 
 Con `pull_policy: missing` un `up` normal no refresca una imagen que ya está local: después de publicar un tag nuevo, correr `docker compose --profile stack pull`.
 
+### Para quien solo toca el frontend
+
+El mismo perfil sirve para trabajar el frontend de [Member-Plus-Frontend](https://github.com/AGA-Studio/Member-Plus-Frontend) sin clonar el API de fuentes ni correr `uvicorn`: se levanta la imagen publicada y `next dev` corre en el host hablando con `127.0.0.1:8000`. No hace falta Python, `uv` ni `.venv`, y las dos imágenes son públicas en GHCR, así que tampoco `docker login`.
+
+```bash
+git clone https://github.com/AGA-Studio/Member-Web ../Member-Web
+cd ../Member-Web
+cp .env.example .env                          # Windows cmd: copy .env.example .env
+docker compose --profile stack up -d db storage mail api
+docker compose --profile stack exec api python -m scripts.seed
+```
+
+Vuelve a la carpeta del frontend y corre `npm run dev` (Next en `:3000`). Credenciales del seed: `admin@cafe-aurora.mx` / `demo12345`, y `owner@memberplus.mx` para la vista de plataforma.
+
+Cuatro cosas que no son obvias:
+
+- **No levantar el servicio `web`** en este caso: publica el `:3000` y pelea con `next dev`. Por eso se nombran los servicios uno por uno en vez de usar `--profile stack up` a secas.
+- **`API_IMAGE_TAG` vacío vale `latest`**, el tag que mueve cada push a `main`: siempre el API de la rama principal. Pero `pull_policy: missing` **no** refresca una imagen que ya está local, así que cuando el API avance hay que correr `docker compose --profile stack pull api`.
+- **En Mac con Apple Silicon las imágenes son `linux/amd64`**: Docker Desktop las emula con Rosetta. Funcionan, pero el `seed` (Argon2id) tarda decenas de segundos y parece colgado sin estarlo.
+- **No dupliques este compose en el repo del frontend.** Sería una segunda fuente de verdad de `DATABASE_URL`, `SECRET_KEY`, `CORS_ORIGINS`, `SMTP_*` y `S3_*`: cuando el API pida una variable nueva, la copia envejece en silencio y el síntoma aparece como una pantalla rota, no como "falta una variable".
+
 ### Antes del ensayo (con internet)
 
-Con el tag que imprimió el workflow en `WEB_IMAGE_TAG` (en `.env` o exportado en la sesión):
+Para el ensayo se fijan **los dos tags**, y el del API no es opcional: sin `API_IMAGE_TAG` el perfil usa `latest`, que se mueve con cada push a `main` y dejaría el ensayo apuntando a lo último en vez de a lo que se ensayó.
 
 ```bash
 export WEB_IMAGE_TAG=sha-abc1234-stack   # el tag que imprimió el run del workflow
+export API_IMAGE_TAG=sha-abc1234         # sha del API que se quiere ensayar, inmutable
 docker compose --profile stack pull
 docker compose --profile stack up -d --wait
 docker compose --profile stack exec api python -m scripts.seed
