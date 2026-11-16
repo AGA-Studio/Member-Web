@@ -77,6 +77,8 @@ flowchart TB
     MOD --> M10["card_email_model.py — CardEmail (envíos, para el límite)"]
     MOD --> M11["membership_payment_model.py — MembershipPayment, PaymentMethod, PaymentKind"]
     SRV --> SVL1["logo_service.py — subir · reemplazar · quitar el logo"]
+    SRV --> SVL4["upload_service.py — reemplazar o quitar una imagen (logo y fotos)"]
+    SRV --> SVL5["profile_service.py — foto de perfil del usuario en sesión"]
     SRV --> SVL2["image_service.py — validar · WebP 512 px sin EXIF"]
     SRV --> SVL3["storage_service.py — bucket S3 · URLs firmadas"]
     SRV --> SV1["auth_service.py — revocación de tokens · límite de login"]
@@ -106,6 +108,8 @@ flowchart TB
     API --> A1["dependencies.py — CurrentUser · require_roles · BusinessId<br/>ensure_user_can_access"]
     API --> A2["auth_api.py — /auth"]
     API --> AL["logo_api.py — /logo"]
+    API --> AP["profile_api.py — /user/photo"]
+    API --> AU["uploads.py — límite de 2 MB y códigos de error de las subidas"]
     API --> A3["user_api.py — /user"]
     API --> A4["tier_api.py — /tier"]
     API --> A5["customer_api.py — /customer"]
@@ -151,6 +155,7 @@ erDiagram
         string hashed_password "Argon2id"
         enum role "platform | admin | employee"
         bool is_active
+        string photo_url "nullable; clave del bucket"
         datetime created_at
     }
 
@@ -165,6 +170,7 @@ erDiagram
         datetime issued_at
         datetime valid_until "índice"
         datetime cancelled_at "nullable; irreversible"
+        string photo_url "nullable; clave del bucket; se borra al cancelar"
         datetime created_at
     }
 
@@ -281,7 +287,17 @@ stateDiagram-v2
 
 En la base los valores de los `ENUM` se guardan en minúscula (`'admin'`, `'suspended'`), igual que en la API. Ver [MIGRATIONS.md](MIGRATIONS.md#7-migraciones-existentes).
 
-### Logo del negocio
+### Imágenes: logo, foto del cliente y foto de perfil
+
+Tres columnas guardan una imagen, y las tres siguen la misma regla (`services/upload_service.py`):
+
+| Columna | Qué es | Clave en el bucket | Quién la cambia |
+|---------|--------|--------------------|-----------------|
+| `businesses.logo_url` | Logo del negocio | `businesses/{business_id}/logo/{uuid}.webp` | Admin del negocio (`/logo/update`) |
+| `customers.photo_url` | Foto del cliente, **solo para mostrarse** en el panel y en la caja | `businesses/{business_id}/customers/{customer_id}/photo/{uuid}.webp` | Admin del negocio (`/customer/{customer_id}/photo/update`). **Se borra al cancelar la membresía** |
+| `users.photo_url` | Foto de perfil | `businesses/{business_id}/users/{user_id}/photo/{uuid}.webp` (el dueño de plataforma, bajo `platform/users/…`) | Cada usuario la suya (`/user/photo/update`) |
+
+La foto del cliente no tiene ningún uso biométrico ni de reconocimiento facial (RF-11 sigue fuera); se permitió el 16 nov 2026 solo para que el empleado reconozca al cliente en la caja.
 
 `businesses.logo_url` guarda una **clave** del bucket (`businesses/{business_id}/logo/{uuid}.webp`) o una URL externa, nunca una URL firmada. La API la convierte al responder: las claves se vuelven URLs firmadas que caducan en 1 h, las URLs externas pasan tal cual y, sin almacenamiento configurado, las claves se reportan como `null`. La imagen subida se valida, se reduce a 512 px y se guarda como WebP sin metadatos. Por eso no hizo falta una tabla ni una migración nueva. Guía completa en [STORAGE.md](STORAGE.md).
 
@@ -302,7 +318,9 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | GET | `/health` | — | Estado de la API |
 | POST | `/api/v1/auth/login` | — | Login con email y contraseña; deja cookie y devuelve el token. Tras 5 intentos fallidos por email responde 429 durante 15 min. Con `TURNSTILE_ENABLED` exige la cabecera `X-Turnstile-Token` (400 `turnstile_failed`) |
 | POST | `/api/v1/auth/logout` | — | Revoca el token de esta sesión (cookie o Bearer) y borra la cookie. Las demás sesiones del usuario siguen abiertas |
-| GET | `/api/v1/auth/me` | cualquier usuario activo | Usuario de la sesión y su negocio (`business`: `id`, `name`, `logo_url`, `status`; `null` para `platform`) |
+| GET | `/api/v1/auth/me` | cualquier usuario activo | Usuario de la sesión, con su `photo_url` firmada, y su negocio (`business`: `id`, `name`, `logo_url`, `status`; `null` para `platform`) |
+| POST | `/api/v1/user/photo/update` | cualquier usuario activo | Sube o reemplaza **su propia** foto de perfil (`multipart/form-data`, campo `file`). Mismas reglas y errores que `/logo/update`. Devuelve el usuario con `photo_url` firmada |
+| POST | `/api/v1/user/photo/delete` | cualquier usuario activo | Quita su propia foto. Sin foto, responde 200 igual |
 | POST | `/api/v1/logo/update` | admin | Sube o reemplaza el logo del negocio del token (`multipart/form-data`, campo `file`). JPEG, PNG o WebP de hasta 2 MB; se guarda como WebP de 512 px sin metadatos y borra el anterior. Devuelve el negocio con `logo_url` firmada. 413 `image_too_large`, 422 `image_invalid`, 503 `storage_unavailable` |
 | POST | `/api/v1/logo/delete` | admin | Quita el logo y borra el archivo. Repetirlo no cambia nada |
 | GET | `/api/v1/user/list` | admin | Usuarios de su negocio |
@@ -317,7 +335,9 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | POST | `/api/v1/customer/create` | admin | Alta con `full_name`, `email`, `phone` y `level_id` opcionales. Genera `code`, `issued_at` y `valid_until` (+`validity_months` del negocio). Registra el primer pago (`payment_method` = `cash` \| `card` \| `transfer`, `cash` por defecto; `amount_cents`, por defecto el precio del nivel; 0 no registra pago). Con `send_card_email` (`true` por defecto) envía el enlace a la tarjeta; la respuesta agrega `card_email.status` (`sent` \| `failed` \| `pending` \| `skipped`) y un correo fallido no falla el alta. 409 `email_taken` |
 | GET | `/api/v1/customer/{customer_id}` | admin | Ficha del cliente |
 | PATCH | `/api/v1/customer/{customer_id}/update` | admin | Edita `full_name`, `email`, `phone` (`null` lo borra) o `level_id` (cambio de nivel). 409 `email_taken` |
-| POST | `/api/v1/customer/{customer_id}/cancel` | admin | Cancela la tarjeta y revoca su enlace; irreversible y repetirlo no cambia nada |
+| POST | `/api/v1/customer/{customer_id}/cancel` | admin | Cancela la tarjeta, revoca su enlace y **borra su foto**; irreversible y repetirlo no cambia nada |
+| POST | `/api/v1/customer/{customer_id}/photo/update` | admin | Sube o reemplaza la foto del cliente (`multipart/form-data`, campo `file`), solo para mostrarse. JPEG, PNG o WebP de hasta 2 MB → WebP de 512 px sin metadatos. Devuelve el cliente con `photo_url` firmada. 404 si es de otro negocio, 409 `customer_cancelled`, 413 `image_too_large`, 422 `image_invalid`, 503 `storage_unavailable` |
+| POST | `/api/v1/customer/{customer_id}/photo/delete` | admin | Quita la foto del cliente. Sin foto, responde 200 igual |
 | POST | `/api/v1/customer/{customer_id}/renew` | admin | Renueva `validity_months` meses: desde `valid_until` si sigue vigente, desde hoy si venció. Cuerpo opcional: `level_id` (cambia de nivel), `payment_method`, `amount_cents` (por defecto el precio del nivel; 0 no registra pago). 409 `customer_cancelled` |
 | GET | `/api/v1/customer/{customer_id}/payment/list` | admin | Pagos de membresía del cliente, el más reciente primero, paginados: `kind` (`new` \| `renewal`), `method`, `amount_cents`, `level` {`id`, `name` con que se pagó}, `period_start`, `period_end`, `recorded_by_name` |
 | POST | `/api/v1/customer/{customer_id}/card-link` | admin | Enlace nuevo a la tarjeta digital (`url`, `expires_at` = `valid_until`); revoca el anterior. 409 `customer_cancelled` o `customer_expired` |
@@ -327,7 +347,7 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | GET | `/api/v1/checkout/{checkout_id}` | admin, employee | Comprobante. El cajero solo ve los suyos; el admin, todos los del negocio |
 | GET | `/api/v1/movement/list` | admin | Historial paginado, más reciente primero, con `summary` del conjunto filtrado. Filtros `q`, `customer_id`, `from`, `to` |
 | GET | `/api/v1/movement/export` | admin | Mismos filtros que `list`, sin paginar, como CSV descargable |
-| GET | `/api/v1/platform/business/list` | platform | Negocios con su estado y `customers_count`, paginados por nombre. Filtros `q` y `status`. Nunca datos de clientes |
+| GET | `/api/v1/platform/business/list` | platform | Negocios con su estado, `customers_count` y `logo_url` firmada (misma regla que `/auth/me`), paginados por nombre. Filtros `q` y `status`. Nunca datos de clientes |
 | GET | `/api/v1/card/{token}` | — (público) | Tarjeta pública del enlace: negocio, nombre, código, nivel, vigencia y `wallet.google`. 404 `card_link_not_found` |
 | GET | `/api/v1/card/{token}/google-wallet` | — (público) | `save_url` firmado para guardar la tarjeta en Google Wallet. 503 `wallet_unavailable` sin configuración |
 
@@ -342,6 +362,7 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
   "role": "employee",
   "is_active": true,
   "created_at": "2026-11-12T23:28:01.536737Z",
+  "photo_url": null,
   "business": { "id": 1, "name": "Café Aurora", "logo_url": null, "status": "active" }
 }
 ```
@@ -439,7 +460,7 @@ Ejemplo de la rúbrica, $1,000.00 en Oro (15 %, 1 punto por $10, 3 %): descuento
 
 **Plataforma (`/platform`).** Solo el rol `platform`, que no pertenece a ningún negocio: ve todos los negocios, pero solo su estado y su uso. Ninguna respuesta lleva datos de clientes, usuarios ni compras (decisión cerrada).
 
-- `GET /platform/business/list` devuelve `id`, `name`, `status`, `customers_count` y `created_at`, por `name` y luego `id`, con la paginación de las demás listas.
+- `GET /platform/business/list` devuelve `id`, `name`, `logo_url`, `status`, `customers_count` y `created_at`, por `name` y luego `id`, con la paginación de las demás listas.
 - Filtros: `q` (nombre del negocio, sin distinguir mayúsculas) y `status` (`trial`, `active`, `suspended`).
 - `customers_count` cuenta las tarjetas **no canceladas**, con la misma regla que `customers_count` de un nivel. Sale de una sola consulta por página.
 
@@ -469,7 +490,7 @@ Google Wallet (`services/wallet_service.py`):
 
 **Validación de nombres** (`PersonName`, `schemas/validators.py`): se quitan los espacios sobrantes; solo letras (con acentos y ñ), espacios, guion y apóstrofo; mínimo 2 letras y máximo 120 caracteres. Si no se cumple → 422.
 
-**Convención de rutas:** `/<recurso en singular>/<acción>` (`/user/create`, `/user/list`, `/user/{id}/update`). Los módulos nuevos siguen la misma forma, por ejemplo `/customer/create`. Los subrecursos son `/platform/business/list` (la plataforma lista los negocios), `/customer/{customer_id}/card-link` (el enlace a la tarjeta, con la acción `send`) y `/card/{token}/google-wallet`; `tests/rules/test_routes.py` los permite con `SUB_RESOURCES`. Sus nombres con guion vienen del contrato del frontend.
+**Convención de rutas:** `/<recurso en singular>/<acción>` (`/user/create`, `/user/list`, `/user/{id}/update`). Los módulos nuevos siguen la misma forma, por ejemplo `/customer/create`. Los subrecursos son `/platform/business/list` (la plataforma lista los negocios), `/customer/{customer_id}/card-link` (el enlace a la tarjeta, con la acción `send`), `/customer/{customer_id}/photo` y `/user/photo` (las fotos) y `/card/{token}/google-wallet`; `tests/rules/test_routes.py` los permite con `SUB_RESOURCES`. Sus nombres con guion vienen del contrato del frontend.
 
 ```mermaid
 flowchart LR
