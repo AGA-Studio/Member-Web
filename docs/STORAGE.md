@@ -188,7 +188,7 @@ Con ese token limitado, `head_bucket` responde bien y `storage_service` encuentr
 | Mantenimiento | Ninguno: no hay contenedor que actualizar | Un servicio más que vigilar, actualizar y respaldar |
 | Si se reconstruye `coolify-vm` | Los archivos siguen ahí | Se van con el volumen |
 
-El argumento no es el precio: es **dónde vive el archivo**. `coolify-vm` es descartable —sin snapshots, con disco chico— y el respaldo ya se sacó del PaaS justo por eso ([DEPLOY.md, sección 11](DEPLOY.md#11-respaldos-de-producción-en-backblaze-b2)). Un bucket dentro de la máquina que se puede reconstruir es un respaldo que no existe. RustFS se queda **solo para desarrollo local**, en el `docker-compose`.
+El argumento no es el precio: es **dónde vive el archivo**. `coolify-vm` es descartable —sin snapshots, con disco chico—, así que un bucket dentro de la máquina que se puede reconstruir no es almacenamiento durable; con R2 los objetos salen del servidor y el navegador los abre desde el borde de Cloudflare, y una copia en B2 los cubre ante un borrado ([DEPLOY.md, sección 11](DEPLOY.md#11-respaldos-de-producción-base-en-coolify-y-objetos-en-b2)). RustFS se queda **solo para desarrollo local**, en el `docker-compose`.
 
 ### Cuánto cuesta
 
@@ -203,7 +203,7 @@ El 14 de noviembre de 2026, contra producción: un PNG de 512 px subido con `POS
 Se cambian las variables y se redespliega; no se toca código. Dos avisos:
 
 - **Las claves de la base son las mismas** (`businesses/<id>/logo/<uuid>.webp`), así que un bucket nuevo arranca vacío y los logos existentes se reportan como `null` hasta volver a subirlos.
-- **R2 no entra en el respaldo de la base.** Los objetos no están en `pg_dump` ni en restic: falta sumar un `rclone sync` R2 → B2 al DRP (pendiente, [DEPLOY.md, sección 11](DEPLOY.md#11-respaldos-de-producción-en-backblaze-b2)).
+- **R2 no entra en el respaldo de la base.** Los objetos no están en el `pg_dump`, así que tienen su propia capa: `rclone copy` R2 → B2 cada noche (`~/backups/scripts/backup-memberplus-images.sh`), con `copy` y no `sync` para que un borrado en R2 no se propague. Verificado el 15 nov 2026 con MD5 idéntico por objeto ([DEPLOY.md, sección 11](DEPLOY.md#11-respaldos-de-producción-base-en-coolify-y-objetos-en-b2)).
 
 ---
 

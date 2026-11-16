@@ -4,8 +4,10 @@ Lo que un cambio no puede romper, en una página.
 
 Este archivo lo lee `scripts/review_pr.py`, que comenta los PRs automáticamente. **No es la fuente de verdad**: la wiki manda (`wiki.neyzt.org`, colección `9no`) y este archivo es su resumen para revisar. Si aquí dice una cosa y la wiki otra, gana la wiki y esto se corrige.
 
-> Última sincronización con la wiki: **13 de noviembre de 2026**.
+> Última sincronización con la wiki: **15 de noviembre de 2026**.
 > Fuentes: *Decisiones por validar*, *MVP*, *Requisitos de referencia*, más `AGENTS.md` y `docs/ARCHITECTURE.md` de este repositorio.
+>
+> Cambio de la wiki de ese día que este archivo refleja: «¿Cómo se respalda?» pasó de «`pg_dump` diario + restic» a las dos capas actuales —backup nativo de Coolify para la base y `rclone copy` R2 → B2 para los objetos—. La casilla se corrigió **primero en la wiki**, con su nota fechada, y solo después se alinearon esta tabla y `docs/DEPLOY.md` sección 11.
 
 ## 1. Decisiones cerradas
 
@@ -39,7 +41,7 @@ Un PR no las contradice. Si de verdad hay que cambiarlas, se cambia primero la c
 | Entornos | Uno solo: la demo **es** producción | Sin app de demo aparte; rollback con `sha-<7>` |
 | Hostnames | App en `memberplus.neyzt.org`, API en `api-memberplus.neyzt.org` | Next reescribe `/api/*`: cookie de primera parte, sin CORS en producción. **Guion y no punto**: el SSL Universal de Cloudflare solo cubre un nivel de subdominio |
 | Dueño de los datos | El negocio; Member+ solo los procesa | Dos avisos de privacidad |
-| Respaldo | `pg_dump` diario + restic, restauración probada | — |
+| Respaldo | Base: backup nativo de Coolify → B2, diario. Objetos: `rclone copy` R2 → B2 en el host | El schedule usa **Specific databases → `memberplus`**; con *All databases* respalda `postgres` y no los datos |
 
 ### Hallazgos ya decididos (H1–H7)
 
