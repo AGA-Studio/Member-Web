@@ -34,4 +34,7 @@ class Customer(SQLModel, table=True):
     issued_at: datetime
     valid_until: datetime = Field(index=True)
     cancelled_at: datetime | None = Field(default=None)
+    # Storage key of the photo (never a URL). Only shown in the panel and at the
+    # counter: no biometric use. Deleted when the membership is cancelled.
+    photo_url: str | None = Field(default=None, max_length=500)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
