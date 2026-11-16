@@ -71,6 +71,30 @@ uv run uvicorn main:app --reload
 
 Documentación interactiva de la API: <http://127.0.0.1:8000/docs> · salud: <http://127.0.0.1:8000/health>
 
+### La app completa con una orden
+
+Para correr todo —base, API y frontend— sin `uv run` ni `npm run dev`: el perfil `stack` levanta las
+imágenes publicadas en GHCR, las mismas que corren en producción.
+
+```bash
+cp .env.example .env                  # una vez; cambia SECRET_KEY
+docker compose --profile stack pull
+docker compose --profile stack up -d --wait
+docker compose --profile stack exec api python -m scripts.seed
+```
+
+Frontend en <http://localhost:3000>, API en <http://127.0.0.1:8000>, correo en <http://localhost:8025>.
+El seed es idempotente, así que se puede repetir sin duplicar nada.
+
+`pull` es el único paso que refresca las imágenes: el perfil usa `pull_policy: missing`, así que `up` no
+baja versiones nuevas por su cuenta. Para el ensayo sin internet se hace el `pull` con red, se fijan los
+tags que se van a ensayar y después se repite `up` sin red.
+
+| Variable | Sin definir | Para el ensayo |
+|---|---|---|
+| `API_IMAGE_TAG` | `latest` | un `sha-<7>` inmutable |
+| `WEB_IMAGE_TAG` | `latest` | un `sha-<7>` inmutable |
+
 ### Solo el frontend
 
 Si trabajas [Member-Plus-Frontend](https://github.com/AGA-Studio/Member-Plus-Frontend) y no vas a tocar
