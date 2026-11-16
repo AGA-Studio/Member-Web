@@ -13,6 +13,8 @@ from models.business_model import BusinessStatus
 class PlatformBusinessResponse(BaseModel):
     id: int
     name: str
+    # Same rule as `business.logo_url` in /auth/me: signed URL that expires, or null.
+    logo_url: str | None = None
     status: BusinessStatus
     customers_count: int
     created_at: datetime
