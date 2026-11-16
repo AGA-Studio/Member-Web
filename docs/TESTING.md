@@ -22,12 +22,12 @@ Documentación de la suite de pruebas automatizadas del backend: qué se prueba,
 | Métrica | Valor |
 |---------|-------|
 | Fecha de ejecución | 12 de noviembre de 2026 |
-| Pruebas | **734**, todas pasan (0 `xfail`); conteo del 13 nov 2026 con niveles, clientes, caja, movimientos, plataforma, entrega de la tarjeta digital, pagos de membresía, logo con almacenamiento S3 y Turnstile en el login |
+| Pruebas | **775**, todas pasan (0 `xfail`); conteo del 16 nov 2026 con niveles, clientes, caja, movimientos, plataforma, entrega de la tarjeta digital, pagos de membresía, logo con almacenamiento S3, Turnstile en el login y fotos de cliente y de perfil |
 | Fallas | **0** |
 | Cobertura de líneas y ramas | **100 %** en `api/`, `core/`, `models/`, `schemas/`, `services/` y `scripts/seed.py`. `scripts/review_pr.py` (revisor del CI) queda en 60 %, por eso el total marca 92 % |
 | Bases de datos probadas | SQLite y **PostgreSQL 18.6** |
 | Tiempo | ~17 s en SQLite · ~42 s en PostgreSQL (equipo local) |
-| Criterio del MVP "0 filas de otro negocio" | ✅ Cumplido (7 pruebas de usuarios + 4 de niveles + 9 de clientes + 4 de caja + 3 de movimientos + 3 del enlace a la tarjeta + 4 del logo) |
+| Criterio del MVP "0 filas de otro negocio" | ✅ Cumplido (7 pruebas de usuarios + 4 de niveles + 9 de clientes + 4 de caja + 3 de movimientos + 3 del enlace a la tarjeta + 4 del logo + 4 de la foto del cliente) |
 | Migraciones (Alembic) | ✅ Suben, bajan, convierten datos y coinciden con los modelos (9 pruebas) |
 | Hallazgos | ✅ Los 7 corregidos (H1–H7) |
 
@@ -601,6 +601,58 @@ Solo se reemplaza Cloudflare, igual que S3 con moto: el fixture `siteverify` pon
 | `TestSiteverifyAnswers::test_connection_error_fails_closed` | Sin conexión → falla | ✅ |
 | `TestSiteverifyAnswers::test_token_solved_on_another_hostname_fails` | `success: true` pero otro hostname → falla | ✅ |
 | `TestSiteverifyAnswers::test_logs_error_codes_but_never_the_secret` | El log trae `invalid-input-response` y nunca el secreto | ✅ |
+
+### 5.5f Fotos de cliente y de perfil, y logo en plataforma
+
+41 pruebas. Usan el mismo fixture `storage` (S3 simulado con moto) que el logo.
+
+**Foto del cliente — `tests/api/test_customer_photo.py` (23)**
+
+| Prueba | Verifica | Resultado |
+|--------|----------|-----------|
+| `TestPermissions` (3) | Sin sesión → 401; empleado y dueño de plataforma → 403, y el bucket queda vacío | ✅ |
+| `test_returns_the_customer_with_a_signed_url` | 200 con el cliente y `photo_url` firmada | ✅ |
+| `test_stored_under_the_customer_prefix` | Clave `businesses/{id}/customers/{customer_id}/photo/….webp`; la base guarda la clave | ✅ |
+| `test_every_customer_response_carries_the_photo[list / lookup / id]` | `photo_url` sale en la lista, en la búsqueda por código y en la ficha (3 casos) | ✅ |
+| `test_cashier_sees_it_at_the_counter` | El empleado la ve al buscar la tarjeta en caja | ✅ |
+| `test_without_photo_it_is_null` | Sin foto → `null` | ✅ |
+| `test_replacing_deletes_the_previous_file` | Reemplazar deja un solo archivo | ✅ |
+| `test_unknown_customer_is_404` | Cliente inexistente → 404 en subir y borrar | ✅ |
+| `test_too_large` · `test_not_an_accepted_image[text / gif]` | 413 `image_too_large` y 422 `image_invalid`, sin tocar el bucket | ✅ |
+| `test_rejected_upload_keeps_the_current_photo` | Una subida rechazada no borra la foto actual | ✅ |
+| `test_delete_removes_file_and_reference` · `test_delete_without_photo_is_200` | Borra archivo y referencia; sin foto responde 200 | ✅ |
+| `test_cancelling_deletes_the_photo` | **Cancelar la membresía borra la foto** del bucket y de la base | ✅ |
+| `test_cancelled_card_cannot_get_a_photo` | Tarjeta cancelada → 409 `customer_cancelled` | ✅ |
+| `test_cancelling_without_photo_still_works` | Cancelar sin foto sigue funcionando | ✅ |
+| `TestStorageDisabled` (2) | Sin almacenamiento: subir → 503; una foto guardada se reporta `null` | ✅ |
+
+**Aislamiento — `tests/api/test_isolation_customer_photo.py` (4)**
+
+| Prueba | Verifica | Resultado |
+|--------|----------|-----------|
+| `test_b_cannot_upload_a_photo_to_a_customer_of_a` | 404 y el cliente de A sigue sin foto | ✅ |
+| `test_b_cannot_delete_the_photo_of_a_customer_of_a` | 404 y el archivo de A sigue en el bucket | ✅ |
+| `test_b_never_sees_the_photo_of_a` | 0 filas de A en la lista de B; A es 404 por id y por código | ✅ |
+| `test_photos_are_separated_by_business_prefix` | Cada negocio en su prefijo `businesses/{id}/` | ✅ |
+
+**Foto de perfil — `tests/api/test_profile_photo.py` (11)**
+
+| Prueba | Verifica | Resultado |
+|--------|----------|-----------|
+| `test_unauthenticated` | Sin sesión → 401 | ✅ |
+| `test_every_role_can_change_its_own_photo[admin / employee / platform]` | Los tres roles suben la suya y aparece en `/auth/me` (3 casos) | ✅ |
+| `test_key_layout` | Bajo el negocio del usuario; el dueño de plataforma, bajo `platform/users/` | ✅ |
+| `test_user_list_shows_signed_urls_not_keys` | `/user/list` devuelve URLs firmadas, nunca claves | ✅ |
+| `test_replacing_deletes_the_previous_file` · `test_delete` · `test_validation` · `test_storage_disabled` | Mismo comportamiento que el logo | ✅ |
+| `test_one_user_never_touches_another` | Sin id en la ruta: cada petición actúa sobre el usuario de la sesión | ✅ |
+
+**Logo en plataforma — `tests/api/test_platform.py`, `TestLogo` (3)**
+
+| Prueba | Verifica | Resultado |
+|--------|----------|-----------|
+| `test_logo_is_a_signed_url` | El negocio con logo lo muestra firmado; el que no tiene, `null` | ✅ |
+| `test_external_url_passes_through` | Una URL externa pasa tal cual | ✅ |
+| `test_stored_key_without_storage_is_null` | Sin almacenamiento, una clave se reporta `null` | ✅ |
 
 ### 5.6 Usuarios — `tests/api/test_user.py` (53)
 
