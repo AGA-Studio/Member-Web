@@ -71,36 +71,45 @@ uv run uvicorn main:app --reload
 
 Documentación interactiva de la API: <http://127.0.0.1:8000/docs> · salud: <http://127.0.0.1:8000/health>
 
+### La app completa con una orden
+
+Para correr todo —base, API y frontend— sin `uv run` ni `npm run dev`: el perfil `stack` levanta las
+imágenes publicadas en GHCR, las dos con el esquema ya aplicado y el frontend compilado contra el API
+interno.
+
+```bash
+cp .env.example .env                  # una vez; cambia SECRET_KEY
+docker compose --profile stack pull
+docker compose --profile stack up -d --wait
+docker compose --profile stack exec api python -m scripts.seed
+```
+
+Frontend en <http://localhost:3000>, API en <http://127.0.0.1:8000>, correo en <http://localhost:8025>.
+El seed es idempotente, así que se puede repetir sin duplicar nada.
+
+`pull` es el único paso que refresca las imágenes: el perfil usa `pull_policy: missing`, así que `up` no
+baja versiones nuevas por su cuenta. Para el ensayo sin internet se hace el `pull` con red, se fijan los
+tags que se van a ensayar y después se repite `up` sin red.
+
+| Variable | Sin definir | Para el ensayo |
+|---|---|---|
+| `API_IMAGE_TAG` | `latest` (lo último de `main`) | un `sha-<7>` inmutable |
+| `WEB_IMAGE_TAG` | `stack` (el último respaldo del frontend) | un `sha-<7>-stack` inmutable |
+
 ### Solo el frontend
 
 Si trabajas [Member-Plus-Frontend](https://github.com/AGA-Studio/Member-Plus-Frontend) y no vas a tocar
-el API, no corras `uvicorn`: el perfil `stack` del compose levanta la imagen publicada en GHCR contra la
-base local, con migraciones y todo. Solo necesitas Docker y este repo clonado.
+el API, no corras `uvicorn`: el perfil `stack` levanta la imagen publicada en GHCR contra la base local,
+con migraciones y todo. Solo necesitas Docker y este repo clonado.
 
 ```bash
 docker compose --profile stack up -d db storage mail api
 docker compose --profile stack exec api python -m scripts.seed
 ```
 
-El API queda en `127.0.0.1:8000`, que es lo que espera `npm run dev` del frontend. No levantes el
-servicio `web` del perfil: pelea el puerto 3000. Guía completa en
+El API queda en `127.0.0.1:8000`, que es lo que espera `npm run dev` del frontend. Aquí se nombran los
+servicios a propósito, para no levantar `web`: pelea el puerto 3000 con `next dev`. Guía completa en
 [docs/DEPLOY.md](docs/DEPLOY.md), sección 9.
-
-### Solo el backend (el frontend ya compilado)
-
-Al revés, para ver la interfaz sin instalar Node: el servicio `web` del perfil `stack` corre la imagen
-del frontend compilada con el API interno (`API_INTERNAL_URL=http://api:8000`) y la sirve en
-`localhost:3000`.
-
-```bash
-export WEB_IMAGE_TAG=sha-abc1234-stack   # el tag que imprimió el run del workflow
-docker compose --profile stack up -d db storage mail api web
-```
-
-**La imagen `-stack` no se publica en cada push**: sale solo con *Actions → Image → Run workflow* y la
-casilla `stack`, y el run imprime el `sha-<7>-stack` que va en `WEB_IMAGE_TAG`. Si no hay ninguno
-publicado, el `pull` de `web` falla y hay que publicarlo primero. Para el día a día del backend no hace
-falta: lo normal es `npm run dev` en el repo del frontend.
 
 ### Usuarios de demo
 
