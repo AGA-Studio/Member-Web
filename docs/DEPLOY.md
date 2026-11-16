@@ -25,7 +25,7 @@ El API se despliega como **imagen Docker** construida en GitHub Actions y public
 8. [Probar la imagen en local](#8-probar-la-imagen-en-local)
 9. [Respaldo local de la demo (perfil stack)](#9-respaldo-local-de-la-demo-perfil-stack)
 10. [Problemas comunes](#10-problemas-comunes)
-11. [Respaldos de producción en Backblaze B2](#11-respaldos-de-producción-en-backblaze-b2)
+11. [Respaldos de producción: base en Coolify y objetos en B2](#11-respaldos-de-producción-base-en-coolify-y-objetos-en-b2)
 
 ---
 
@@ -294,47 +294,86 @@ FastAPI los expone salvo que se desactiven. Decisión pendiente: cerrarlos cuand
 
 ---
 
-## 11. Respaldos de producción en Backblaze B2
+## 11. Respaldos de producción: base en Coolify y objetos en B2
 
-Plan de recuperación (DRP) de la base de producción. La decisión está cerrada en la wiki (*Decisiones por validar*: «`pg_dump` diario + restic, con restauración probada») y el diseño completo está en *Servicios de terceros: Turnstile en el login y respaldos en B2*. **No hay código del API involucrado:** todo vive en el host, fuera del repo.
+Plan de recuperación (DRP). La decisión está cerrada en la wiki (*Decisiones por validar*: «¿Cómo se respalda?») y el diseño completo en *Servicios de terceros: Turnstile en el login y respaldos en B2*.
 
-> Estado: ⬜ **pendiente de la primera corrida.** Falta crear el bucket y la clave en B2, correr el script una vez y probar la restauración. Esta sección se marca como hecha cuando la prueba de restauración pase.
+**Estado (15 nov 2026):** ✅ los dos respaldos corren y la copia de objetos está verificada byte a byte. ⬜ falta la prueba de restauración **de la base** (paso 4), que es la que cierra la viñeta de la entrega.
+
+Son dos capas porque son dos cosas distintas: la **base** y los **objetos del bucket de imágenes**. El respaldo de la base no incluye los objetos, y un borrado accidental de un logo deja la fila apuntando a un archivo que ya no existe.
 
 ```mermaid
 flowchart LR
-    CRON["cron del host<br/>10 3 * * *"] --> SH["~/backups/scripts/backup-memberplus.sh<br/>(reusa lib.sh: log, avisos, retención)"]
-    SH -->|"lxc exec → pg_dump -Fc memberplus"| PG[("Postgres en coolify-vm")]
-    SH --> STG["staging en /mnt/storage<br/>(1 día de dumps)"]
-    STG -->|"restic backup"| B2[("b2:memberplus-restic:pg<br/>bucket y clave propios")]
+    PG[("Postgres memberplus<br/>en coolify-vm")] -->|"backup nativo de Coolify<br/>10 3 * * *"| B2[("Backblaze B2<br/>bucket memberplus-restic")]
+    R2[("Cloudflare R2<br/>bucket memberplus")] -->|"rclone copy (host)<br/>40 3 * * *"| B2
+    B2 -->|"Restore / pg_restore"| DRILL["Base desechable<br/>memberplus_drill"]
 ```
+
+### Capa 1 — la base, con el backup nativo de Coolify
 
 | Pieza | Valor |
 |-------|-------|
-| Dump | `pg_dump -Fc` de la base `memberplus`, por `lxc exec` al contenedor de Postgres de `coolify-vm` |
-| Script | `~/backups/scripts/backup-memberplus.sh` en el host (no está en este repo) |
-| Repositorio restic | `b2:memberplus-restic:pg`, con bucket y clave de aplicación propios, separados de la cuenta personal |
-| Cuándo | cron `10 3 * * *`, después del pipeline personal de las 02:30 |
-| Retención | `--keep-daily 7 --keep-weekly 5 --keep-monthly 6`, y un día de dumps en staging |
+| Recurso | PostgreSQL del proyecto **Member+** (`bms3axi9fxhwfeoeagvrdjzc`) |
+| Base respaldada | `memberplus` — se configura con **Specific databases**; ver la advertencia de abajo |
+| Programación | `10 3 * * *`, en la zona horaria del servidor (campo de solo lectura) |
+| Destino | backup storage `Blackblaze MemberPlus` → bucket `memberplus-restic`, región `us-west-004`, path style activo |
+| Retención | 3 días en local, 30 días en B2 |
+| Avisos | Coolify notifica el primer fallo, como máximo una vez al día, y avisa cuando vuelve a funcionar |
 
-**Por qué en el host y no dentro de Coolify.** El respaldo no debe vivir dentro de lo que respalda: `coolify-vm` es descartable (sin snapshots, su único rollback es `lxc copy`), su disco es pequeño y no tiene `/mnt/storage`, donde viven la caché y el staging de restic. Si el PaaS se reconstruye, la contraseña del repositorio y el binario tienen que sobrevivir fuera. Los backups nativos de Coolify no cuentan como respaldo de verdad (solo cubren la base, no cifran en el cliente y su restauración no queda probada); siguen sirviendo como conveniencia, por ejemplo el `pg_dump` manual antes de una migración destructiva de la [sección 6](#6-migraciones-y-datos). Se usa cron y no un timer de systemd porque es lo que se vio en clase y basta para el prototipo.
+Los dumps locales quedan en `/data/coolify/backups/databases/<proyecto>/<recurso>/pg-dump-memberplus-*.dmp`, dentro de `coolify-vm`, y se descargan desde la misma pantalla del panel.
 
-### Pasos pendientes (DevOps)
+> **La advertencia que cuesta el respaldo entero:** el contenedor tiene `POSTGRES_DB=postgres`, pero los datos viven en `memberplus`. Si el schedule se deja en *All databases*, Coolify corre `pg_dumpall` sobre lo que el contenedor considera su base y el respaldo sale del catálogo, no de los datos. El nuestro usa *Specific databases* → `memberplus`, y el nombre del archivo lo confirma: `pg-dump-memberplus-*.dmp`.
 
-1. **B2:** crear el bucket privado `memberplus-restic` y una *application key* limitada a ese bucket. La clave y la contraseña de restic se guardan solo en el host (y en el gestor de contraseñas del equipo), nunca en el repo ni en la wiki.
-2. **Inicializar el repositorio** restic `b2:memberplus-restic:pg` y correr el script una vez a mano.
-3. **Agregar la línea de cron** `10 3 * * *` en el host.
-4. **Probar la restauración** en una base desechable (nunca en `memberplus`):
-   - restaurar el último snapshot con `restic restore latest` a un directorio temporal;
-   - crear una base vacía y cargar el dump con `pg_restore --no-owner`;
-   - comprobar que `alembic_version` coincide con producción y que los conteos de `businesses`, `users` y `customers` cuadran;
-   - borrar la base desechable.
-5. Guardar como evidencia para la Etapa 4 la salida de `restic snapshots` y el resultado de la restauración, y marcar el estado de esta sección como ✅.
-6. **Imágenes en R2 (pendiente, 14 nov 2026).** Este respaldo cubre la base, **no** el bucket de imágenes. Los objetos de `memberplus` en Cloudflare R2 no están en `pg_dump` ni en restic: falta un `rclone sync` R2 → B2 con su propia línea de cron, y una prueba de restauración del bucket tan real como la de la base. Mientras no exista, un borrado accidental en R2 se lleva todos los logos ([STORAGE.md, sección 8](STORAGE.md#8-producción)).
+### Capa 2 — los objetos de imágenes, con rclone en el host
+
+| Pieza | Valor |
+|-------|-------|
+| Origen | `r2:memberplus` (bucket privado; el navegador abre cada logo con una URL firmada de 1 h) |
+| Script | `~/backups/scripts/backup-memberplus-images.sh` en el host, fuera de este repo |
+| Destino | `b2mp:memberplus-restic/images/` — mismo bucket de B2, prefijo propio |
+| Cuándo | cron `40 3 * * *`, después del respaldo de la base |
+| Credenciales | token de R2 **solo lectura** y clave de B2 en `~/.config/restic/*.env` con `chmod 600` |
+
+**`copy` y no `sync`.** `sync` espeja: lo que se borra en R2 desaparecería también de B2, que es justo lo que hay que evitar. `copy` es append-only. Y en este proyecto basta, porque cada subida estrena clave (`businesses/<id>/logo/<uuid>.webp`): nunca se sobrescribe un objeto, así que el único evento destructivo es un borrado explícito — y queda conservado en B2.
+
+**Por qué los objetos van fuera de Coolify.** Coolify no tiene sincronizado de buckets; solo *scheduled tasks*, que corren dentro del contenedor de una app. Poner ahí el script obligaría a darle al contenedor del API una llave del bucket de respaldos —el mismo donde están los dumps de la base— y un fallo en la aplicación pasaría a ser acceso a los respaldos. En el host la llave no toca la aplicación.
+
+### Por qué la base sí va en Coolify
+
+Con 8.5 MB de base y un dump de ~41 KB, lo que decide no es la deduplicación ni el cifrado en cliente de restic: es que el respaldo se vea y se administre donde el equipo ya trabaja, con historial de ejecuciones y avisos incluidos. Lo que se pierde, dicho claro: el dump va **sin cifrar** al bucket. Lo compensan el bucket privado, la clave limitada a ese bucket y el cifrado en reposo de Backblaze.
+
+Antes del 15 nov 2026 esto era un script con `restic` en el host (`backup-memberplus.sh`, repo `b2:memberplus-restic:pg`). Se retiró al pasar al respaldo nativo: su cron ya no existe y el repositorio viejo sigue en el bucket bajo el prefijo `pg/`, sin uso. Se conservó el script solo por si algún día hay que respaldar el volumen de RustFS en local.
+
+Se usa **cron y no un timer de systemd** porque es lo que se vio en clase y basta para el prototipo.
+
+### Cómo se restaura
+
+**Base.** El *Import backup* del panel restaura sobre la base configurada del recurso, que aquí es `postgres`, y en PostgreSQL Coolify no permite elegir destino. Para restaurar sobre `memberplus` se usa `pg_restore` (revisa siempre **Show import command** antes de lanzar el Import del panel):
+
+```bash
+PG=bms3axi9fxhwfeoeagvrdjzc
+DUMP=/data/coolify/backups/databases/member-0/memberplus-db-bms3axi9fxhwfeoeagvrdjzc/pg-dump-memberplus-<id>.dmp
+
+# base desechable para probar
+lxc exec coolify-vm -- docker exec $PG psql -U postgres -c "CREATE DATABASE memberplus_drill;"
+lxc exec coolify-vm -- bash -lc "cat '$DUMP'" | lxc exec coolify-vm -- docker exec -i $PG pg_restore -U postgres -d memberplus_drill --no-owner
+lxc exec coolify-vm -- docker exec $PG psql -U postgres -c "DROP DATABASE memberplus_drill;"
+```
+
+Para una restauración real sobre `memberplus`: detener la app `MemberPlus backend` en Coolify, usar el mismo `pg_restore` con `--clean --if-exists`, y volver a arrancarla.
+
+**Objetos.** Traer el objeto desde B2, a R2 o a disco:
+
+```bash
+rclone copy b2mp:memberplus-restic/images/businesses/1/logo/<uuid>.webp /tmp/
+```
 
 ### Cómo se verifica
 
-| Qué | Cómo |
-|-----|------|
-| Los respaldos corren | `restic snapshots` muestra uno por día |
-| La retención se aplica | `restic forget --dry-run` con la política de arriba no deja más de 7 diarios, 5 semanales y 6 mensuales |
-| Se pueden usar | La restauración del paso 4 termina sin errores y los conteos cuadran |
+| Qué | Cómo | Estado |
+|-----|------|--------|
+| El respaldo de la base corre | Una ejecución por día en la pestaña *Backups*, con estado correcto y su tamaño | ✅ 15 nov 2026: `success`, 41 703 B |
+| El archivo llega a B2 | El objeto aparece en el bucket `memberplus-restic` | ✅ |
+| La base se puede recuperar | `pg_restore` a `memberplus_drill` y los conteos de `businesses`, `users`, `tiers` y `customers` iguales a producción | ⬜ pendiente |
+| Los objetos se copian | `rclone size` en R2 y en B2 coincide en objetos y bytes; MD5 igual por objeto | ✅ 15 nov 2026: 2 objetos, 44 216 B, MD5 idénticos |
+| Los objetos se pueden recuperar | `rclone copy` desde B2 y el archivo abre como `image/webp` | ✅ 15 nov 2026 |
