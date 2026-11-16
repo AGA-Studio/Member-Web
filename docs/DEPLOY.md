@@ -211,19 +211,17 @@ curl -s http://127.0.0.1:8001/health   # {"status":"ok"}
 
 El compose de desarrollo levanta Postgres, Mailpit (correo) y RustFS (almacenamiento de imágenes, ver [STORAGE.md](STORAGE.md)). Para el ensayo sin internet, el mismo `docker-compose.yml` trae un perfil `stack` que suma `api` y `web` **sin construir nada**: las dos imágenes se publican en GHCR y en local solo se hace `pull`.
 
-El perfil tiene dos usos: el ensayo del respaldo y el desarrollo del frontend por quien no toca el API ([Para quien solo toca el frontend](#para-quien-solo-toca-el-frontend)).
+El perfil tiene dos usos: correr la app completa —el ensayo del respaldo y la demo— y el desarrollo del frontend por quien no toca el API ([Para quien solo toca el frontend](#para-quien-solo-toca-el-frontend)).
 
 | Servicio | Imagen | Qué es |
 |---|---|---|
 | `db` | `postgres:18` | Base del stack (volumen `pgdata`) |
 | `api` | `ghcr.io/aga-studio/member-web:${API_IMAGE_TAG:-latest}` | API, la misma imagen que producción. Sin variable = `latest` |
-| `web` | `ghcr.io/aga-studio/member-plus-frontend:${WEB_IMAGE_TAG:-sha-local-stack}` | Frontend compilado con `API_INTERNAL_URL=http://api:8000` |
+| `web` | `ghcr.io/aga-studio/member-plus-frontend:${WEB_IMAGE_TAG:-latest}` | El mismo frontend de producción. Sin variable = `latest` |
 
-**Por qué el frontend usa una imagen `-stack` y no la normal.** El `rewrite` de `/api/*` se evalúa en `next build` y queda horneado en la imagen. La imagen de producción apunta a `https://api-memberplus.neyzt.org`, así que en localhost y sin internet el navegador intentaría llamar a producción. La imagen `-stack` se construye con el build-arg interno y **solo sirve para este compose**: no se despliega en Coolify. Se publica desde el workflow *Image* del repo del frontend con `workflow_dispatch` y la casilla `stack`; el run imprime el tag `sha-<7>-stack` — inmutable, ligado al commit, como el resto de las imágenes — y aquí se fija a mano con `WEB_IMAGE_TAG`, igual que el tag de versión en Coolify.
+**El frontend es la misma imagen de producción.** El navegador pide `/api/*` al frontend y su proxy (`src/proxy.ts`) lo reenvía a `API_INTERNAL_URL`, que se resuelve **en runtime**: este compose la fija a `http://api:8000`, el nombre del servicio en la red de Compose. Por eso no hay un build aparte ni un tag especial, y por eso el stack funciona sin internet.
 
-**Desde dónde se lanza importa.** El workflow *Image* siempre corre el job `build`, que publica `latest` y —si la rama es `main`— pide el deploy a Coolify. Para publicar solo el respaldo sin tocar producción, lanza *Run workflow* desde una rama temporal que apunte al mismo commit que `main`: el tag `sha-<7>-stack` sale idéntico y el paso de Coolify no corre. Si no hay ninguna imagen `-stack` publicada, el `pull` de `web` falla con `manifest unknown`.
-
-Con `pull_policy: missing` un `up` normal no refresca una imagen que ya está local: después de publicar un tag nuevo, correr `docker compose --profile stack pull`.
+Con `pull_policy: missing` un `up` normal no refresca una imagen que ya está local: cuando el API o el frontend avancen, correr `docker compose --profile stack pull`.
 
 ### Para quien solo toca el frontend
 
@@ -248,11 +246,11 @@ Cuatro cosas que no son obvias:
 
 ### Antes del ensayo (con internet)
 
-Para el ensayo se fijan **los dos tags**, y el del API no es opcional: sin `API_IMAGE_TAG` el perfil usa `latest`, que se mueve con cada push a `main` y dejaría el ensayo apuntando a lo último en vez de a lo que se ensayó.
+Sin variables el perfil ya arranca la app completa, pero el ensayo se hace **fijando los dos tags**: `latest` se mueve con cada push a `main`, así que sin fijarlos el ensayo apuntaría a lo último en vez de a lo que se ensayó.
 
 ```bash
-export WEB_IMAGE_TAG=sha-abc1234-stack   # el tag que imprimió el run del workflow
-export API_IMAGE_TAG=sha-abc1234         # sha del API que se quiere ensayar, inmutable
+export API_IMAGE_TAG=sha-abc1234    # sha del API que se quiere ensayar
+export WEB_IMAGE_TAG=sha-abc1234    # el del frontend; mismo commit si se puede
 docker compose --profile stack pull
 docker compose --profile stack up -d --wait
 docker compose --profile stack exec api python -m scripts.seed
