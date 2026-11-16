@@ -1,6 +1,9 @@
 # Local database, mail catcher, image storage, plus a full stack for the demo backup.
 #   docker compose up -d                    → db + mail + storage (desarrollo diario)
 #   docker compose --profile stack up -d    → db + api + web (respaldo de la demo)
+#   docker compose --profile stack up -d db storage mail api
+#                                           → el backend publicado, para quien solo
+#                                             trabaja el frontend (sin uvicorn)
 #
 # El perfil `stack` solo hace pull de imágenes publicadas en GHCR: no construye
 # nada. Detalle y cronometraje en docs/DEPLOY.md (sección 9).
@@ -59,7 +62,10 @@ services:
 
   api:
     profiles: ["stack"]
-    image: ghcr.io/aga-studio/member-web:${API_IMAGE_TAG:-0.0.1}
+    # `latest` es el tag que mueve cada push a `main`: el que quieres si solo
+    # trabajas el frontend y necesitas el API al día. Para el ensayo de la demo
+    # se fija un `sha-<7>` inmutable en API_IMAGE_TAG (ver .env.example).
+    image: ghcr.io/aga-studio/member-web:${API_IMAGE_TAG:-latest}
     pull_policy: missing
     container_name: memberplus-api
     restart: unless-stopped

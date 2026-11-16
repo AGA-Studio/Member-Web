@@ -71,6 +71,37 @@ uv run uvicorn main:app --reload
 
 Documentación interactiva de la API: <http://127.0.0.1:8000/docs> · salud: <http://127.0.0.1:8000/health>
 
+### Solo el frontend
+
+Si trabajas [Member-Plus-Frontend](https://github.com/AGA-Studio/Member-Plus-Frontend) y no vas a tocar
+el API, no corras `uvicorn`: el perfil `stack` del compose levanta la imagen publicada en GHCR contra la
+base local, con migraciones y todo. Solo necesitas Docker y este repo clonado.
+
+```bash
+docker compose --profile stack up -d db storage mail api
+docker compose --profile stack exec api python -m scripts.seed
+```
+
+El API queda en `127.0.0.1:8000`, que es lo que espera `npm run dev` del frontend. No levantes el
+servicio `web` del perfil: pelea el puerto 3000. Guía completa en
+[docs/DEPLOY.md](docs/DEPLOY.md), sección 9.
+
+### Solo el backend (el frontend ya compilado)
+
+Al revés, para ver la interfaz sin instalar Node: el servicio `web` del perfil `stack` corre la imagen
+del frontend compilada con el API interno (`API_INTERNAL_URL=http://api:8000`) y la sirve en
+`localhost:3000`.
+
+```bash
+export WEB_IMAGE_TAG=sha-abc1234-stack   # el tag que imprimió el run del workflow
+docker compose --profile stack up -d db storage mail api web
+```
+
+**La imagen `-stack` no se publica en cada push**: sale solo con *Actions → Image → Run workflow* y la
+casilla `stack`, y el run imprime el `sha-<7>-stack` que va en `WEB_IMAGE_TAG`. Si no hay ninguno
+publicado, el `pull` de `web` falla y hay que publicarlo primero. Para el día a día del backend no hace
+falta: lo normal es `npm run dev` en el repo del frontend.
+
 ### Usuarios de demo
 
 En desarrollo, el seed usa la contraseña `demo12345` (o la de `SEED_PASSWORD` en el `.env`).
