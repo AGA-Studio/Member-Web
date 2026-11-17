@@ -26,7 +26,7 @@ Documentación de la suite de pruebas automatizadas del backend: qué se prueba,
 | Fallas | **0** |
 | Cobertura de líneas y ramas | **99 %** en `services/` (979 statements). **100 %** en `api/`, `core/`, `models/`, `main.py` y en `schemas/` salvo `checkout_schema.py` (89 %). `scripts/seed.py` queda en 99 % y `scripts/review_pr.py` (el revisor del CI) en 60 %, por eso el total marca **96 %** |
 | Bases de datos probadas | SQLite y **PostgreSQL 18.6** |
-| Tiempo | **1:04** en SQLite con 778 pruebas (homeserver, i5-8500) · el job `test` del CI tarda ~1m20s (pytest 54 s) y `test (postgres)` ~2m30s |
+| Tiempo | **1:04** en SQLite con 778 pruebas (homeserver, i5-8500) · el job `test` del CI tarda ~1m15s (pytest 61 s) y `test (postgres)` ~1m50s (pytest 82 s) |
 | Criterio del MVP "0 filas de otro negocio" | ✅ Cumplido (7 pruebas de usuarios + 4 de niveles + 9 de clientes + 4 de caja + 3 de movimientos + 3 del enlace a la tarjeta + 4 del logo + 4 de la foto del cliente) |
 | Migraciones (Alembic) | ✅ Suben, bajan, convierten datos y coinciden con los modelos (9 pruebas) |
 | Hallazgos | ✅ Los 7 corregidos (H1–H7) |
@@ -1095,7 +1095,9 @@ $ uv run pytest -q
 
 ### PostgreSQL 18.6
 
-La suite contra PostgreSQL no se corre en el equipo local: la corre el job `test (postgres)` del CI, con un servicio `postgres:18`, conexión real desde el engine, migraciones en una base aparte y `alembic check`. El job completo tarda **~2m30s**, incluidos el arranque del servicio y los pasos de migración. En local sigue funcionando igual que antes, con `TEST_DATABASE_URL` (sección 2).
+La suite contra PostgreSQL no se corre en el equipo local: la corre el job `test (postgres)` del CI, con un servicio `postgres:18`, conexión real desde el engine, migraciones en una base aparte y `alembic check`. El job completo tarda **~1m50s** (pytest 82 s), incluidos el arranque del servicio y los pasos de migración. En local sigue funcionando igual que antes, con `TEST_DATABASE_URL` (sección 2).
+
+El esquema se crea **una vez por corrida** y cada prueba lo vacía con un solo `TRUNCATE ... RESTART IDENTITY CASCADE`: recrear las diez tablas en cada prueba costaba ~120 ms de trabajo de catálogo y era el 60 % del tiempo del job. Si el esquema no es el que produce `create_all` —lo dejan así los tests de migraciones—, la limpieza cae al `drop_all` + `create_all` de siempre.
 
 ### Cobertura
 
