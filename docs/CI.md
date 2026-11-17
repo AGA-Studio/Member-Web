@@ -29,7 +29,7 @@ El proyecto se revisa en **GitHub Actions** con dos archivos: [`.github/workflow
 | GitHub no mostraba el error en la línea del código | `ruff` anota archivo y línea en el diff |
 | El lock podía quedar desincronizado del `pyproject.toml` | `uv sync --locked` falla si eso pasa |
 
-Lo que el CI **no** hace: desplegar, medir cobertura (pendiente) ni probar el frontend (vive en [su propio repo](https://github.com/AGA-Studio/Member-Plus-Frontend)).
+Lo que el CI **no** hace: desplegar ni probar el frontend (vive en [su propio repo](https://github.com/AGA-Studio/Member-Plus-Frontend)).
 
 ---
 
@@ -39,9 +39,23 @@ Los tres corren en paralelo. Si uno falla, los demás siguen hasta terminar (no 
 
 | Job | Qué corre | Tiempo típico |
 |-----|-----------|---------------|
-| `lint` | `uv sync --locked`, `ruff check --output-format=github .`, `ruff format --check .` | ~8 s |
-| `test` | `uv run pytest -q -rx` con el SQLite temporal de `tests/conftest.py` | ~22 s |
-| `test (postgres)` | Servicio `postgres:18`, conexión real desde el engine, `pytest` con `TEST_DATABASE_URL`, y migraciones en una base aparte | ~38 s |
+| `lint` | `uv sync --locked`, `ruff check --output-format=github .`, `ruff format --check .` | ~6 s |
+| `test` | `uv run pytest -q -ra` con el SQLite temporal de `tests/conftest.py`, con cobertura de `services/` (umbral 90 %) y el artefacto `cobertura` | ~1m50s (pytest: ~1m40s) |
+| `test (postgres)` | Servicio `postgres:18`, conexión real desde el engine, `pytest` con `TEST_DATABASE_URL`, y migraciones en una base aparte | ~3m |
+
+### El gate de cobertura
+
+El job `test` corre:
+
+```bash
+uv run pytest -q -ra --cov=services --cov-fail-under=90 \
+  --cov-report=term-missing --cov-report=xml
+```
+
+- **Umbral 90 %**, no el 60 % del MVP: `services/` está en 99 %, y con 60 el check pasaría aunque un módulo nuevo entrara sin una sola prueba.
+- El reporte queda como artefacto `cobertura` del run (14 días): es la evidencia citable del criterio, sin que nadie tenga que reproducirlo en su máquina.
+- Solo el job `test` mide: `test (postgres)` corre la misma suite contra PostgreSQL y duplicar la medición no aporta nada.
+- Referencia del umbral, medida el 16 nov 2026 en `5deebb8`: `TOTAL 979 statements, 6 sin cubrir, 4 ramas parciales → 99 %`. Los 6 son rutas de error (`checkout_service.py:214`, `customer_service.py:364-366`, `email_service.py:47` y `:59`).
 
 Los nombres de los jobs son lo que se marca como *required check* en GitHub, así que **no se renombran** sin avisar al equipo: si cambian, el PR se queda esperando un check que ya no existe.
 
@@ -154,7 +168,6 @@ Reglas:
 
 | Falta | Por qué importa | Dónde va |
 |-------|-----------------|----------|
-| Umbral de cobertura (`--cov-fail-under=60`) | `pytest-cov` ya está instalado y el MVP pide 60 %; hoy solo se mide a mano | Una línea en el job `test` |
 | `dependabot.yml` | Las actions se actualizan a mano | `.github/dependabot.yml` |
 | `docker compose up` desde cero | Es un criterio del MVP (≤ 3 min) | Job aparte, ahora que existe el `Dockerfile` |
 | Pruebas de RLS | Se escribirán con las políticas, en su migración | Job `test (postgres)` |
