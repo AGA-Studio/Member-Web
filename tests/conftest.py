@@ -22,7 +22,8 @@ os.environ["COOKIE_SECURE"] = "false"
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
-from sqlalchemy import event  # noqa: E402
+from sqlalchemy import event, text  # noqa: E402
+from sqlalchemy.exc import ProgrammingError  # noqa: E402
 from sqlmodel import Session, SQLModel  # noqa: E402
 
 from api.v1 import card_api  # noqa: E402
@@ -54,6 +55,28 @@ if engine.dialect.name == "sqlite":
         cursor.close()
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _postgres_schema() -> Generator[None]:
+    """PostgreSQL keeps its schema for the whole run; the tests only clear rows."""
+    if engine.dialect.name == "postgresql":
+        SQLModel.metadata.create_all(engine)
+        engine.dispose()
+    yield
+
+
+def _truncate_tables() -> None:
+    """Empty every table in a single statement, resetting the identifiers.
+
+    One `TRUNCATE` instead of twenty DDL statements: on PostgreSQL the cost of
+    `drop_all` + `create_all` is catalog work (~120 ms per test), not disk.
+    Raises if the tables are not the ones `create_all` builds, which is the
+    state `tests/db/test_migrations.py` leaves behind.
+    """
+    tables = ", ".join(f'"{table.name}"' for table in SQLModel.metadata.sorted_tables)
+    with engine.begin() as connection:
+        connection.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
+
+
 @pytest.fixture
 def _clean_database() -> Generator[None]:
     """Every test that opens a session starts with empty tables.
@@ -63,10 +86,21 @@ def _clean_database() -> Generator[None]:
     database has no reason to pay it. `session` and `client` request this
     fixture, so any test using the database gets it.
     """
+    if engine.dialect.name == "postgresql":
+        try:
+            _truncate_tables()
+        except ProgrammingError:
+            # The migrations tests dropped the tables and rebuilt them with
+            # Alembic: restore the schema `create_all` produces before going on.
+            SQLModel.metadata.drop_all(engine)
+            SQLModel.metadata.create_all(engine)
+        yield
+        return
+
     SQLModel.metadata.drop_all(engine)
     SQLModel.metadata.create_all(engine)
-    # Pooled PostgreSQL connections keep prepared statements for the old tables
-    # ("cached plan must not change result type"); start each test with fresh ones.
+    # SQLite has no prepared statements to invalidate; disposing here is what
+    # makes the next connection pick up the pragmas above.
     engine.dispose()
     yield
 
