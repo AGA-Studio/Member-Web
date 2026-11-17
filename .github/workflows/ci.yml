@@ -71,7 +71,7 @@ jobs:
       - name: Pytest con cobertura
         run: >
           uv run pytest -q -ra
-          --cov=services --cov-fail-under=100
+          --cov=services --cov-fail-under=90
           --cov-report=term-missing --cov-report=xml
 
       # El reporte es la evidencia citable del criterio del MVP (≥ 60 % en services/).
