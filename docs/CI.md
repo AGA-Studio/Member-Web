@@ -40,8 +40,8 @@ Los tres corren en paralelo. Si uno falla, los demás siguen hasta terminar (no 
 | Job | Qué corre | Tiempo típico |
 |-----|-----------|---------------|
 | `lint` | `uv sync --locked`, `ruff check --output-format=github .`, `ruff format --check .` | ~6 s |
-| `test` | `uv run pytest -q -ra` con el SQLite temporal de `tests/conftest.py`, con cobertura de `services/` (umbral 90 %) y el artefacto `cobertura` | ~1m50s (pytest: ~1m40s) |
-| `test (postgres)` | Servicio `postgres:18`, conexión real desde el engine, `pytest` con `TEST_DATABASE_URL`, y migraciones en una base aparte | ~3m |
+| `test` | `uv run pytest -q -ra` con el SQLite temporal de `tests/conftest.py`, con cobertura de `services/` (umbral 90 %) y el artefacto `cobertura` | ~1m20s (pytest: ~54 s) |
+| `test (postgres)` | Servicio `postgres:18`, conexión real desde el engine, `pytest` con `TEST_DATABASE_URL`, y migraciones en una base aparte | ~2m35s |
 
 ### El gate de cobertura
 
