@@ -21,12 +21,12 @@ Documentación de la suite de pruebas automatizadas del backend: qué se prueba,
 
 | Métrica | Valor |
 |---------|-------|
-| Fecha de ejecución | 12 de noviembre de 2026 |
-| Pruebas | **775**, todas pasan (0 `xfail`); conteo del 16 nov 2026 con niveles, clientes, caja, movimientos, plataforma, entrega de la tarjeta digital, pagos de membresía, logo con almacenamiento S3, Turnstile en el login y fotos de cliente y de perfil |
+| Fecha de ejecución | 16 de noviembre de 2026, sobre `main` en `5deebb8` |
+| Pruebas | **778**, todas pasan (0 `xfail`); conteo del 16 nov 2026 con niveles, clientes, caja, movimientos, plataforma, entrega de la tarjeta digital, pagos de membresía, logo con almacenamiento S3, Turnstile en el login, fotos de cliente y de perfil y la plantilla del correo |
 | Fallas | **0** |
-| Cobertura de líneas y ramas | **100 %** en `api/`, `core/`, `models/`, `schemas/`, `services/` y `scripts/seed.py`. `scripts/review_pr.py` (revisor del CI) queda en 60 %, por eso el total marca 92 % |
+| Cobertura de líneas y ramas | **99 %** en `services/` (979 statements). **100 %** en `api/`, `core/`, `models/`, `main.py` y en `schemas/` salvo `checkout_schema.py` (89 %). `scripts/seed.py` queda en 99 % y `scripts/review_pr.py` (el revisor del CI) en 60 %, por eso el total marca **96 %** |
 | Bases de datos probadas | SQLite y **PostgreSQL 18.6** |
-| Tiempo | ~17 s en SQLite · ~42 s en PostgreSQL (equipo local) |
+| Tiempo | **13:12** en SQLite con 778 pruebas (homeserver, i5-8500) · el job `test` del CI tarda ~2 min y `test (postgres)` ~2m30s |
 | Criterio del MVP "0 filas de otro negocio" | ✅ Cumplido (7 pruebas de usuarios + 4 de niveles + 9 de clientes + 4 de caja + 3 de movimientos + 3 del enlace a la tarjeta + 4 del logo + 4 de la foto del cliente) |
 | Migraciones (Alembic) | ✅ Suben, bajan, convierten datos y coinciden con los modelos (9 pruebas) |
 | Hallazgos | ✅ Los 7 corregidos (H1–H7) |
@@ -61,8 +61,9 @@ No necesita Docker ni `.env`: cada ejecución crea una base SQLite temporal.
 ```bash
 uv run pytest                 # toda la suite
 uv run pytest -v              # con el nombre de cada prueba
-uv run pytest -rx             # muestra el motivo de cada xfail
-uv run pytest --cov           # con reporte de cobertura
+uv run pytest -ra             # resumen de skips, xfail y fallos
+uv run pytest --cov=services  # cobertura de services/, lo que mide el CI
+uv run pytest --durations=10  # las diez pruebas (o fixtures) más lentos
 uv run pytest tests/api/test_isolation.py      # un archivo
 uv run pytest -k "login"                       # por nombre
 ```
@@ -1069,15 +1070,15 @@ A una prueba que nunca falla no se le puede creer nada. Se inyectó una violaci�
 
 ## 6. Resultados de la ejecución
 
-Ejecutado el 12 de noviembre de 2026. Conteos y tiempos vueltos a medir al agregar las pruebas de reglas (sección 5.11): 217 + 12 = 229. Se corrieron en el homeserver (Ubuntu, Intel i5-8500), más lento que la laptop de la tabla de entorno, así que los tiempos no son comparables con corridas anteriores.
+Ejecutado el 16 de noviembre de 2026 sobre `main` en `5deebb8`, en el homeserver del equipo (Ubuntu 24.04, Intel i5-8500).
 
 ### Entorno
 
 | Componente | Versión |
 |------------|---------|
-| Sistema | Arch Linux, kernel 7.2.15 |
-| Python | 3.14.10 |
-| uv | 0.13.7 |
+| Sistema | Ubuntu 24.04.5, kernel 6.8.0 |
+| Python | 3.14.6 |
+| uv | 0.11.26 |
 | FastAPI | 0.162.4 |
 | SQLModel | 0.0.48 |
 | psycopg | 3.3.8 |
@@ -1089,66 +1090,61 @@ Ejecutado el 12 de noviembre de 2026. Conteos y tiempos vueltos a medir al agreg
 
 ```text
 $ uv run pytest -q
-........................................................................ [ 94%]
-.............                                                            [100%]
-229 passed in 85.38s (0:01:25)
+778 passed in 792.55s (0:13:12)
 ```
 
 ### PostgreSQL 18.6
 
-```text
-$ TEST_DATABASE_URL=postgresql+psycopg://...@localhost:5433/memberplus_test uv run pytest -q
-........................................................................ [ 94%]
-.............                                                            [100%]
-229 passed in 32.97s
-```
-
-Se ejecutó dos veces seguidas con el mismo resultado: las pruebas no dependen del orden ni dejan datos.
+La suite contra PostgreSQL no se corre en el equipo local: la corre el job `test (postgres)` del CI, con un servicio `postgres:18`, conexión real desde el engine, migraciones en una base aparte y `alembic check`. El job completo tarda **~2m30s**, incluidos el arranque del servicio y los pasos de migración. En local sigue funcionando igual que antes, con `TEST_DATABASE_URL` (sección 2).
 
 ### Cobertura
 
 ```text
 $ uv run pytest --cov
-Name                            Stmts   Miss Branch BrPart  Cover
------------------------------------------------------------------
-api/v1/auth_api.py                 42      0      6      0   100%
-api/v1/dependencies.py             55      0     16      0   100%
-api/v1/user_api.py                 55      0     16      0   100%
-core/config.py                     31      0      2      0   100%
-core/cors.py                        5      0      0      0   100%
-core/security.py                   17      0      0      0   100%
-db/database.py                     13      0      0      0   100%
-main.py                            22      0      2      0   100%
-models/__init__.py                  5      0      0      0   100%
-models/business_model.py           16      0      0      0   100%
-models/enum_utils.py                3      0      0      0   100%
-models/login_attempt_model.py       8      0      0      0   100%
-models/revoked_token_model.py       7      0      0      0   100%
-models/user_model.py               18      0      0      0   100%
-schemas/token_schema.py             5      0      0      0   100%
-schemas/user_schema.py             14      0      0      0   100%
-schemas/validators.py              13      0      4      0   100%
-scripts/seed.py                    62      0     20      0   100%
-services/auth_service.py           44      0     12      0   100%
------------------------------------------------------------------
-TOTAL                             435      0     78      0   100%
+Name                                 Stmts   Miss Branch BrPart  Cover   Missing
+--------------------------------------------------------------------------------
+scripts/review_pr.py                   155     65     32      2    60%   165-179, 183-192, 196-209, 235-236, 248-294, 317-327, 338-351
+scripts/seed.py                        136      1     42      1    99%   224
+services/auth_service.py                44      0     12      0   100%
+services/card_service.py               133      0     30      0   100%
+services/checkout_service.py            75      1     18      1    98%   214
+services/customer_service.py           232      3     62      1    99%   124->exit, 364-366
+services/email_service.py               53      2     10      2    94%   47, 59
+services/email_templates.py             41      0      2      0   100%
+services/image_service.py               34      0      6      0   100%
+services/logo_service.py                16      0      0      0   100%
+services/movement_service.py            58      0     12      0   100%
+services/payment_service.py             32      0      4      0   100%
+services/platform_service.py            27      0      6      0   100%
+services/pricing_service.py             16      0      2      0   100%
+services/profile_service.py             13      0      0      0   100%
+services/storage_service.py             54      0     10      0   100%
+services/tier_service.py                61      0     22      0   100%
+services/turnstile_service.py           29      0      8      0   100%
+services/upload_service.py              23      0      4      0   100%
+services/wallet_service.py              38      0      6      0   100%
+--------------------------------------------------------------------------------
+TOTAL                                 2145     73    352      8    96%
 ```
 
-El MVP pide ≥ 60 % de cobertura en `services/`. Hoy `services/auth_service.py` está al 100 %; la lógica de caja (hito H2) entrará en la misma carpeta.
+El resto de paquetes está en 100 % (`api/`, `core/`, `models/`, `main.py` y `schemas/` salvo `checkout_schema.py`, que queda en 89 % por una rama de validación).
+
+El MVP pide ≥ 60 % de cobertura en `services/`: hoy está en **99 %** —979 statements, 6 sin cubrir, todos rutas de error—, y desde el PR #60 el job `test` del CI mide ese número con `--cov=services --cov-fail-under=90` y falla si baja, así que ya no depende de que alguien lo corra a mano.
 
 ### Pruebas más lentas
 
 ```text
-0.54s  test_successful_login_resets_the_counter
-0.53s  test_after_the_lock_the_user_gets_five_new_attempts
-0.49s  test_old_failures_stop_counting
-0.33s  test_lock_expires_after_lockout_time
-0.32s  test_lock_is_per_email
+8.86s  setup   tests/api/test_user.py::TestCreateUser::test_create_admin
+7.60s  setup   tests/api/test_error_codes.py::TestLoginCodes::test_too_many_attempts_is_login_locked
+7.23s  setup   tests/api/test_user.py::TestCreateUser::test_business_id_in_body_is_ignored
+5.51s  setup   tests/api/test_movement.py::TestList::test_unknown_customer_is_an_empty_list
+4.75s  call    tests/api/test_isolation_customer_photo.py::test_photos_are_separated_by_business_prefix
+3.98s  setup   tests/unit/test_validators.py::test_valid_names_are_normalized[Ana\tMaría-Ana María]
 ```
 
-Son las del límite de login: cada una hace entre 5 y 10 logins, y cada login verifica Argon2id.
+Casi todo lo que aparece es **`setup`**, no la prueba: es el `drop_all` + `create_all` de las diez tablas que hace el fixture. Medido aparte, cuesta **605 ms por prueba** en este equipo, y hasta el PR #61 lo pagaban las 778, incluidas las de `tests/unit` que no tocan la base. Con ese PR (`_clean_database` deja de ser `autouse`), `tests/unit` pasa de ~121 s a **6.4 s**.
 
-Lo lento es Argon2id, que está hecho para ser costoso: verificar una contraseña tarda ~66 ms en promedio (medido con 20 verificaciones). Queda muy por debajo del criterio del MVP (login → panel en ≤ 2 s).
+Lo que sí es tiempo de prueba es Argon2id, que está hecho para ser costoso: verificar una contraseña tarda ~66 ms en promedio (medido con 20 verificaciones). Queda muy por debajo del criterio del MVP (login → panel en ≤ 2 s).
 
 ---
 
