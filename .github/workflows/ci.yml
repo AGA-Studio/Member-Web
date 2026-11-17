@@ -66,8 +66,23 @@ jobs:
         run: uv sync --locked
 
       # conftest.py usa un SQLite temporal; no hace falta servicio de base de datos.
-      - name: Pytest
-        run: uv run pytest -q -rx
+      # La cobertura se mide en este job, el más rápido de los dos: si baja del
+      # umbral el PR se frena antes de mergear, no al preparar la entrega.
+      - name: Pytest con cobertura
+        run: >
+          uv run pytest -q -ra
+          --cov=services --cov-fail-under=90
+          --cov-report=term-missing --cov-report=xml
+
+      # El reporte es la evidencia citable del criterio del MVP (≥ 60 % en services/).
+      - name: Publicar el reporte de cobertura
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: cobertura
+          path: coverage.xml
+          retention-days: 14
+          if-no-files-found: warn
 
   test-postgres:
     name: test (postgres)
