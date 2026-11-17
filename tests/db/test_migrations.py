@@ -62,8 +62,12 @@ def enum_types() -> set[str]:
 
 
 @pytest.fixture
-def empty_database() -> Generator[None]:
-    """Start from a database with no tables at all (not even alembic_version)."""
+def empty_database(_clean_database: None) -> Generator[None]:
+    """Start from a database with no tables at all (not even alembic_version).
+
+    Depends on `_clean_database` so the shared cleanup runs first and this
+    fixture always ends up dropping whatever the previous test left behind.
+    """
     SQLModel.metadata.drop_all(engine)
     with engine.begin() as connection:
         connection.execute(text("DROP TABLE IF EXISTS alembic_version"))

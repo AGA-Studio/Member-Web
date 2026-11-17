@@ -39,11 +39,26 @@ ignore = ["B008"]  # Depends() en argumentos por defecto es el patrón de FastAP
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
-filterwarnings = ["ignore:Using `httpx` with `starlette.testclient` is deprecated"]
+# -ra resume el resultado de todo lo que no es un punto (skips, xfail, fallos);
+# --strict-markers/--strict-config convierten una errata en la configuración
+# (`@pytest.mark.sloww`, una clave mal escrita) en error, no en un silencio.
+addopts = "-ra --strict-markers --strict-config"
+filterwarnings = [
+    # Un warning nuevo es una señal: que rompa la suite en vez de acumularse.
+    "error",
+    # Excepción única y conocida: el TestClient de starlette importa el shim
+    # deprecado de httpx y no está en nuestras manos corregirlo.
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated",
+]
+markers = [
+    "slow: tarda más de un segundo (límite de intentos de login, cifrado Argon2id)",
+]
 
 [tool.coverage.run]
 source = ["api", "core", "db", "models", "schemas", "services", "scripts", "main"]
 branch = true
+relative_files = true
+omit = ["tests/*", "migrations/*"]
 
 [tool.coverage.report]
 show_missing = true
