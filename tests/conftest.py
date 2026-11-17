@@ -37,9 +37,15 @@ _DEFAULT_HASH = hash_password(DEFAULT_PASSWORD)
 LOGIN_URL = "/api/v1/auth/login"
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def _clean_database() -> Generator[None]:
-    """Every test starts with empty tables."""
+    """Every test that opens a session starts with empty tables.
+
+    Deliberately not `autouse`: dropping and recreating the ten tables costs
+    ~600 ms per test (measured on the team's machine), and a unit test that
+    never touches the database has no reason to pay it. `session` and `client`
+    request this fixture, so any test using the database gets it.
+    """
     SQLModel.metadata.drop_all(engine)
     SQLModel.metadata.create_all(engine)
     # Pooled PostgreSQL connections keep prepared statements for the old tables
@@ -57,13 +63,13 @@ def _reset_in_memory_state() -> Generator[None]:
 
 
 @pytest.fixture
-def session() -> Generator[Session]:
+def session(_clean_database: None) -> Generator[Session]:
     with Session(engine) as db_session:
         yield db_session
 
 
 @pytest.fixture
-def client() -> Generator[TestClient]:
+def client(_clean_database: None) -> Generator[TestClient]:
     with TestClient(app) as test_client:
         yield test_client
 
