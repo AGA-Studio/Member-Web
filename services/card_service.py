@@ -19,7 +19,6 @@ Rules:
 """
 
 import hashlib
-import html
 import math
 import secrets
 from datetime import datetime, timedelta
@@ -50,7 +49,7 @@ from schemas.card_schema import (
     WalletAvailabilityResponse,
 )
 from schemas.customer_schema import CustomerCreate, CustomerStatus
-from services import customer_service, email_service, wallet_service
+from services import customer_service, email_service, email_templates, wallet_service
 from services.customer_service import as_utc, customer_status, utc_now
 
 TOKEN_BYTES = 32
@@ -88,10 +87,11 @@ def card_url(token: str) -> str:
 # --- Panel (admin) ------------------------------------------------------------
 
 
-def _load(session: Session, business_id: int, customer_id: int) -> tuple[Customer, Business]:
+def _load(session: Session, business_id: int, customer_id: int) -> tuple[Customer, Business, Tier]:
     row = session.exec(
-        select(Customer, Business)
+        select(Customer, Business, Tier)
         .join(Business, Customer.business_id == Business.id)
+        .join(Tier, Customer.tier_id == Tier.id)
         .where(Customer.business_id == business_id, Customer.id == customer_id)
     ).first()
     if row is None:
@@ -134,7 +134,7 @@ def new_link(session: Session, customer: Customer, now: datetime) -> tuple[str, 
 
 def create_link(session: Session, business_id: int, customer_id: int) -> CardLinkResponse:
     """New link for "Copiar enlace". The previous one stops working."""
-    customer, _ = _load(session, business_id, customer_id)
+    customer, _, _ = _load(session, business_id, customer_id)
     now = utc_now()
     _ensure_deliverable(customer, now)
     token, _ = new_link(session, customer, now)
@@ -169,65 +169,62 @@ def _one_line(text: str) -> str:
     return " ".join(text.split())
 
 
-def card_email(business: Business, customer: Customer, url: str) -> EmailMessage:
+def _email_logo(business: Business) -> str | None:
+    """The business logo, only when it is already a public image.
+
+    A stored key becomes a signed URL with an expiry (`storage_service`), and an
+    email outlives it: the picture would break in the reader's inbox.
+    """
+    if business.logo_url and business.logo_url.startswith("https://"):
+        return business.logo_url
+    return None
+
+
+def platform_logo_url() -> str:
+    """The Member+ wordmark: static on the frontend, so it never expires."""
+    return f"{settings.frontend_public_url.rstrip('/')}/brand/logo-on-dark.png"
+
+
+def card_email(business: Business, customer: Customer, tier: Tier, url: str) -> EmailMessage:
     """The email of section 13.7: no card code, points or balance in it."""
     business_name = _one_line(business.name)
+    plain, rich = email_templates.render(
+        business=business_name,
+        customer=_one_line(customer.full_name),
+        url=url,
+        tier=_one_line(tier.name),
+        finish=str(tier.finish),
+        business_logo_url=_email_logo(business),
+        platform_logo_url=platform_logo_url(),
+    )
     message = EmailMessage()
     message["Subject"] = f"Tu tarjeta de {business_name}"
     message["From"] = formataddr((business_name, settings.mail_from))
     message["To"] = customer.email
-    message.set_content(
-        f"Hola, {customer.full_name}:\n\n"
-        f"{business_name} te dio una tarjeta de membresía. "
-        "Ábrela para guardarla en tu teléfono.\n\n"
-        f"Ver mi tarjeta: {url}\n\n"
-        "Si no esperabas este correo, puedes ignorarlo.\n"
-    )
-    name, place, link = (
-        html.escape(customer.full_name),
-        html.escape(business_name),
-        html.escape(url),
-    )
-    message.add_alternative(
-        f"""<!doctype html>
-<html lang="es">
-<body style="font-family: Arial, sans-serif; color: #1f2937; line-height: 1.5;">
-  <p>Hola, {name}:</p>
-  <p>{place} te dio una tarjeta de membresía. Ábrela para guardarla en tu teléfono.</p>
-  <p>
-    <a href="{link}" style="display: inline-block; padding: 12px 20px; background: #111827;
-       color: #ffffff; text-decoration: none; border-radius: 6px;">Ver mi tarjeta</a>
-  </p>
-  <p style="font-size: 13px; color: #4b5563;">Si el botón no abre, copia este enlace:<br>
-    <a href="{link}">{link}</a></p>
-  <p style="font-size: 13px; color: #4b5563;">Si no esperabas este correo, puedes ignorarlo.</p>
-</body>
-</html>
-""",
-        subtype="html",
-    )
+    message.set_content(plain)
+    message.add_alternative(rich, subtype="html")
     return message
 
 
 def _email_link(
-    session: Session, customer: Customer, business: Business, now: datetime
+    session: Session, customer: Customer, business: Business, tier: Tier, now: datetime
 ) -> email_service.SendResult:
     """New link, record the attempt, commit, then send (outside the transaction)."""
     token, delivery = new_link(session, customer, now)
     delivery.last_sent_at = now
     session.add(CardEmail(business_id=customer.business_id, customer_id=customer.id, sent_at=now))
     session.commit()
-    return email_service.deliver(card_email(business, customer, card_url(token)))
+    return email_service.deliver(card_email(business, customer, tier, card_url(token)))
 
 
 def send_link(session: Session, business_id: int, customer_id: int) -> CardEmailSentResponse:
     """Email the card link (a new one). 502 `email_failed` if the provider fails."""
-    customer, business = _load(session, business_id, customer_id)
+    customer, business, tier = _load(session, business_id, customer_id)
     now = utc_now()
     _ensure_deliverable(customer, now)
     _check_email_limit(session, customer, now)
     sent_to = customer.email
-    if _email_link(session, customer, business, now) == email_service.SendResult.FAILED:
+    if _email_link(session, customer, business, tier, now) == email_service.SendResult.FAILED:
         raise _error(status.HTTP_502_BAD_GATEWAY, "Email provider failed", ErrorCode.EMAIL_FAILED)
     return CardEmailSentResponse(sent_to=sent_to, last_sent_at=now)
 
@@ -239,8 +236,8 @@ def create_customer(
     created = customer_service.create_customer(session, business_id, data, recorded_by)
     email_status = CardEmailStatus.SKIPPED
     if data.send_card_email:
-        customer, business = _load(session, business_id, created.id)
-        result = _email_link(session, customer, business, utc_now())
+        customer, business, tier = _load(session, business_id, created.id)
+        result = _email_link(session, customer, business, tier, utc_now())
         email_status = CardEmailStatus(result.value)
     return CustomerCreatedResponse(
         **created.model_dump(), card_email=CardEmailResult(status=email_status)
