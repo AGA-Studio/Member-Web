@@ -57,6 +57,12 @@ def text_of(message) -> str:
     return message.get_body(("plain",)).get_content()
 
 
+def html_of(message) -> str:
+    body = message.get_body(("html",))
+    assert body is not None
+    return body.get_content()
+
+
 def links_of(session: Session, customer: Customer) -> list[CardDelivery]:
     session.expire_all()
     query = select(CardDelivery).where(CardDelivery.customer_id == customer.id)
@@ -135,11 +141,47 @@ class TestSendLink:
         assert "Business A te dio una tarjeta de membresía." in text
         assert f"{settings.frontend_public_url}/tarjeta/" in text
         assert "Si no esperabas este correo, puedes ignorarlo." in text
-        html = message.get_body(("html",)).get_content().removeprefix("<!doctype html>")
+        html = html_of(message).removeprefix("<!doctype html>")
         assert "Ver mi tarjeta" in html
         for secret in ("MP-4F7K2", "puntos", "cashback", "saldo", "!", "¡"):
             assert secret not in text
             assert secret not in html
+
+    def test_email_html_follows_the_design(self, admin, cards) -> None:
+        """The approved template: no `<style>`, 600 px, level, initials fallback."""
+        self.send(admin, cards["active"])
+        [message] = email_service.OUTBOX
+        html = html_of(message)
+        assert html.startswith("<!doctype html>")
+        for external in ("<style", "<link", "@import", "class="):
+            assert external not in html
+        assert 'width="600"' in html
+        assert f"{settings.frontend_public_url}/brand/logo-on-dark.png" in html
+        assert "Oro" in html
+        assert "#e0ae3a" in html
+        assert "word-break" in html
+        assert html.count("<img") == 1
+        assert ">BA<" in html
+
+    def test_email_embeds_only_public_business_logos(self, admin, cards, session: Session) -> None:
+        """A stored key becomes a signed URL that expires: it never goes in an email."""
+        cards["business"].logo_url = "logos/business-a.png"
+        session.add(cards["business"])
+        session.commit()
+        self.send(admin, cards["active"])
+        [message] = email_service.OUTBOX
+        assert html_of(message).count("<img") == 1
+
+    def test_email_embeds_the_business_logo_when_it_is_public(self, admin, cards, session) -> None:
+        logo = "https://cdn.ejemplo.mx/business-a.png"
+        cards["business"].logo_url = logo
+        session.add(cards["business"])
+        session.commit()
+        self.send(admin, cards["active"])
+        [message] = email_service.OUTBOX
+        html = html_of(message)
+        assert html.count("<img") == 2
+        assert logo in html
 
     def test_the_emailed_link_opens_the_card(self, admin, cards) -> None:
         self.send(admin, cards["active"])
