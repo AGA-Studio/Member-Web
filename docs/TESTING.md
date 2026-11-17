@@ -26,7 +26,7 @@ Documentación de la suite de pruebas automatizadas del backend: qué se prueba,
 | Fallas | **0** |
 | Cobertura de líneas y ramas | **99 %** en `services/` (979 statements). **100 %** en `api/`, `core/`, `models/`, `main.py` y en `schemas/` salvo `checkout_schema.py` (89 %). `scripts/seed.py` queda en 99 % y `scripts/review_pr.py` (el revisor del CI) en 60 %, por eso el total marca **96 %** |
 | Bases de datos probadas | SQLite y **PostgreSQL 18.6** |
-| Tiempo | **13:12** en SQLite con 778 pruebas (homeserver, i5-8500) · el job `test` del CI tarda ~2 min y `test (postgres)` ~2m30s |
+| Tiempo | **1:04** en SQLite con 778 pruebas (homeserver, i5-8500) · el job `test` del CI tarda ~1m20s (pytest 54 s) y `test (postgres)` ~2m30s |
 | Criterio del MVP "0 filas de otro negocio" | ✅ Cumplido (7 pruebas de usuarios + 4 de niveles + 9 de clientes + 4 de caja + 3 de movimientos + 3 del enlace a la tarjeta + 4 del logo + 4 de la foto del cliente) |
 | Migraciones (Alembic) | ✅ Suben, bajan, convierten datos y coinciden con los modelos (9 pruebas) |
 | Hallazgos | ✅ Los 7 corregidos (H1–H7) |
@@ -1070,7 +1070,7 @@ A una prueba que nunca falla no se le puede creer nada. Se inyectó una violaci�
 
 ## 6. Resultados de la ejecución
 
-Ejecutado el 16 de noviembre de 2026 sobre `main` en `5deebb8`, en el homeserver del equipo (Ubuntu 24.04, Intel i5-8500).
+Ejecutado el 17 de noviembre de 2026 sobre `main` en `f8d1fba`, en el homeserver del equipo (Ubuntu 24.04, Intel i5-8500).
 
 ### Entorno
 
@@ -1090,7 +1090,7 @@ Ejecutado el 16 de noviembre de 2026 sobre `main` en `5deebb8`, en el homeserver
 
 ```text
 $ uv run pytest -q
-778 passed in 792.55s (0:13:12)
+778 passed in 64.70s (0:01:04)
 ```
 
 ### PostgreSQL 18.6
@@ -1134,17 +1134,17 @@ El MVP pide ≥ 60 % de cobertura en `services/`: hoy está en **99 %** —979 s
 ### Pruebas más lentas
 
 ```text
-8.86s  setup   tests/api/test_user.py::TestCreateUser::test_create_admin
-7.60s  setup   tests/api/test_error_codes.py::TestLoginCodes::test_too_many_attempts_is_login_locked
-7.23s  setup   tests/api/test_user.py::TestCreateUser::test_business_id_in_body_is_ignored
-5.51s  setup   tests/api/test_movement.py::TestList::test_unknown_customer_is_an_empty_list
-4.75s  call    tests/api/test_isolation_customer_photo.py::test_photos_are_separated_by_business_prefix
-3.98s  setup   tests/unit/test_validators.py::test_valid_names_are_normalized[Ana\tMaría-Ana María]
+1.52s  call      tests/api/test_card.py::TestCreateCustomer::test_a_slow_provider_is_pending
+0.56s  call      tests/api/test_login_limit.py::test_successful_login_resets_the_counter
+0.53s  call      tests/api/test_login_limit.py::test_after_the_lock_the_user_gets_five_new_attempts
+0.47s  call      tests/api/test_login_limit.py::test_old_failures_stop_counting
+0.37s  call      tests/api/test_logo.py::TestDelete::test_delete_removes_file_and_reference
+0.36s  setup     tests/api/test_isolation_logo.py::test_files_are_separated_by_business_prefix
 ```
 
-Casi todo lo que aparece es **`setup`**, no la prueba: es el `drop_all` + `create_all` de las diez tablas que hace el fixture. Medido aparte, cuesta **605 ms por prueba** en este equipo, y hasta el PR #61 lo pagaban las 778, incluidas las de `tests/unit` que no tocan la base. Con ese PR (`_clean_database` deja de ser `autouse`), `tests/unit` pasa de ~121 s a **6.4 s**.
+Ya no domina el `setup`. Hasta el PR #61 lo pagaban las 778 pruebas —incluidas las de `tests/unit`, que no tocan la base— y la limpieza costaba 605 ms por prueba, así que la suite tardaba 13:12. Con ese PR la limpieza solo la piden `session` y `client`, y con el PR #63 deja de esperar al disco: `journal_mode=MEMORY` y `synchronous=OFF` en la base temporal bajan el `drop_all` + `create_all` a **11 ms**.
 
-Lo que sí es tiempo de prueba es Argon2id, que está hecho para ser costoso: verificar una contraseña tarda ~66 ms en promedio (medido con 20 verificaciones). Queda muy por debajo del criterio del MVP (login → panel en ≤ 2 s).
+Lo que queda es tiempo real de prueba: `test_a_slow_provider_is_pending` simula un proveedor de cartera lento a propósito, y las del límite de login hacen entre 5 y 10 logins con Argon2id (~66 ms por verificación).
 
 ---
 
