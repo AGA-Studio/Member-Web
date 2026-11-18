@@ -341,7 +341,7 @@ flowchart LR
 | Base respaldada | `memberplus` — se configura con **Specific databases**; ver la advertencia de abajo |
 | Programación | `10 3 * * *`, en la zona horaria del servidor (campo de solo lectura) |
 | Destino | backup storage `Blackblaze MemberPlus` → bucket `memberplus-restic`, región `us-west-004`, path style activo |
-| Retención | 1 día en local, 30 días en B2 |
+| Retención | 1 copia en local, que se conserva 3 días; 8 copias en B2, sin caducidad por días (`dump_all=false`) |
 | Avisos | Coolify notifica el primer fallo, como máximo una vez al día, y avisa cuando vuelve a funcionar |
 
 Los dumps locales quedan en `/data/coolify/backups/databases/<proyecto>/<recurso>/pg-dump-memberplus-*.dmp`, dentro de `coolify-vm`, y se descargan desde la misma pantalla del panel.
