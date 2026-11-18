@@ -31,6 +31,7 @@ from sqlmodel import Session, SQLModel  # noqa: E402
 
 from api.v1 import card_api, public_api  # noqa: E402
 from core.security import hash_password  # noqa: E402
+from db import rls  # noqa: E402
 from db.database import engine  # noqa: E402
 from main import app  # noqa: E402
 from models import Business, BusinessStatus, Role, User  # noqa: E402
@@ -62,9 +63,21 @@ if engine.dialect.name == "sqlite":
 def _postgres_schema() -> Generator[None]:
     """PostgreSQL keeps its schema for the whole run; the tests only clear rows."""
     if engine.dialect.name == "postgresql":
-        SQLModel.metadata.create_all(engine)
+        _create_postgres_schema()
         engine.dispose()
     yield
+
+
+def _create_postgres_schema() -> None:
+    """`create_all` plus the Row Level Security that the migration adds.
+
+    Without the policies the whole suite would pass on PostgreSQL even if a
+    request broke because of RLS; with them, every API test runs under it.
+    """
+    SQLModel.metadata.create_all(engine)
+    with engine.begin() as connection:
+        for statement in rls.enable_statements():
+            connection.execute(text(statement))
 
 
 def _truncate_tables() -> None:
@@ -96,7 +109,7 @@ def _clean_database() -> Generator[None]:
             # The migrations tests dropped the tables and rebuilt them with
             # Alembic: restore the schema `create_all` produces before going on.
             SQLModel.metadata.drop_all(engine)
-            SQLModel.metadata.create_all(engine)
+            _create_postgres_schema()
         yield
         return
 
