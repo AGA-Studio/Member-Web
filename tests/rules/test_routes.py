@@ -41,7 +41,14 @@ ALLOWED_ACTIONS = {
 # `payment` (section 9): the membership payments of a customer.
 # `photo`: the customer's photo and the user's own profile photo (wiki, "Imágenes:
 # lo que falta en el backend").
-SUB_RESOURCES = {"business", "card-link", "google-wallet", "payment", "photo"}
+# `logo` (public): the business logo as the square PNG the Wallet pass and the
+# card email load (`services/logo_service.pass_logo_url`).
+SUB_RESOURCES = {"business", "card-link", "google-wallet", "logo", "payment", "photo"}
+
+# Public assets carry their format in the URL (`/public/logo/1.png`): Google
+# Wallet and email clients like an extension, and the content type is what the
+# route answers with.
+ASSET_SUFFIXES = {".png"}
 
 # The only endpoint allowed outside the versioned prefix.
 UNVERSIONED = {"/health"}
@@ -53,6 +60,16 @@ def openapi_paths() -> list[str]:
 
 def api_paths() -> list[str]:
     return [path for path in openapi_paths() if path.startswith(API_PREFIX)]
+
+
+def _is_parameter(segment: str) -> bool:
+    """`{business_id}` or a parameter with an asset suffix, `{business_id}.png`."""
+    if not (segment.startswith("{") and segment.endswith("}")):
+        for suffix in ASSET_SUFFIXES:
+            if segment.startswith("{") and segment.endswith(f"}}{suffix}"):
+                return True
+        return False
+    return True
 
 
 def test_every_route_matches_the_resource_action_shape() -> None:
@@ -68,8 +85,8 @@ def test_every_route_matches_the_resource_action_shape() -> None:
             problems.append(f"{path}: resource '{resource}' must be one lowercase word")
 
         for segment in rest:
-            if segment.startswith("{") and segment.endswith("}"):
-                parameter = segment[1:-1]
+            if _is_parameter(segment):
+                parameter = segment.strip("{}").split(".")[0]
                 if parameter != parameter.lower() or "-" in parameter:
                     problems.append(f"{path}: path parameter '{parameter}' must be snake_case")
                 continue

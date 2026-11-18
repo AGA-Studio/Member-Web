@@ -107,6 +107,19 @@ def signed_url(key: str) -> str:
     )
 
 
+def get_object(key: str) -> bytes:
+    """Read one stored object.
+
+    Raises StorageUnavailable when storage is off or the object cannot be read,
+    so the caller decides what to answer instead of leaking a boto3 error.
+    """
+    try:
+        response = _api_client().get_object(Bucket=settings.s3_bucket, Key=key)
+        return response["Body"].read()
+    except (BotoCoreError, ClientError) as error:
+        raise StorageUnavailable("Could not read the file") from error
+
+
 def public_url(reference: str | None) -> str | None:
     """What the API returns for a stored reference.
 

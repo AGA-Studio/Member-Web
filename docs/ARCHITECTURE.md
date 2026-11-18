@@ -350,6 +350,7 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | GET | `/api/v1/platform/business/list` | platform | Negocios con su estado, `customers_count` y `logo_url` firmada (misma regla que `/auth/me`), paginados por nombre. Filtros `q` y `status`. Nunca datos de clientes |
 | GET | `/api/v1/card/{token}` | — (público) | Tarjeta pública del enlace: negocio, nombre, código, nivel, vigencia y `wallet.google`. 404 `card_link_not_found` |
 | GET | `/api/v1/card/{token}/google-wallet` | — (público) | `save_url` firmado para guardar la tarjeta en Google Wallet. 503 `wallet_unavailable` sin configuración |
+| GET | `/api/v1/public/logo/{business_id}.png` | — (público) | Logo del negocio como PNG cuadrado de 1024 px con 15 % de margen: lo cargan el pase de Google Wallet y el correo de la tarjeta, que no pueden usar una URL firmada que caduca en 1 h. `Cache-Control` de un día (la URL lleva `?v=` con la huella de la clave). 404 sin logo, con negocio suspendido, sin almacenamiento o si el archivo no se puede leer |
 
 **Respuesta de `/auth/me`** (`MeResponse`): los campos de `UserResponse` más `business`, el resumen del negocio que el frontend muestra en el encabezado del panel y de la caja. No incluye datos de uso ni de clientes.
 
@@ -388,7 +389,7 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | `email_failed` | 502 | `/customer/{customer_id}/card-link/send`: el proveedor de correo falló |
 | `card_link_not_found` | 404 | `/card/{token}` y `/google-wallet`: token desconocido, revocado, tarjeta vencida o cancelada, o negocio suspendido. Siempre el mismo cuerpo |
 | `wallet_unavailable` | 503 | `/card/{token}/google-wallet`: Google Wallet sin configurar en este entorno |
-| `rate_limited` | 429 | `/card/...`: más de `CARD_RATE_LIMIT_PER_MINUTE` peticiones por minuto desde la misma IP (con `Retry-After`) |
+| `rate_limited` | 429 | `/card/...` y `/public/logo/...`: más de `CARD_RATE_LIMIT_PER_MINUTE` peticiones por minuto desde la misma IP (con `Retry-After`) |
 | `turnstile_failed` | 400 | `POST /api/v1/auth/login` con `TURNSTILE_ENABLED`: falta `X-Turnstile-Token`, Cloudflare lo rechaza, es de otro hostname o `siteverify` no respondió en 5 s. `detail` también es `turnstile_failed`, como fija el contrato de la wiki |
 
 Cada módulo nuevo agrega sus códigos a `ErrorCode` (`core/errors.py`).
@@ -480,7 +481,7 @@ Correo (`services/email_service.py`):
 - Asunto `Tu tarjeta de {negocio}`, remitente con el nombre del negocio y la dirección de `MAIL_FROM`. El cuerpo (texto y HTML) no lleva el código de la tarjeta, ni puntos ni saldo.
 - Plantilla del cuerpo (`services/email_templates.py`, diseño aprobado en la wiki → *Identidad de marca* → *Correo de la tarjeta*): tarjeta blanca de 600 px, degradado de marca solo en el encabezado (igual que `/tarjeta`), franja con el acabado metálico del nivel (`bronze`, `silver`, `gold`, `onyx`) y un solo azul primario en el botón. El texto plano repite el mismo mensaje y el nivel.
 - La plantilla no usa `<style>` ni CSS externo: todo va en atributos `style` y en tablas, cada degradado lleva `bgcolor` sólido de respaldo y el ancho va en el atributo de la tabla, porque Outlook renderiza con Word. El nivel llega por `_load`, que ahora trae también el `Tier`; `FRONTEND_PUBLIC_URL` arma la URL del wordmark (`{FRONTEND_PUBLIC_URL}/brand/logo-on-dark.png`, estático del frontend).
-- El logo del negocio solo se incrusta cuando `logo_url` ya es una URL `https://`. Una llave del bucket se firma con caducidad (`storage_service.public_url`) y el correo la sobrevive, así que en ese caso se dibuja la ficha con iniciales, que es texto y aguanta el bloqueo de imágenes.
+- El logo del negocio va al correo con la ruta pública `GET /api/v1/public/logo/{business_id}.png` (`logo_service.pass_logo_url`), que no caduca; una llave del bucket se firma con caducidad (`storage_service.public_url`) y el correo la sobrevive, así que esa URL no sirve. Sin logo, se dibuja la ficha con iniciales, que es texto y aguanta el bloqueo de imágenes.
 - Límite por cliente: un correo por minuto y cinco por hora (`card_emails`; los intentos fallidos cuentan). El alta con `send_card_email` también cuenta.
 
 Google Wallet (`services/wallet_service.py`):
@@ -489,11 +490,13 @@ Google Wallet (`services/wallet_service.py`):
 - El JWT lleva la `LoyaltyClass` del negocio (`<issuer>.business_<business_id>`) y el `LoyaltyObject` del cliente (`<issuer>.customer_<customer_id>`): Google crea los dos la primera vez que se guarda la tarjeta, así que el backend no llama a la API de Wallet. El QR del pase vale exactamente el `code`.
 - El pase es una foto fija (DECISIÓN 13): no se actualiza si cambian el nivel o el nombre.
 - Necesita `GOOGLE_WALLET_ISSUER_ID`, `GOOGLE_WALLET_SERVICE_ACCOUNT_JSON` y `GOOGLE_WALLET_LOGO_URL` (logo `https` para el pase si el negocio no tiene uno `https`). Si falta alguna, `wallet.google` es `false` y el endpoint responde 503 `wallet_unavailable`.
+- `programLogo` es el logo del negocio vía `GET /api/v1/public/logo/{business_id}.png` (`logo_service.pass_logo_url`), un PNG cuadrado de 1024 px con 15 % de margen, que es lo que pide Google (mínimo 660×660, 1:1, recorte circular); si el negocio no tiene logo, se usa `GOOGLE_WALLET_LOGO_URL`. La URL es estable porque Google puede volver a pedir la imagen después de guardar el pase, y una firmada caduca en 1 h.
+- El título del pase es fijo: `programLogo` → `issuerName` → `programName` → `hexBackgroundColor` (Google, *Loyalty Template*). `issuerName` se queda en `Member+` y `programName` es el nombre del negocio, así que el pase se lee «Member+ / Café Aurora»; poner el negocio en `issuerName` duplicaría el nombre (decisión del 17 nov 2026).
 
 
 **Validación de nombres** (`PersonName`, `schemas/validators.py`): se quitan los espacios sobrantes; solo letras (con acentos y ñ), espacios, guion y apóstrofo; mínimo 2 letras y máximo 120 caracteres. Si no se cumple → 422.
 
-**Convención de rutas:** `/<recurso en singular>/<acción>` (`/user/create`, `/user/list`, `/user/{id}/update`). Los módulos nuevos siguen la misma forma, por ejemplo `/customer/create`. Los subrecursos son `/platform/business/list` (la plataforma lista los negocios), `/customer/{customer_id}/card-link` (el enlace a la tarjeta, con la acción `send`), `/customer/{customer_id}/photo` y `/user/photo` (las fotos) y `/card/{token}/google-wallet`; `tests/rules/test_routes.py` los permite con `SUB_RESOURCES`. Sus nombres con guion vienen del contrato del frontend.
+**Convención de rutas:** `/<recurso en singular>/<acción>` (`/user/create`, `/user/list`, `/user/{id}/update`). Los módulos nuevos siguen la misma forma, por ejemplo `/customer/create`. Los subrecursos son `/platform/business/list` (la plataforma lista los negocios), `/customer/{customer_id}/card-link` (el enlace a la tarjeta, con la acción `send`), `/customer/{customer_id}/photo` y `/user/photo` (las fotos), `/card/{token}/google-wallet` y `/public/logo/{business_id}.png` (los activos que cargan el pase y el correo); `tests/rules/test_routes.py` los permite con `SUB_RESOURCES`, y un activo público puede llevar su formato en la URL (`ASSET_SUFFIXES`). Sus nombres con guion vienen del contrato del frontend.
 
 ```mermaid
 flowchart LR

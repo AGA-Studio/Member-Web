@@ -145,6 +145,8 @@ En la base se guarda la **clave** (`businesses/1/logo/3956….webp`), nunca una 
 
 El logo llega al frontend en `GET /api/v1/auth/me` → `business.logo_url`. Como la URL caduca, el frontend no debe guardarla: la pide de nuevo con `/auth/me`.
 
+**La excepción: el pase de Google Wallet y el correo de la tarjeta.** Los dos viven fuera de la sesión y sobreviven a la hora de la firma, así que no pueden usar la URL firmada. Para ellos existe `logo_service.pass_logo_url()` → `GET /api/v1/public/logo/{business_id}.png`, una ruta pública (sin sesión, con el límite por IP de `CARD_RATE_LIMIT_PER_MINUTE` y `Cache-Control: public, max-age=86400, immutable`) que devuelve el logo como **PNG cuadrado de 1024 px con 15 % de margen**, generado al vuelo con Pillow desde el objeto guardado. Google pide PNG de al menos 660×660, proporción 1:1 y ese margen porque recorta el logo en círculo; el WebP de 512 px no cumple. La API hace de proxy y no redirige a una URL firmada, así que **el bucket sigue privado**. Por eso el logo se guarda a 1024 px (`image_service.LOGO_MAX_DIMENSION`); las fotos de cliente y de perfil siguen en 512.
+
 ---
 
 ## 6. Seguridad (DLP)

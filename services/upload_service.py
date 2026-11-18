@@ -15,13 +15,24 @@ from sqlmodel import Session, SQLModel
 from services import image_service, storage_service
 
 
-def replace_image(session: Session, row: SQLModel, field: str, key: str, data: bytes) -> None:
+def replace_image(
+    session: Session,
+    row: SQLModel,
+    field: str,
+    key: str,
+    data: bytes,
+    max_dimension: int = image_service.MAX_DIMENSION,
+) -> None:
     """Store `data` under `key` and point `row.<field>` at it.
+
+    `max_dimension` is the size the stored copy is shrunk to: 512 px for
+    photos, bigger for the business logo, which also becomes the Google Wallet
+    pass logo.
 
     Raises image_service.ImageRejected or storage_service.StorageUnavailable,
     in both cases before touching the row.
     """
-    webp = image_service.to_webp(data)
+    webp = image_service.to_webp(data, max_dimension)
     storage_service.put_object(key, webp, image_service.CONTENT_TYPE)
 
     previous = getattr(row, field)
