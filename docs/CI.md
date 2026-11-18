@@ -55,7 +55,7 @@ uv run pytest -q -ra --cov=services --cov-fail-under=90 \
 - **Umbral 90 %**, no el 60 % del MVP: `services/` está en 99 %, y con 60 el check pasaría aunque un módulo nuevo entrara sin una sola prueba.
 - El reporte queda como artefacto `cobertura` del run (14 días): es la evidencia citable del criterio, sin que nadie tenga que reproducirlo en su máquina.
 - Solo el job `test` mide: `test (postgres)` corre la misma suite contra PostgreSQL y duplicar la medición no aporta nada.
-- Referencia del umbral, medida el 16 nov 2026 en `5deebb8`: `TOTAL 979 statements, 6 sin cubrir, 4 ramas parciales → 99 %`. Los 6 son rutas de error (`checkout_service.py:214`, `customer_service.py:364-366`, `email_service.py:47` y `:59`).
+- El porcentaje vigente no se copia aquí: queda en el resumen del job y en el artefacto `cobertura` de cada run. Lo que no cambia es el umbral: 90 %.
 
 Los nombres de los jobs son lo que se marca como *required check* en GitHub, así que **no se renombran** sin avisar al equipo: si cambian, el PR se queda esperando un check que ya no existe.
 

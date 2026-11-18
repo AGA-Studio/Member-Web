@@ -190,20 +190,36 @@ El `&&` garantiza que la API nunca arranque con un esquema viejo. Antes de una m
 
 ## 7. Migraciones existentes
 
+Once migraciones hasta la fecha. El orden de la cadena es el de `down_revision`, de la más vieja a la más nueva:
+
 | Revisión | Archivo | Qué hace |
 |----------|---------|----------|
 | `f689e0ec2cd6` | `2026_11_12_0340-f689e0ec2cd6_create_businesses_and_users.py` | Crea `businesses` y `users`, los tipos `businessstatus` y `role`, el índice de `users.business_id` y el índice único de `users.email`. El `downgrade` borra todo, incluidos los tipos `ENUM`. |
 | `c9e2d3e6ee70` | `2026_11_12_0504-c9e2d3e6ee70_store_enum_values_in_lowercase.py` | Escrita a mano (H7). Pasa los `ENUM` a minúscula: en PostgreSQL renombra las etiquetas (`ALTER TYPE ... RENAME VALUE`), y las filas existentes cambian solas; en SQLite actualiza las filas con `lower()`. El `downgrade` hace lo contrario. |
 | `e6a9197f57e7` | `2026_11_12_0749-e6a9197f57e7_add_revoked_tokens.py` | Crea `revoked_tokens` (llave `jti`, índice en `expires_at`) para invalidar tokens al cerrar sesión (H2). |
 | `fef05f6754ea` | `2026_11_12_0751-fef05f6754ea_add_login_attempts.py` | Crea `login_attempts` (llave `email`, índice en `last_failed_at`) para el límite de intentos de login (H4). |
+| `3b7d1c9a4e52` | `2026_11_12_2300-3b7d1c9a4e52_add_tiers.py` | Crea `tiers`: los niveles de cada negocio, con `price_cents`, `discount_percent`, `points_per_ten` y `cashback_percent`. |
+| `8c4e2a7f1d93` | `2026_11_13_0400-8c4e2a7f1d93_add_customers.py` | Crea `customers`: el cliente y su tarjeta en una sola entidad (nivel, código, vigencia, estado y saldos). |
+| `5d2f8b6c1a47` | `2026_11_13_0500-5d2f8b6c1a47_add_purchases.py` | Crea `purchases`: la compra con su desglose calculado (descuento, puntos, cashback y saldos resultantes). |
+| `a7c3e9f2b815` | `2026_11_13_0600-a7c3e9f2b815_add_card_deliveries.py` | Crea `card_deliveries`: enlaces de entrega de la tarjeta digital, con el token guardado como hash. |
+| `b8d4f0a3c926` | `2026_11_13_0700-b8d4f0a3c926_add_card_emails.py` | Crea `card_emails`: cada envío de la tarjeta por correo, para el límite de frecuencia. |
+| `c1e5a7b9d2f4` | `2026_11_13_0800-c1e5a7b9d2f4_add_membership_payments.py` | Crea `membership_payments` y agrega `businesses.validity_months` (meses de vigencia por negocio). |
+| `146733b94fa0` | `2026_11_16_0842-146733b94fa0_add_photo_to_customers_and_users.py` | Agrega `customers.photo_url` y `users.photo_url`: la clave del bucket, nunca una URL. |
 
 ```mermaid
 flowchart LR
-    BASE(["base"]) --> R1["f689e0ec2cd6<br/>create businesses and users"]
-    R1 --> R2["c9e2d3e6ee70<br/>store enum values in lowercase"]
-    R2 --> R3["e6a9197f57e7<br/>add revoked tokens"]
-    R3 --> R4["fef05f6754ea<br/>add login attempts"]
-    R4 --> HEAD(["head"])
+    BASE(["base"]) --> R1["f689e0ec2cd6"]
+    R1 --> R2["c9e2d3e6ee70"]
+    R2 --> R3["e6a9197f57e7"]
+    R3 --> R4["fef05f6754ea"]
+    R4 --> R5["3b7d1c9a4e52<br/>tiers"]
+    R5 --> R6["8c4e2a7f1d93<br/>customers"]
+    R6 --> R7["5d2f8b6c1a47<br/>purchases"]
+    R7 --> R8["a7c3e9f2b815<br/>card deliveries"]
+    R8 --> R9["b8d4f0a3c926<br/>card emails"]
+    R9 --> R10["c1e5a7b9d2f4<br/>membership payments"]
+    R10 --> R11["146733b94fa0<br/>photos"]
+    R11 --> HEAD(["head"])
 ```
 
 SQL de la primera migración en PostgreSQL (`uv run alembic upgrade f689e0ec2cd6 --sql`). Crea los `ENUM` en mayúscula; la segunda migración los renombra:

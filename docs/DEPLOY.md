@@ -142,6 +142,10 @@ Cómo se comporta:
 | `S3_ENDPOINT_URL`, `S3_PUBLIC_ENDPOINT_URL`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET`, `S3_REGION` | — | Almacenamiento de imágenes. Sin `S3_ENDPOINT_URL` la API funciona igual y `/logo/update` responde 503. **En producción están puestas** desde el 14 nov 2026 con Cloudflare R2 (`S3_REGION=auto` y `S3_PUBLIC_ENDPOINT_URL` vacía); qué son exactamente y cómo se probaron, en [STORAGE.md, sección 8](STORAGE.md#8-producción) |
 | `TURNSTILE_ENABLED` | `true` | Opcional, `false` por defecto. Exige Cloudflare Turnstile en el login. **Se crea al final**, después de desplegar el backend y el frontend con el widget (ver abajo) |
 | `TURNSTILE_SECRET` | — | Secreto del widget «Member+ Login» de Cloudflare. Solo en las variables de Coolify, nunca en el repo ni en la wiki |
+| `FRONTEND_PUBLIC_URL` | `https://memberplus.neyzt.org` | Base de los enlaces que se envían (tarjeta digital) y hostname que valida Turnstile. Vacía en local: `http://localhost:3000` |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `MAIL_FROM` | relay de Brevo: `smtp-relay.brevo.com`, `587` | Envío de la tarjeta por correo. Sin `SMTP_HOST` la API arranca igual, pero en producción todo envío responde `email_failed`. `SMTP_TLS` acepta `starttls`, `ssl` o `none`; `SMTP_TIMEOUT_SECONDS` (10) es opcional. En producción ya están configuradas |
+| `GOOGLE_WALLET_ISSUER_ID`, `GOOGLE_WALLET_SERVICE_ACCOUNT_JSON`, `GOOGLE_WALLET_ORIGINS`, `GOOGLE_WALLET_LOGO_URL` | — | Botón «Agregar a Google Wallet». Si falta cualquiera de las cuatro, la tarjeta oculta el botón y `GET /card/{token}/google-wallet` responde 503. El issuer y la cuenta de servicio salen de Google Wallet Console; el logo debe ser una URL `https` pública |
+| `CARD_RATE_LIMIT_PER_MINUTE` | `30` | Opcional. Peticiones por minuto y por IP a los endpoints públicos de la tarjeta |
 | `PORT` | `8000` | Lo lee el entrypoint; Coolify puede inyectarlo |
 
 Nada de esto va en el repo. `.env.example` documenta las claves con valores falsos.
