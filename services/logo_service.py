@@ -18,7 +18,7 @@ from sqlmodel import Session
 from core.config import settings
 from models.business_model import Business
 from schemas.business_schema import BusinessSummaryResponse
-from services import image_service, storage_service, upload_service
+from services import color_service, image_service, storage_service, upload_service
 
 # Public route of the logo (api/v1/public_api.py).
 PASS_LOGO_PATH = "/api/v1/public/logo"
@@ -55,7 +55,12 @@ def pass_logo_url(business: Business) -> str | None:
 def business_summary(business: Business) -> BusinessSummaryResponse:
     """The business as the frontend sees it, with a usable logo URL."""
     summary = BusinessSummaryResponse.model_validate(business)
-    return summary.model_copy(update={"logo_url": storage_service.public_url(business.logo_url)})
+    return summary.model_copy(
+        update={
+            "logo_url": storage_service.public_url(business.logo_url),
+            "primary_foreground": color_service.readable_foreground(business.primary_color),
+        }
+    )
 
 
 def set_logo(session: Session, business: Business, data: bytes) -> Business:

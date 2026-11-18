@@ -77,7 +77,8 @@ flowchart TB
     MOD --> M10["card_email_model.py — CardEmail (envíos, para el límite)"]
     MOD --> M11["membership_payment_model.py — MembershipPayment, PaymentMethod, PaymentKind"]
     SRV --> SVL1["logo_service.py — subir · reemplazar · quitar el logo"]
-    SRV --> SVB["business_service.py — nombre y vigencia del negocio del token"]
+    SRV --> SVB["business_service.py — nombre, vigencia y color del negocio del token"]
+    SRV --> SVC["color_service.py — texto legible sobre el color (contraste WCAG)"]
     SRV --> SVL4["upload_service.py — reemplazar o quitar una imagen (logo y fotos)"]
     SRV --> SVL5["profile_service.py — foto de perfil del usuario en sesión"]
     SRV --> SVL2["image_service.py — validar · WebP 512 px sin EXIF"]
@@ -145,6 +146,7 @@ erDiagram
         string name
         string logo_url "nullable"
         int validity_months "meses de vigencia; 12 por defecto"
+        string primary_color "#rrggbb o null (azul de Member+)"
         enum status "trial | active | suspended"
         datetime created_at
     }
@@ -320,8 +322,8 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | GET | `/health` | — | Estado de la API |
 | POST | `/api/v1/auth/login` | — | Login con email y contraseña; deja cookie y devuelve el token. Tras 5 intentos fallidos por email responde 429 durante 15 min. Con `TURNSTILE_ENABLED` exige la cabecera `X-Turnstile-Token` (400 `turnstile_failed`) |
 | POST | `/api/v1/auth/logout` | — | Revoca el token de esta sesión (cookie o Bearer) y borra la cookie. Las demás sesiones del usuario siguen abiertas |
-| GET | `/api/v1/auth/me` | cualquier usuario activo | Usuario de la sesión, con su `photo_url` firmada, y su negocio (`business`: `id`, `name`, `logo_url`, `status`, `validity_months`; `null` para `platform`) |
-| PATCH | `/api/v1/business/update` | admin | Configuración del negocio del token (pantalla 13): `name` (2 a 120 caracteres; se quitan los espacios sobrantes) y `validity_months` (entero de 1 a 60), ambos opcionales; `null` o ausente no cambia nada. Responde el mismo `business` de `/auth/me`. La vigencia nueva aplica a las tarjetas que se emitan o renueven después |
+| GET | `/api/v1/auth/me` | cualquier usuario activo | Usuario de la sesión, con su `photo_url` firmada, y su negocio (`business`: `id`, `name`, `logo_url`, `status`, `validity_months`, `primary_color`, `primary_foreground`; `null` para `platform`) |
+| PATCH | `/api/v1/business/update` | admin | Configuración del negocio del token (pantalla 13): `name` (2 a 120 caracteres; se quitan los espacios sobrantes) `validity_months` (entero de 1 a 60) y `primary_color` (`#rrggbb`), todos opcionales; ausente no cambia nada y `null` tampoco, salvo en `primary_color`, donde quita el color. Responde el mismo `business` de `/auth/me`. La vigencia nueva aplica a las tarjetas que se emitan o renueven después |
 | POST | `/api/v1/user/photo/update` | cualquier usuario activo | Sube o reemplaza **su propia** foto de perfil (`multipart/form-data`, campo `file`). Mismas reglas y errores que `/logo/update`. Devuelve el usuario con `photo_url` firmada |
 | POST | `/api/v1/user/photo/delete` | cualquier usuario activo | Quita su propia foto. Sin foto, responde 200 igual |
 | POST | `/api/v1/logo/update` | admin | Sube o reemplaza el logo del negocio del token (`multipart/form-data`, campo `file`). JPEG, PNG o WebP de hasta 2 MB; se guarda como WebP de 512 px sin metadatos y borra el anterior. Devuelve el negocio con `logo_url` firmada. 413 `image_too_large`, 422 `image_invalid`, 503 `storage_unavailable` |
@@ -354,7 +356,7 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | GET | `/api/v1/platform/business/summary` | platform | Resumen para el panel de plataforma: negocios por estado (`all`, `trial`, `active`, `suspended`), `customers_count` (tarjetas no canceladas) y `users_count` (usuarios activos) de todos los negocios. Solo conteos |
 | GET | `/api/v1/platform/business/{business_id}` | platform | Detalle del negocio: lo de la lista más `validity_months` y `users_count` (usuarios activos). 404 `business_not_found` |
 | PATCH | `/api/v1/platform/business/{business_id}/update` | platform | Suspende o reactiva: cuerpo `{"status": "suspended" \| "active"}`; responde el detalle. Suspender corta las sesiones abiertas del negocio. 404 `business_not_found` |
-| GET | `/api/v1/card/{token}` | — (público) | Tarjeta pública del enlace: negocio, nombre, código, nivel, vigencia y `wallet.google`. 404 `card_link_not_found` |
+| GET | `/api/v1/card/{token}` | — (público) | Tarjeta pública del enlace: negocio (con su color), nombre, código, nivel, vigencia y `wallet.google`. 404 `card_link_not_found` |
 | GET | `/api/v1/card/{token}/google-wallet` | — (público) | `save_url` firmado para guardar la tarjeta en Google Wallet. 503 `wallet_unavailable` sin configuración |
 | GET | `/api/v1/public/logo/{business_id}.png` | — (público) | Logo del negocio como PNG cuadrado de 1024 px con 15 % de margen: lo cargan el pase de Google Wallet y el correo de la tarjeta, que no pueden usar una URL firmada que caduca en 1 h. `Cache-Control` de un día (la URL lleva `?v=` con la huella de la clave). 404 sin logo, con negocio suspendido, sin almacenamiento o si el archivo no se puede leer |
 
@@ -370,14 +372,15 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
   "is_active": true,
   "created_at": "2026-11-12T23:28:01.536737Z",
   "photo_url": null,
-  "business": { "id": 1, "name": "Café Aurora", "logo_url": null, "status": "active", "validity_months": 12 }
+  "business": { "id": 1, "name": "Café Aurora", "logo_url": null, "status": "active", "validity_months": 12, "primary_color": "#0062f2", "primary_foreground": "#ffffff" }
 }
 ```
 
 **Configuración del negocio (`/business`).** Solo el rol `admin`, sobre el negocio de su token: la ruta no recibe id y un `id` o `business_id` en el cuerpo se ignora. Reglas (`services/business_service.py`):
 
-- `PATCH /business/update` cambia `name` y `validity_months`; lo que no se manda (o se manda `null`) queda igual. El estado del negocio lo cambia solo la plataforma y el logo tiene sus propias rutas (`/logo`).
+- `PATCH /business/update` cambia `name`, `validity_months` y `primary_color`; lo que no se manda queda igual, y `null` también, salvo en `primary_color`: el color es opcional y `null` lo quita (vuelve el azul de Member+). El estado del negocio lo cambia solo la plataforma y el logo tiene sus propias rutas (`/logo`).
 - `validity_months` se lee al emitir o renovar una tarjeta (`customer_service`), así que cambiarlo **no mueve** el `valid_until` de las tarjetas ya emitidas.
+- `primary_color` se guarda en minúsculas (`#0062F2` → `#0062f2`); no acepta `#fff`, nombres ni transparencia (422). La respuesta agrega `primary_foreground`, el color de texto legible sobre él: blanco o negro, el que tenga más contraste según WCAG (`services/color_service.py`). El mejor de los dos siempre llega a 4.5:1 (AA), así que no se rechaza ningún color por contraste. Sin color, los dos son `null` y el frontend usa su azul. La tarjeta pública (`/card/{token}`) devuelve los mismos dos campos.
 - El rango de 1 a 60 meses y el nombre de 2 a 120 caracteres son validación de campo: un valor fuera responde 422 de FastAPI, sin `code`.
 
 **Errores con código estable** (`core/errors.py`): cada error de negocio responde `{"detail": "...", "code": "..."}`. El frontend elige el mensaje por `code`, así que `detail` se puede redactar distinto sin romperlo. Se lanza con `ApiError(status_code, detail, code)`; `setup_error_handlers(app)` en `main.py` agrega `code` a la respuesta. Los 422 de validación de campos siguen con la forma de FastAPI (`detail` en lista, sin `code`), y los errores que no están en esta tabla (por ejemplo `Permission denied`) solo llevan `detail`.
@@ -433,7 +436,7 @@ Reglas de `PATCH /tier/{tier_id}/update` (`services/tier_service.py`):
 
 - `code`: `MP-` más 5 caracteres al azar de un alfabeto sin `0/O` ni `1/I/L` (por ejemplo `MP-4F7K2`), único dentro del negocio. Es lo que lleva el QR y lo que se teclea en caja; la búsqueda ignora espacios y mayúsculas.
 - `email`: se guarda en minúscula y es único por negocio (otro negocio puede tener el mismo).
-- Vigencia: `validity_months` del negocio (12 por defecto; por ahora lo fija el seed, sin pantalla de configuración) desde `issued_at`. El 31 pasa al último día de un mes más corto.
+- Vigencia: `validity_months` del negocio (12 por defecto; el admin lo cambia con `/business/update`) desde `issued_at`. El 31 pasa al último día de un mes más corto.
 - Pagos de membresía (`membership_payments`, `services/payment_service.py`, DECISIÓN 9): el alta registra el primer pago en la misma transacción que la tarjeta. El monto es el `price_cents` del nivel salvo que el admin mande `amount_cents`; un monto de 0 (nivel gratuito) no registra pago. Guarda el nivel, el método, el periodo que compró y quién lo registró. Sin pasarela de pagos.
 - Renovación (`/customer/{customer_id}/renew`): bloquea la fila del cliente, suma `validity_months` desde el `valid_until` vigente (no se pierden días pagados) o desde hoy si ya venció, puede cambiar de nivel y registra un pago `renewal` en la misma transacción. Una tarjeta cancelada no se renueva (409). El seed le da su pago `new` a cada cliente de demo en un nivel con precio.
 - `status` no se guarda: `cancelled` si `cancelled_at` tiene fecha (irreversible, gana sobre todo), `expired` si `valid_until` ya pasó, si no `active`. `expiring_soon` marca las activas que vencen en 30 días o menos.
@@ -497,7 +500,7 @@ stateDiagram-v2
 - Un enlace activo por cliente: crear uno revoca el anterior. Como el token en claro no se guarda, **cada correo lleva un enlace nuevo** y revoca el que se copió o envió antes.
 - El enlace vive lo que vive la tarjeta (DECISIÓN 10): no tiene vencimiento propio, `expires_at` es `valid_until`. Si se renueva la tarjeta, el enlace vuelve a abrir. Token desconocido, revocado, tarjeta vencida o cancelada, o negocio suspendido: siempre el mismo 404 `card_link_not_found`.
 - Cancelar la tarjeta llena `revoked_at` de su enlace.
-- `GET /card/{token}` solo devuelve negocio (`name`, `logo_url`), `full_name`, `code`, nivel (`name`, `finish`), `status`, `valid_until` y `wallet.google` (DECISIÓN 11). Nada de correo, teléfono, puntos, cashback ni ids.
+- `GET /card/{token}` solo devuelve negocio (`name`, `logo_url`, `primary_color`, `primary_foreground`), `full_name`, `code`, nivel (`name`, `finish`), `status`, `valid_until` y `wallet.google` (DECISIÓN 11). Nada de correo, teléfono, puntos, cashback ni ids.
 - Las rutas `/card` no usan sesión ni cookie. Todas sus respuestas, errores incluidos, llevan `Cache-Control: no-store`, y cada IP tiene `CARD_RATE_LIMIT_PER_MINUTE` peticiones por minuto (30 por defecto; `core/rate_limit.py`, en memoria por proceso; la IP es la reenviada por el proxy gracias a `--proxy-headers`).
 
 Correo (`services/email_service.py`):

@@ -49,7 +49,14 @@ from schemas.card_schema import (
     WalletAvailabilityResponse,
 )
 from schemas.customer_schema import CustomerCreate, CustomerStatus
-from services import customer_service, email_service, email_templates, logo_service, wallet_service
+from services import (
+    color_service,
+    customer_service,
+    email_service,
+    email_templates,
+    logo_service,
+    wallet_service,
+)
 from services.customer_service import as_utc, customer_status, utc_now
 
 TOKEN_BYTES = 32
@@ -274,7 +281,12 @@ def _resolve(session: Session, token: str) -> tuple[Customer, Tier, Business]:
 def public_card(session: Session, token: str) -> PublicCardResponse:
     customer, tier, business = _resolve(session, token)
     return PublicCardResponse(
-        business=PublicBusinessResponse(name=business.name, logo_url=business.logo_url),
+        business=PublicBusinessResponse(
+            name=business.name,
+            logo_url=business.logo_url,
+            primary_color=business.primary_color,
+            primary_foreground=color_service.readable_foreground(business.primary_color),
+        ),
         full_name=customer.full_name,
         code=customer.code,
         level=PublicTierResponse(name=tier.name, finish=tier.finish),
