@@ -375,6 +375,30 @@ class TestPublicCard:
         assert set(body["business"]) == {"name", "logo_url", "primary_color", "primary_foreground"}
         assert set(body["level"]) == {"name", "finish"}
 
+    def test_a_stored_logo_goes_out_as_the_public_route(
+        self, admin, cards, session: Session
+    ) -> None:
+        """Issue #81: the bucket key is not a URL the page can open."""
+        business = cards["business"]
+        business.logo_url = f"businesses/{business.id}/logo/aurora.webp"
+        session.add(business)
+        session.commit()
+        token = new_link(admin, cards["active"])
+        admin.cookies.clear()
+        logo = admin.get(f"{CARD}/{token}").json()["business"]["logo_url"]
+        version = logo_service.logo_version(business.logo_url)
+        assert logo == (
+            f"{settings.frontend_public_url}/api/v1/public/logo/{business.id}.png?v={version}"
+        )
+
+    def test_an_external_logo_goes_out_unchanged(self, admin, cards, session: Session) -> None:
+        cards["business"].logo_url = "https://cdn.ejemplo.mx/business-a.png"
+        session.add(cards["business"])
+        session.commit()
+        token = new_link(admin, cards["active"])
+        logo = admin.get(f"{CARD}/{token}").json()["business"]["logo_url"]
+        assert logo == "https://cdn.ejemplo.mx/business-a.png"
+
     def test_carries_the_business_color(self, admin, cards) -> None:
         admin.patch("/api/v1/business/update", json={"primary_color": "#facc15"})
         token = new_link(admin, cards["active"])
