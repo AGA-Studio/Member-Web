@@ -35,6 +35,7 @@ EXPECTED_PATHS = {
     "/api/v1/checkout/{checkout_id}",
     "/api/v1/movement/list",
     "/api/v1/movement/export",
+    "/api/v1/business/update",
     "/api/v1/platform/business/list",
     "/api/v1/platform/business/summary",
     "/api/v1/platform/business/{business_id}",

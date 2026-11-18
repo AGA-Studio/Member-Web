@@ -77,6 +77,7 @@ flowchart TB
     MOD --> M10["card_email_model.py — CardEmail (envíos, para el límite)"]
     MOD --> M11["membership_payment_model.py — MembershipPayment, PaymentMethod, PaymentKind"]
     SRV --> SVL1["logo_service.py — subir · reemplazar · quitar el logo"]
+    SRV --> SVB["business_service.py — nombre y vigencia del negocio del token"]
     SRV --> SVL4["upload_service.py — reemplazar o quitar una imagen (logo y fotos)"]
     SRV --> SVL5["profile_service.py — foto de perfil del usuario en sesión"]
     SRV --> SVL2["image_service.py — validar · WebP 512 px sin EXIF"]
@@ -95,7 +96,7 @@ flowchart TB
     SRV --> SV12["turnstile_service.py — Cloudflare Turnstile en el login"]
     SCR --> SC1["seed.py — 2 negocios demo, usuarios, niveles, clientes, compras y un enlace"]
     SCH --> S1["user_schema.py — UserCreate · UserUpdate · UserResponse · MeResponse"]
-    SCH --> S4["business_schema.py — BusinessSummaryResponse"]
+    SCH --> S4["business_schema.py — BusinessUpdate · BusinessSummaryResponse"]
     SCH --> S2["token_schema.py — Token · TokenData"]
     SCH --> S3["validators.py — PersonName"]
     SCH --> S5["tier_schema.py — TierUpdate · TierResponse"]
@@ -108,6 +109,7 @@ flowchart TB
     API --> A1["dependencies.py — CurrentUser · require_roles · BusinessId<br/>ensure_user_can_access"]
     API --> A2["auth_api.py — /auth"]
     API --> AL["logo_api.py — /logo"]
+    API --> AB["business_api.py — /business"]
     API --> AP["profile_api.py — /user/photo"]
     API --> AU["uploads.py — límite de 2 MB y códigos de error de las subidas"]
     API --> A3["user_api.py — /user"]
@@ -318,7 +320,8 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | GET | `/health` | — | Estado de la API |
 | POST | `/api/v1/auth/login` | — | Login con email y contraseña; deja cookie y devuelve el token. Tras 5 intentos fallidos por email responde 429 durante 15 min. Con `TURNSTILE_ENABLED` exige la cabecera `X-Turnstile-Token` (400 `turnstile_failed`) |
 | POST | `/api/v1/auth/logout` | — | Revoca el token de esta sesión (cookie o Bearer) y borra la cookie. Las demás sesiones del usuario siguen abiertas |
-| GET | `/api/v1/auth/me` | cualquier usuario activo | Usuario de la sesión, con su `photo_url` firmada, y su negocio (`business`: `id`, `name`, `logo_url`, `status`; `null` para `platform`) |
+| GET | `/api/v1/auth/me` | cualquier usuario activo | Usuario de la sesión, con su `photo_url` firmada, y su negocio (`business`: `id`, `name`, `logo_url`, `status`, `validity_months`; `null` para `platform`) |
+| PATCH | `/api/v1/business/update` | admin | Configuración del negocio del token (pantalla 13): `name` (2 a 120 caracteres; se quitan los espacios sobrantes) y `validity_months` (entero de 1 a 60), ambos opcionales; `null` o ausente no cambia nada. Responde el mismo `business` de `/auth/me`. La vigencia nueva aplica a las tarjetas que se emitan o renueven después |
 | POST | `/api/v1/user/photo/update` | cualquier usuario activo | Sube o reemplaza **su propia** foto de perfil (`multipart/form-data`, campo `file`). Mismas reglas y errores que `/logo/update`. Devuelve el usuario con `photo_url` firmada |
 | POST | `/api/v1/user/photo/delete` | cualquier usuario activo | Quita su propia foto. Sin foto, responde 200 igual |
 | POST | `/api/v1/logo/update` | admin | Sube o reemplaza el logo del negocio del token (`multipart/form-data`, campo `file`). JPEG, PNG o WebP de hasta 2 MB; se guarda como WebP de 512 px sin metadatos y borra el anterior. Devuelve el negocio con `logo_url` firmada. 413 `image_too_large`, 422 `image_invalid`, 503 `storage_unavailable` |
@@ -367,9 +370,15 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
   "is_active": true,
   "created_at": "2026-11-12T23:28:01.536737Z",
   "photo_url": null,
-  "business": { "id": 1, "name": "Café Aurora", "logo_url": null, "status": "active" }
+  "business": { "id": 1, "name": "Café Aurora", "logo_url": null, "status": "active", "validity_months": 12 }
 }
 ```
+
+**Configuración del negocio (`/business`).** Solo el rol `admin`, sobre el negocio de su token: la ruta no recibe id y un `id` o `business_id` en el cuerpo se ignora. Reglas (`services/business_service.py`):
+
+- `PATCH /business/update` cambia `name` y `validity_months`; lo que no se manda (o se manda `null`) queda igual. El estado del negocio lo cambia solo la plataforma y el logo tiene sus propias rutas (`/logo`).
+- `validity_months` se lee al emitir o renovar una tarjeta (`customer_service`), así que cambiarlo **no mueve** el `valid_until` de las tarjetas ya emitidas.
+- El rango de 1 a 60 meses y el nombre de 2 a 120 caracteres son validación de campo: un valor fuera responde 422 de FastAPI, sin `code`.
 
 **Errores con código estable** (`core/errors.py`): cada error de negocio responde `{"detail": "...", "code": "..."}`. El frontend elige el mensaje por `code`, así que `detail` se puede redactar distinto sin romperlo. Se lanza con `ApiError(status_code, detail, code)`; `setup_error_handlers(app)` en `main.py` agrega `code` a la respuesta. Los 422 de validación de campos siguen con la forma de FastAPI (`detail` en lista, sin `code`), y los errores que no están en esta tabla (por ejemplo `Permission denied`) solo llevan `detail`.
 
@@ -518,6 +527,7 @@ Google Wallet (`services/wallet_service.py`):
 ```mermaid
 flowchart LR
     ROOT["/api/v1"] --> AUTH["/auth"]
+    ROOT --> BUS["/business"]
     ROOT --> USER["/user"]
     ROOT --> TIER["/tier"]
     ROOT --> CUST["/customer"]
@@ -529,6 +539,8 @@ flowchart LR
     AUTH --> L["POST /login"]
     AUTH --> LO["POST /logout"]
     AUTH --> ME["GET /me"]
+
+    BUS --> BU["PATCH /update"]
 
     USER --> UL["GET /list"]
     USER --> UC["POST /create"]

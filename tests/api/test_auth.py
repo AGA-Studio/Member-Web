@@ -112,6 +112,7 @@ class TestCurrentUserBusiness:
             "name": "Business A",
             "logo_url": None,
             "status": "active",
+            "validity_months": 12,
         }
 
     def test_employee_gets_their_business(self, client: TestClient, two_businesses) -> None:
@@ -150,7 +151,7 @@ class TestCurrentUserBusiness:
     def test_business_exposes_only_header_fields(self, client: TestClient, two_businesses) -> None:
         login(client, "admin.a@demo.mx")
         business = client.get(ME_URL).json()["business"]
-        assert set(business) == {"id", "name", "logo_url", "status"}
+        assert set(business) == {"id", "name", "logo_url", "status", "validity_months"}
 
 
 class TestCurrentUser:
