@@ -283,7 +283,10 @@ def public_card(session: Session, token: str) -> PublicCardResponse:
     return PublicCardResponse(
         business=PublicBusinessResponse(
             name=business.name,
-            logo_url=business.logo_url,
+            # A stored key is not a URL: use the stable public route, like the
+            # email and the pass. The page may stay open longer than a signed
+            # URL lives (1 h).
+            logo_url=logo_service.pass_logo_url(business),
             primary_color=business.primary_color,
             primary_foreground=color_service.readable_foreground(business.primary_color),
         ),
