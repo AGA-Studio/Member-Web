@@ -26,7 +26,7 @@ Los números de la suite —cuántas pruebas hay, el porcentaje de cobertura del
 | Pruebas y resultado | Resumen del job `test` del run (pestaña Actions del PR) |
 | Cobertura de `services/` | Artefacto `cobertura` del run; el umbral de 90 % lo hace cumplir `--cov-fail-under` |
 | Bases de datos probadas | SQLite (toda la suite) y PostgreSQL 18 (job `test (postgres)`) |
-| Criterio del MVP "0 filas de otro negocio" | Cumplido por las pruebas de aislamiento de usuarios, niveles, clientes, caja, movimientos, enlace de la tarjeta, logo y fotos |
+| Criterio del MVP "0 filas de otro negocio" | Cumplido por las pruebas de aislamiento de usuarios, niveles, clientes, caja, movimientos, enlace de la tarjeta, logo y fotos, y en PostgreSQL también por Row Level Security (`tests/db/test_rls.py`; el job `test (postgres)` corre toda la suite con las políticas activas) |
 | Migraciones (Alembic) | Suben, bajan, convierten datos y coinciden con los modelos |
 | Hallazgos | Los 7 (H1–H7) corregidos; sus pruebas viven en la suite normal |
 

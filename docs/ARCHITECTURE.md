@@ -63,6 +63,7 @@ flowchart TB
     CORE --> C4["errors.py — ApiError · ErrorCode (code estable en errores)"]
     CORE --> C5["rate_limit.py — SlidingWindowLimiter (límite por IP en memoria)"]
     DBF --> D1["database.py — engine · check_database_connection · get_session"]
+    DBF --> D2["rls.py — Row Level Security: rol memberplus_tenant · activate"]
     MIGR --> MG1["env.py — conecta Alembic con settings y models"]
     MIGR --> MG2["versions/ — una migración por cambio"]
     MOD --> M1["business_model.py — Business, BusinessStatus"]
@@ -716,7 +717,7 @@ sequenceDiagram
     alt rol sin permiso
         DEP-->>C: 403 Permission denied
     end
-    DEP->>DEP: get_business_id: business_id del usuario
+    DEP->>DB: get_business_id: SET LOCAL ROLE memberplus_tenant y app.business_id
     DEP->>R: get_user(user_id=7, business_id)
     R->>DB: SELECT user 7
     alt no existe o es de otro negocio
@@ -734,12 +735,24 @@ flowchart LR
     T["get_token_data<br/>JWT → TokenData<br/>401 si el jti está revocado"] --> CU["get_current_user<br/>User desde la BD"]
     CU --> CA["get_current_active_user<br/>= CurrentUser<br/>ensure_user_can_access:<br/>403 si inactivo o negocio suspendido"]
     CA --> RR["require_roles(...)<br/>403 si el rol no coincide"]
-    CA --> BI["get_business_id<br/>= BusinessId"]
+    CA --> BI["get_business_id<br/>= BusinessId<br/>activa RLS en la sesión"]
     SD["get_session<br/>= SessionDep"] --> CU
     SD --> CA
     SD --> T
     LOGIN["auth_api.login"] -. "misma regla" .-> CA
 ```
+
+### Row Level Security (defensa en profundidad)
+
+El filtro por `business_id` en cada consulta es la primera barrera. La segunda es PostgreSQL: aunque una consulta olvide el filtro, la base no devuelve ni acepta filas de otro negocio (`db/rls.py`, migración `e4a7b9c1d3f5`, issue #74).
+
+- La migración crea el rol `memberplus_tenant` (sin login y sin `BYPASSRLS`) y una política `tenant_isolation` en cada tabla de negocio: `businesses` compara `id`; `users`, `tiers`, `customers`, `purchases`, `card_deliveries`, `card_emails` y `membership_payments` comparan `business_id`, contra el ajuste `app.business_id`. La política vale para leer (`USING`) y para escribir (`WITH CHECK`): mover o crear una fila en otro negocio también falla.
+- `get_business_id` llama a `rls.activate(session, business_id)`: la transacción en curso y cada una que empiece después (evento `after_begin`) corren con `SET LOCAL ROLE memberplus_tenant` y `app.business_id` del token. `SET LOCAL` muere con la transacción, así que una conexión del pool nunca lleva el negocio a otra petición.
+- Lo que no pasa por `BusinessId` sigue con el usuario de la conexión, dueño de las tablas (superusuario en Docker y Coolify), que no está sujeto a RLS: login, `/auth/me`, la tarjeta pública, `/public/logo`, el panel de plataforma, el seed y Alembic. Necesitan filas de varios negocios a propósito.
+- Con el rol y sin `app.business_id`, la política no deja ver ninguna fila (*fail closed*).
+- Las llaves foráneas no se ven afectadas: PostgreSQL las verifica sin RLS.
+- SQLite no tiene RLS: ahí `activate()` solo anota el negocio y el aislamiento lo da la aplicación.
+- Una tabla nueva con `business_id` va en `rls.TABLES` y su política en una migración nueva; `tests/rules/test_rls.py` falla si falta.
 
 ## 7. Arranque de la aplicación
 
