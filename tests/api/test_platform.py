@@ -291,3 +291,59 @@ class TestDetailAndUpdatePermissions:
         business_id = two_businesses["business_a"].id
         assert client.get(detail_url(business_id)).status_code == 401
         assert client.patch(update_url(business_id), json={"status": "active"}).status_code == 401
+
+
+SUMMARY_URL = "/api/v1/platform/business/summary"
+
+
+class TestSummary:
+    def test_has_the_contract_shape(self, client: TestClient, platform) -> None:
+        """A and B active, one suspended, one trial; 2 live cards; 4 active business users."""
+        response = client.get(SUMMARY_URL)
+        assert response.status_code == 200
+        assert response.json() == {
+            "all": 4,
+            "trial": 1,
+            "active": 2,
+            "suspended": 1,
+            "customers_count": 2,
+            "users_count": 4,
+        }
+
+    def test_skips_inactive_users(self, client: TestClient, platform, make_user) -> None:
+        make_user("old.a@demo.mx", business=platform["a"], role=Role.EMPLOYEE, is_active=False)
+        assert client.get(SUMMARY_URL).json()["users_count"] == 4
+
+    def test_follows_status_changes(self, client: TestClient, platform) -> None:
+        client.patch(update_url(platform["a"].id), json={"status": "suspended"})
+        body = client.get(SUMMARY_URL).json()
+        assert (body["active"], body["suspended"], body["all"]) == (1, 2, 4)
+
+    def test_empty_platform_is_all_zeros(self, client: TestClient, make_user) -> None:
+        make_user("owner@memberplus.mx", business=None, role=Role.PLATFORM)
+        login(client, "owner@memberplus.mx")
+        assert client.get(SUMMARY_URL).json() == {
+            "all": 0,
+            "trial": 0,
+            "active": 0,
+            "suspended": 0,
+            "customers_count": 0,
+            "users_count": 0,
+        }
+
+    def test_is_not_read_as_a_business_id(self, client: TestClient, platform) -> None:
+        assert "customers_count" in client.get(SUMMARY_URL).json()
+        assert "id" not in client.get(SUMMARY_URL).json()
+
+    def test_never_exposes_customer_or_user_data(self, client: TestClient, platform) -> None:
+        text = client.get(SUMMARY_URL).text
+        for secret in ("Laura", "MP-AAAA1", "@demo.mx", "Business A", "points", "cashback"):
+            assert secret not in text
+
+    @pytest.mark.parametrize("email", ["admin.a@demo.mx", "employee.a@demo.mx"])
+    def test_business_users_are_403(self, client: TestClient, two_businesses, email: str) -> None:
+        login(client, email)
+        assert client.get(SUMMARY_URL).status_code == 403
+
+    def test_without_session_is_401(self, client: TestClient) -> None:
+        assert client.get(SUMMARY_URL).status_code == 401
