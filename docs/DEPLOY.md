@@ -322,7 +322,7 @@ FastAPI los expone salvo que se desactiven. Decisión pendiente: cerrarlos cuand
 
 Plan de recuperación (DRP). La decisión está cerrada en la wiki (*Decisiones por validar*: «¿Cómo se respalda?») y el diseño completo en *Servicios de terceros: Turnstile en el login y respaldos en B2*.
 
-**Estado (15 nov 2026):** ✅ los dos respaldos corren y la copia de objetos está verificada byte a byte. ⬜ falta la prueba de restauración **de la base** (paso 4), que es la que cierra la viñeta de la entrega.
+**Estado (17 nov 2026):** ✅ los dos respaldos corren, la copia de objetos está verificada byte a byte y la restauración **de la base** quedó probada sobre `memberplus` con el *Import backup* del panel. Detalle y costo de la prueba en [cómo se probó la restauración](#cómo-se-probó-la-restauración-17-nov-2026).
 
 Son dos capas porque son dos cosas distintas: la **base** y los **objetos del bucket de imágenes**. El respaldo de la base no incluye los objetos, y un borrado accidental de un logo deja la fila apuntando a un archivo que ya no existe.
 
@@ -341,12 +341,12 @@ flowchart LR
 | Base respaldada | `memberplus` — se configura con **Specific databases**; ver la advertencia de abajo |
 | Programación | `10 3 * * *`, en la zona horaria del servidor (campo de solo lectura) |
 | Destino | backup storage `Blackblaze MemberPlus` → bucket `memberplus-restic`, región `us-west-004`, path style activo |
-| Retención | 1 día en local, 30 días en B2 |
+| Retención | 1 copia en local, que se conserva 3 días; 8 copias en B2, sin caducidad por días (`dump_all=false`) |
 | Avisos | Coolify notifica el primer fallo, como máximo una vez al día, y avisa cuando vuelve a funcionar |
 
 Los dumps locales quedan en `/data/coolify/backups/databases/<proyecto>/<recurso>/pg-dump-memberplus-*.dmp`, dentro de `coolify-vm`, y se descargan desde la misma pantalla del panel.
 
-> **La advertencia que cuesta el respaldo entero:** el contenedor tiene `POSTGRES_DB=postgres`, pero los datos viven en `memberplus`. Si el schedule se deja en *All databases*, Coolify corre `pg_dumpall` sobre lo que el contenedor considera su base y el respaldo sale del catálogo, no de los datos. El nuestro usa *Specific databases* → `memberplus`, y el nombre del archivo lo confirma: `pg-dump-memberplus-*.dmp`.
+> **La advertencia que cuesta el respaldo entero:** el schedule se deja en *Specific databases* → `memberplus`. Con *All databases*, Coolify corre `pg_dumpall` sobre lo que el contenedor considera su base: hasta el 17 nov 2026 `POSTGRES_DB` valía `postgres` y el archivo salía con el catálogo y la base real vacía. Desde esa fecha la variable vale `memberplus`, pero el dump sigue sin ser el que se quiere: arrastra las bases del catálogo y crece con lo que no se respalda aquí. El nombre del archivo lo confirma: `pg-dump-memberplus-*.dmp`.
 
 ### Capa 2 — los objetos de imágenes, con rclone en el host
 
@@ -372,7 +372,22 @@ Se usa **cron y no un timer de systemd** porque es lo que se vio en clase y bast
 
 ### Cómo se restaura
 
-**Base.** El *Import backup* del panel restaura sobre la base configurada del recurso, que aquí es `postgres`, y en PostgreSQL Coolify no permite elegir destino. Para restaurar sobre `memberplus` se usa `pg_restore` (revisa siempre **Show import command** antes de lanzar el Import del panel):
+**Base, desde el panel.** El *Import backup* ejecuta su script dentro del contenedor y restaura sobre `$POSTGRES_DB`; en PostgreSQL no hay selector de destino (solo en SQLite). El destino efectivo es la variable del contenedor:
+
+```bash
+lxc exec coolify-vm -- docker exec bms3axi9fxhwfeoeagvrdjzc printenv | grep ^POSTGRES_DB=
+# POSTGRES_DB=memberplus
+```
+
+Ese valor es `memberplus` desde el 17 nov 2026, así que el Import escribe en la base de la app. Tres cosas que el panel no dice:
+
+- **La ficha del recurso está desalineada.** La API del panel devuelve `postgres_db: "postgres"` mientras el contenedor tiene `memberplus`. Manda el contenedor; la ficha solo describe con qué nació. Si la base se recrea desde el panel, el contenedor nuevo nacería con `postgres` y tanto la app como el Import apuntarían al lugar equivocado.
+- **La vista previa del comando no resuelve la variable:** muestra `-d "$db"`. No sirve para saber dónde va a escribir.
+- **Guardar la variable no la aplica.** Hay que recrear el contenedor y volver a comprobar con el `printenv` de arriba.
+
+Antes de importar, **Backup now**: el dump del schedule puede tener 24 h y el import corre con *Replace objects that already exist* (`--clean --if-exists`), que borra todo lo posterior. La app del API debe estar parada, porque `--clean` toma locks sobre todas las tablas.
+
+**Base, a una base desechable (el ensayo que no toca producción).** El panel no puede elegir destino, así que el drill sigue siendo a mano:
 
 ```bash
 PG=bms3axi9fxhwfeoeagvrdjzc
@@ -384,7 +399,7 @@ lxc exec coolify-vm -- bash -lc "cat '$DUMP'" | lxc exec coolify-vm -- docker ex
 lxc exec coolify-vm -- docker exec $PG psql -U postgres -c "DROP DATABASE memberplus_drill;"
 ```
 
-Para una restauración real sobre `memberplus`: detener la app `MemberPlus backend` en Coolify, usar el mismo `pg_restore` con `--clean --if-exists`, y volver a arrancarla.
+Si el panel cambiara de destino y hay que restaurar sobre `memberplus` a mano: detener la app `MemberPlus backend` en Coolify, el mismo `pg_restore` con `--clean --if-exists`, y volver a arrancarla.
 
 **Objetos.** Traer el objeto desde B2, a R2 o a disco:
 
@@ -398,6 +413,19 @@ rclone copy b2mp:memberplus-restic/images/businesses/1/logo/<uuid>.webp /tmp/
 |-----|------|--------|
 | El respaldo de la base corre | Una ejecución por día en la pestaña *Backups*, con estado correcto y su tamaño | ✅ 15 nov 2026: `success`, 41 703 B |
 | El archivo llega a B2 | El objeto aparece en el bucket `memberplus-restic` | ✅ |
-| La base se puede recuperar | `pg_restore` a `memberplus_drill` y los conteos de `businesses`, `users`, `tiers` y `customers` iguales a producción | ⬜ pendiente |
+| La base se puede recuperar | *Import backup* del panel sobre `memberplus` (o `pg_restore` a `memberplus_drill`) y los conteos de `businesses`, `users`, `tiers` y `customers` iguales al dump | ✅ 17 nov 2026: `exitCode: 0` y conteos idénticos |
 | Los objetos se copian | `rclone size` en R2 y en B2 coincide en objetos y bytes; MD5 igual por objeto | ✅ 15 nov 2026: 2 objetos, 44 216 B, MD5 idénticos |
 | Los objetos se pueden recuperar | `rclone copy` desde B2 y el archivo abre como `image/webp` | ✅ 15 nov 2026 |
+
+### Cómo se probó la restauración (17 nov 2026)
+
+| Qué | Resultado |
+|-----|-----------|
+| Vía | *Import backup* del panel sobre `memberplus-db` (`bms3axi9fxhwfeoeagvrdjzc`), archivo bajado del bucket, *Replace objects that already exist* |
+| Evidencia en el panel | `activity_log` de Coolify: `operation: database_import`, `status: finished`, `exitCode: 0`, `replace_existing: true` |
+| Destino real | `POSTGRES_DB=memberplus` en el contenedor, y la app tiene ahí sus conexiones |
+| Resultado | Los conteos de `businesses`, `users`, `tiers` y `customers` quedaron iguales a los del dump |
+
+**Lo que costó.** El import restauró el dump de ~24 h antes, así que las filas creadas entre el respaldo y el import se perdieron. La prueba se hizo **sobre la base viva**, no sobre una copia: para el día a día está bien porque es la única vía que ofrece el panel, pero un ensayo periódico del DRP debería ir a `memberplus_drill` con el `pg_restore` de arriba. Y antes de cualquier import real, *Backup now*.
+
+Un detalle que se descubrió en esa prueba y conviene tener presente: el dump es de la hora del schedule, así que `alembic_version` en la base restaurada es el del respaldo. Si `main` ya trae migraciones nuevas, el contenedor las aplica al arrancar (`alembic upgrade head`), pero conviene verlo en los logs y no suponerlo.
