@@ -10,6 +10,7 @@ from sqlmodel import Session
 from core.config import settings
 from core.errors import ApiError, ErrorCode
 from core.security import decode_access_token
+from db import rls
 from db.database import get_session
 from models.business_model import Business, BusinessStatus
 from models.user_model import Role, User
@@ -110,12 +111,17 @@ def require_roles(*roles: Role):
     return checker
 
 
-def get_business_id(user: CurrentUser) -> int:
-    """The authenticated user's business. Every business-data query filters by it."""
+def get_business_id(session: SessionDep, user: CurrentUser) -> int:
+    """The authenticated user's business. Every business-data query filters by it.
+
+    It also scopes the request's session to that business, so PostgreSQL's Row
+    Level Security hides the rows of any other business (`db/rls.py`).
+    """
     if user.business_id is None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="This user does not belong to a business"
         )
+    rls.activate(session, user.business_id)
     return user.business_id
 
 
