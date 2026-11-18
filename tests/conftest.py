@@ -19,6 +19,9 @@ os.environ["DATABASE_URL"] = os.environ.get("TEST_DATABASE_URL") or f"sqlite:///
 os.environ["SECRET_KEY"] = "test-only-secret-key-not-used-anywhere-else"
 os.environ["CORS_ORIGINS"] = "http://localhost:3000"
 os.environ["COOKIE_SECURE"] = "false"
+# Empty = no provider: the card email goes to `email_service.OUTBOX`, as the
+# tests expect. A developer's `.env` pointing at Mailpit would send for real.
+os.environ["SMTP_HOST"] = ""
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
