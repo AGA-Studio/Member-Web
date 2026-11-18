@@ -4,11 +4,12 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
-from models import BusinessStatus
+from models import BusinessStatus, Role
 from tests.api.test_customer import add_customer, add_tier
-from tests.conftest import login
+from tests.conftest import DEFAULT_PASSWORD, LOGIN_URL, login
 
 URL = "/api/v1/platform/business/list"
+ME_URL = "/api/v1/auth/me"
 
 
 @pytest.fixture
@@ -147,3 +148,146 @@ class TestLogo:
         login(client, "owner@memberplus.mx")
         items = {item["name"]: item for item in client.get(URL).json()["items"]}
         assert items["Business A"]["logo_url"] is None
+
+
+def detail_url(business_id: int) -> str:
+    return f"/api/v1/platform/business/{business_id}"
+
+
+def update_url(business_id: int) -> str:
+    return f"/api/v1/platform/business/{business_id}/update"
+
+
+class TestDetail:
+    def test_has_the_contract_shape(self, client: TestClient, platform) -> None:
+        response = client.get(detail_url(platform["a"].id))
+        assert response.status_code == 200
+        body = response.json()
+        assert body.pop("created_at").endswith(("Z", "+00:00"))
+        assert body == {
+            "id": platform["a"].id,
+            "name": "Business A",
+            "logo_url": None,
+            "status": "active",
+            "customers_count": 1,
+            "validity_months": 12,
+            "users_count": 2,
+        }
+
+    def test_users_count_skips_inactive_users(
+        self, client: TestClient, platform, make_user
+    ) -> None:
+        make_user("old.a@demo.mx", business=platform["a"], role=Role.EMPLOYEE, is_active=False)
+        assert client.get(detail_url(platform["a"].id)).json()["users_count"] == 2
+
+    def test_business_without_users_or_cards(self, client: TestClient, platform) -> None:
+        body = client.get(detail_url(platform["trial"].id)).json()
+        assert (body["status"], body["customers_count"], body["users_count"]) == ("trial", 0, 0)
+
+    def test_unknown_business_is_404(self, client: TestClient, platform) -> None:
+        response = client.get(detail_url(999_999))
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Business not found", "code": "business_not_found"}
+
+    def test_never_exposes_customer_or_user_data(self, client: TestClient, platform) -> None:
+        text = client.get(detail_url(platform["a"].id)).text
+        for secret in ("Laura", "MP-AAAA1", "@demo.mx", "@correo.com", "points", "cashback"):
+            assert secret not in text
+
+
+class TestUpdate:
+    def test_suspend(self, client: TestClient, session: Session, platform) -> None:
+        response = client.patch(update_url(platform["a"].id), json={"status": "suspended"})
+        assert response.status_code == 200
+        assert response.json()["status"] == "suspended"
+        session.refresh(platform["a"])
+        assert platform["a"].status == BusinessStatus.SUSPENDED
+
+    def test_reactivate(self, client: TestClient, platform) -> None:
+        response = client.patch(update_url(platform["suspended"].id), json={"status": "active"})
+        assert (response.status_code, response.json()["status"]) == (200, "active")
+
+    def test_trial_can_become_active(self, client: TestClient, platform) -> None:
+        response = client.patch(update_url(platform["trial"].id), json={"status": "active"})
+        assert response.json()["status"] == "active"
+
+    def test_same_status_is_a_no_op(self, client: TestClient, platform) -> None:
+        response = client.patch(update_url(platform["a"].id), json={"status": "active"})
+        assert (response.status_code, response.json()["status"]) == (200, "active")
+
+    def test_returns_the_detail(self, client: TestClient, platform) -> None:
+        body = client.patch(update_url(platform["a"].id), json={"status": "suspended"}).json()
+        assert (body["customers_count"], body["users_count"]) == (1, 2)
+
+    @pytest.mark.parametrize("body", [{"status": "trial"}, {"status": "deleted"}, {}])
+    def test_invalid_status_is_422(self, client: TestClient, platform, body: dict) -> None:
+        assert client.patch(update_url(platform["a"].id), json=body).status_code == 422
+
+    def test_only_the_status_changes(self, client: TestClient, session: Session, platform) -> None:
+        client.patch(
+            update_url(platform["a"].id),
+            json={"status": "suspended", "name": "Hacked", "validity_months": 1},
+        )
+        session.refresh(platform["a"])
+        assert (platform["a"].name, platform["a"].validity_months) == ("Business A", 12)
+
+    def test_unknown_business_is_404(self, client: TestClient, platform) -> None:
+        response = client.patch(update_url(999_999), json={"status": "suspended"})
+        assert (response.status_code, response.json()["code"]) == (404, "business_not_found")
+
+
+class TestSuspensionEffect:
+    """H1: a suspended business can't log in and its open sessions stop working."""
+
+    def test_suspending_cuts_open_sessions(self, client: TestClient, platform) -> None:
+        admin = TestClient(client.app)
+        login(admin, "admin.a@demo.mx")
+        assert admin.get(ME_URL).status_code == 200
+
+        client.patch(update_url(platform["a"].id), json={"status": "suspended"})
+
+        response = admin.get(ME_URL)
+        assert (response.status_code, response.json()["code"]) == (403, "business_suspended")
+        response = TestClient(client.app).post(
+            LOGIN_URL, data={"username": "employee.a@demo.mx", "password": DEFAULT_PASSWORD}
+        )
+        assert (response.status_code, response.json()["code"]) == (403, "business_suspended")
+
+    def test_other_business_keeps_working(self, client: TestClient, platform) -> None:
+        client.patch(update_url(platform["a"].id), json={"status": "suspended"})
+        other = TestClient(client.app)
+        login(other, "admin.b@demo.mx")
+        assert other.get(ME_URL).status_code == 200
+
+    def test_reactivating_lets_them_log_in(self, client: TestClient, platform) -> None:
+        client.patch(update_url(platform["a"].id), json={"status": "suspended"})
+        client.patch(update_url(platform["a"].id), json={"status": "active"})
+        admin = TestClient(client.app)
+        login(admin, "admin.a@demo.mx")
+        assert admin.get(ME_URL).status_code == 200
+
+    def test_platform_owner_is_not_affected(self, client: TestClient, platform) -> None:
+        client.patch(update_url(platform["a"].id), json={"status": "suspended"})
+        assert client.get(ME_URL).status_code == 200
+
+
+class TestDetailAndUpdatePermissions:
+    @pytest.mark.parametrize("email", ["admin.a@demo.mx", "employee.a@demo.mx"])
+    def test_business_users_are_403(self, client: TestClient, two_businesses, email: str) -> None:
+        login(client, email)
+        business_id = two_businesses["business_a"].id
+        assert client.get(detail_url(business_id)).status_code == 403
+        response = client.patch(update_url(business_id), json={"status": "suspended"})
+        assert response.status_code == 403
+
+    def test_admin_cannot_touch_another_business(self, client: TestClient, two_businesses) -> None:
+        login(client, "admin.a@demo.mx")
+        business_b = two_businesses["business_b"]
+        assert client.get(detail_url(business_b.id)).status_code == 403
+        response = client.patch(update_url(business_b.id), json={"status": "suspended"})
+        assert response.status_code == 403
+
+    def test_without_session_is_401(self, client: TestClient, two_businesses) -> None:
+        business_id = two_businesses["business_a"].id
+        assert client.get(detail_url(business_id)).status_code == 401
+        assert client.patch(update_url(business_id), json={"status": "active"}).status_code == 401
