@@ -113,6 +113,50 @@ class TestUpdate:
         assert as_datetime(body["valid_until"]) == add_months(as_datetime(body["issued_at"]), 3)
 
 
+class TestPrimaryColor:
+    def test_sets_the_color_and_its_readable_foreground(self, admin: TestClient) -> None:
+        body = admin.patch(URL, json={"primary_color": "#0062F2"}).json()
+        # Stored in lowercase; white text stays readable on blue.
+        assert (body["primary_color"], body["primary_foreground"]) == ("#0062f2", "#ffffff")
+        me = admin.get(ME_URL).json()["business"]
+        assert (me["primary_color"], me["primary_foreground"]) == ("#0062f2", "#ffffff")
+
+    def test_a_light_color_gets_black_text(self, admin: TestClient) -> None:
+        body = admin.patch(URL, json={"primary_color": "#facc15"}).json()
+        assert body["primary_foreground"] == "#000000"
+
+    def test_leaving_it_out_keeps_the_color(self, admin: TestClient) -> None:
+        admin.patch(URL, json={"primary_color": "#b91c1c"})
+        body = admin.patch(URL, json={"name": "Café Aurora"}).json()
+        assert body["primary_color"] == "#b91c1c"
+
+    def test_null_goes_back_to_member_plus_blue(
+        self, admin: TestClient, session: Session, two_businesses
+    ) -> None:
+        admin.patch(URL, json={"primary_color": "#b91c1c"})
+        body = admin.patch(URL, json={"primary_color": None}).json()
+        assert (body["primary_color"], body["primary_foreground"]) == (None, None)
+        assert stored(session, two_businesses).primary_color is None
+
+    @pytest.mark.parametrize(
+        "color", ["", "0062f2", "#fff", "#0062f2ff", "#gg0000", "red", " #0062f2", 255]
+    )
+    def test_invalid_color_is_422(
+        self, admin: TestClient, session: Session, two_businesses, color: object
+    ) -> None:
+        assert admin.patch(URL, json={"primary_color": color}).status_code == 422
+        assert stored(session, two_businesses).primary_color is None
+
+    def test_employee_sees_the_color_but_cannot_change_it(
+        self, admin: TestClient, client: TestClient
+    ) -> None:
+        admin.patch(URL, json={"primary_color": "#b91c1c"})
+        client.cookies.clear()
+        login(client, "employee.a@demo.mx")
+        assert client.get(ME_URL).json()["business"]["primary_color"] == "#b91c1c"
+        assert client.patch(URL, json={"primary_color": "#000000"}).status_code == 403
+
+
 class TestPermissions:
     def test_employee_is_403(self, client: TestClient, two_businesses) -> None:
         login(client, "employee.a@demo.mx")

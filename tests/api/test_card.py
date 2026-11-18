@@ -375,6 +375,16 @@ class TestPublicCard:
         assert set(body["business"]) == {"name", "logo_url", "primary_color", "primary_foreground"}
         assert set(body["level"]) == {"name", "finish"}
 
+    def test_carries_the_business_color(self, admin, cards) -> None:
+        admin.patch("/api/v1/business/update", json={"primary_color": "#facc15"})
+        token = new_link(admin, cards["active"])
+        admin.cookies.clear()
+        business = admin.get(f"{CARD}/{token}").json()["business"]
+        assert (business["primary_color"], business["primary_foreground"]) == (
+            "#facc15",
+            "#000000",
+        )
+
     def test_is_never_cached(self, admin, cards) -> None:
         token = new_link(admin, cards["active"])
         assert admin.get(f"{CARD}/{token}").headers["Cache-Control"] == "no-store"

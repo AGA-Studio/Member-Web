@@ -31,6 +31,16 @@ def test_change_by_a_never_reaches_b(client: TestClient, session: Session, two_b
     assert client.get("/api/v1/auth/me").json()["business"]["name"] == "Business B"
 
 
+def test_color_of_a_never_reaches_b(client: TestClient, session: Session, two_businesses) -> None:
+    login(client, "admin.a@demo.mx")
+    client.patch(URL, json={"primary_color": "#b91c1c"})
+    assert reload(session, two_businesses["business_b"]).primary_color is None
+
+    client.cookies.clear()
+    login(client, "admin.b@demo.mx")
+    assert client.get("/api/v1/auth/me").json()["business"]["primary_color"] is None
+
+
 def test_business_id_in_the_body_is_ignored(
     client: TestClient, session: Session, two_businesses
 ) -> None:
