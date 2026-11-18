@@ -358,7 +358,7 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | PATCH | `/api/v1/platform/business/{business_id}/update` | platform | Suspende o reactiva: cuerpo `{"status": "suspended" \| "active"}`; responde el detalle. Suspender corta las sesiones abiertas del negocio. 404 `business_not_found` |
 | GET | `/api/v1/card/{token}` | — (público) | Tarjeta pública del enlace: negocio (con su color), nombre, código, nivel, vigencia y `wallet.google`. 404 `card_link_not_found` |
 | GET | `/api/v1/card/{token}/google-wallet` | — (público) | `save_url` firmado para guardar la tarjeta en Google Wallet. 503 `wallet_unavailable` sin configuración |
-| GET | `/api/v1/public/logo/{business_id}.png` | — (público) | Logo del negocio como PNG cuadrado de 1024 px con 15 % de margen: lo cargan el pase de Google Wallet y el correo de la tarjeta, que no pueden usar una URL firmada que caduca en 1 h. `Cache-Control` de un día (la URL lleva `?v=` con la huella de la clave). 404 sin logo, con negocio suspendido, sin almacenamiento o si el archivo no se puede leer |
+| GET | `/api/v1/public/logo/{business_id}.png` | — (público) | Logo del negocio como PNG cuadrado de 1024 px con 15 % de margen: lo cargan el pase de Google Wallet, el correo de la tarjeta y la tarjeta pública (`/card/{token}`), que no pueden usar una URL firmada que caduca en 1 h. `Cache-Control` de un día (la URL lleva `?v=` con la huella de la clave). 404 sin logo, con negocio suspendido, sin almacenamiento o si el archivo no se puede leer |
 
 **Respuesta de `/auth/me`** (`MeResponse`): los campos de `UserResponse` más `business`, el resumen del negocio que el frontend muestra en el encabezado del panel y de la caja. No incluye datos de uso ni de clientes.
 
@@ -500,7 +500,7 @@ stateDiagram-v2
 - Un enlace activo por cliente: crear uno revoca el anterior. Como el token en claro no se guarda, **cada correo lleva un enlace nuevo** y revoca el que se copió o envió antes.
 - El enlace vive lo que vive la tarjeta (DECISIÓN 10): no tiene vencimiento propio, `expires_at` es `valid_until`. Si se renueva la tarjeta, el enlace vuelve a abrir. Token desconocido, revocado, tarjeta vencida o cancelada, o negocio suspendido: siempre el mismo 404 `card_link_not_found`.
 - Cancelar la tarjeta llena `revoked_at` de su enlace.
-- `GET /card/{token}` solo devuelve negocio (`name`, `logo_url`, `primary_color`, `primary_foreground`), `full_name`, `code`, nivel (`name`, `finish`), `status`, `valid_until` y `wallet.google` (DECISIÓN 11). Nada de correo, teléfono, puntos, cashback ni ids.
+- `GET /card/{token}` solo devuelve negocio (`name`, `logo_url`, `primary_color`, `primary_foreground`; un logo guardado en el bucket sale como la ruta pública `/public/logo/{business_id}.png`, que no caduca), `full_name`, `code`, nivel (`name`, `finish`), `status`, `valid_until` y `wallet.google` (DECISIÓN 11). Nada de correo, teléfono, puntos, cashback ni ids.
 - Las rutas `/card` no usan sesión ni cookie. Todas sus respuestas, errores incluidos, llevan `Cache-Control: no-store`, y cada IP tiene `CARD_RATE_LIMIT_PER_MINUTE` peticiones por minuto (30 por defecto; `core/rate_limit.py`, en memoria por proceso; la IP es la reenviada por el proxy gracias a `--proxy-headers`).
 
 Correo (`services/email_service.py`):
