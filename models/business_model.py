@@ -23,6 +23,8 @@ class Business(SQLModel, table=True):
     logo_url: str | None = Field(default=None, max_length=500)
     # Months a membership lasts when it is created or renewed (DECISIÓN 9).
     validity_months: int = Field(default=12, sa_column_kwargs={"server_default": "12"})
+    # Brand color as "#rrggbb" (lowercase); None means Member+ blue.
+    primary_color: str | None = Field(default=None, max_length=7)
     status: BusinessStatus = Field(
         default=BusinessStatus.TRIAL,
         sa_type=sa.Enum(BusinessStatus, name="businessstatus", values_callable=enum_values),
