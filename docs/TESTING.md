@@ -19,36 +19,19 @@ Documentación de la suite de pruebas automatizadas del backend: qué se prueba,
 
 ## 1. Resumen
 
-| Métrica | Valor |
-|---------|-------|
-| Fecha de ejecución | 16 de noviembre de 2026, sobre `main` en `5deebb8` |
-| Pruebas | **778**, todas pasan (0 `xfail`); conteo del 16 nov 2026 con niveles, clientes, caja, movimientos, plataforma, entrega de la tarjeta digital, pagos de membresía, logo con almacenamiento S3, Turnstile en el login, fotos de cliente y de perfil y la plantilla del correo |
-| Fallas | **0** |
-| Cobertura de líneas y ramas | **99 %** en `services/` (979 statements). **100 %** en `api/`, `core/`, `models/`, `main.py` y en `schemas/` salvo `checkout_schema.py` (89 %). `scripts/seed.py` queda en 99 % y `scripts/review_pr.py` (el revisor del CI) en 60 %, por eso el total marca **96 %** |
-| Bases de datos probadas | SQLite y **PostgreSQL 18.6** |
-| Tiempo | **1:04** en SQLite con 778 pruebas (homeserver, i5-8500) · el job `test` del CI tarda ~1m15s (pytest 61 s) y `test (postgres)` ~1m50s (pytest 82 s) |
-| Criterio del MVP "0 filas de otro negocio" | ✅ Cumplido (7 pruebas de usuarios + 4 de niveles + 9 de clientes + 4 de caja + 3 de movimientos + 3 del enlace a la tarjeta + 4 del logo + 4 de la foto del cliente) |
-| Migraciones (Alembic) | ✅ Suben, bajan, convierten datos y coinciden con los modelos (9 pruebas) |
-| Hallazgos | ✅ Los 7 corregidos (H1–H7) |
+Los números de la suite —cuántas pruebas hay, el porcentaje de cobertura del día y los tiempos— cambian con cada PR y **no se copian aquí**: la fuente de cada corrida es el job `test` del CI (su resumen y el artefacto `cobertura`). Este documento explica qué se prueba, por qué y cómo, que es lo que no cambia.
+
+| Métrica | Dónde se consulta |
+|---------|-------------------|
+| Pruebas y resultado | Resumen del job `test` del run (pestaña Actions del PR) |
+| Cobertura de `services/` | Artefacto `cobertura` del run; el umbral de 90 % lo hace cumplir `--cov-fail-under` |
+| Bases de datos probadas | SQLite (toda la suite) y PostgreSQL 18 (job `test (postgres)`) |
+| Criterio del MVP "0 filas de otro negocio" | Cumplido por las pruebas de aislamiento de usuarios, niveles, clientes, caja, movimientos, enlace de la tarjeta, logo y fotos |
+| Migraciones (Alembic) | Suben, bajan, convierten datos y coinciden con los modelos |
+| Hallazgos | Los 7 (H1–H7) corregidos; sus pruebas viven en la suite normal |
 
 No quedan `xfail`: los 7 [hallazgos](#7-hallazgos) se corrigieron y sus pruebas pasaron a la suite normal.
 
-```mermaid
-pie showData
-    title Pruebas por archivo (217)
-    "test_user.py" : 53
-    "test_auth.py" : 46
-    "test_validators.py" : 24
-    "test_seed.py" : 22
-    "test_security.py" : 17
-    "test_login_limit.py" : 12
-    "test_migrations.py" : 9
-    "test_config.py" : 9
-    "test_system.py" : 8
-    "test_isolation.py" : 7
-    "test_auth_service.py" : 6
-    "test_models.py" : 4
-```
 
 ---
 
@@ -70,7 +53,7 @@ uv run pytest -k "login"                       # por nombre
 
 ### Con PostgreSQL
 
-La misma suite corre contra PostgreSQL real con la variable `TEST_DATABASE_URL`. Usa una **base aparte** (`memberplus_test`): las pruebas borran y recrean las tablas antes de cada caso, así que **nunca** se debe apuntar a la base de desarrollo.
+La misma suite corre contra PostgreSQL real con la variable `TEST_DATABASE_URL`. Usa una **base aparte** (`memberplus_test`): el esquema se crea una vez por corrida y cada prueba lo vacía con `TRUNCATE ... RESTART IDENTITY CASCADE` (sección 4), así que **nunca** se debe apuntar a la base de desarrollo.
 
 ```bash
 docker compose up -d
@@ -325,7 +308,7 @@ Al correr en PostgreSQL, una prueba fallaba con `cached plan must not change res
 
 Columna **Resultado**: ✅ pasa en SQLite y PostgreSQL · ⚠️ `xfail` esperado (ver [Hallazgos](#7-hallazgos)).
 
-### 5.1 Seguridad — `tests/unit/test_security.py` (17)
+### 5.1 Seguridad — `tests/unit/test_security.py`
 
 **Contraseñas (Argon2id)**
 
@@ -354,7 +337,7 @@ Columna **Resultado**: ✅ pasa en SQLite y PostgreSQL · ⚠️ `xfail` esperad
 | `test_unsigned_token_alg_none_is_rejected` | Ataque `alg: none` → rechazado | ✅ |
 | `test_garbage_token_is_rejected` | Texto que no es JWT → rechazado | ✅ |
 
-### 5.2 Configuración — `tests/unit/test_config.py` (11)
+### 5.2 Configuración — `tests/unit/test_config.py`
 
 | Prueba | Verifica | Resultado |
 |--------|----------|-----------|
@@ -369,7 +352,7 @@ Columna **Resultado**: ✅ pasa en SQLite y PostgreSQL · ⚠️ `xfail` esperad
 | `test_turnstile_is_off_by_default` | `TURNSTILE_ENABLED=false`, secreto vacío y `siteverify` de Cloudflare por defecto | ✅ |
 | `test_turnstile_hostname_comes_from_the_frontend_url` | El hostname esperado sale de `FRONTEND_PUBLIC_URL` | ✅ |
 
-### 5.3 Modelos — `tests/unit/test_models.py` (4)
+### 5.3 Modelos — `tests/unit/test_models.py`
 
 | Prueba | Verifica | Resultado |
 |--------|----------|-----------|
@@ -378,7 +361,7 @@ Columna **Resultado**: ✅ pasa en SQLite y PostgreSQL · ⚠️ `xfail` esperad
 | `test_email_unique_constraint` | La base rechaza emails duplicados (`IntegrityError`) | ✅ |
 | `test_enum_values` | Valores exactos de `Role` y `BusinessStatus` | ✅ |
 
-### 5.3b Nombres de persona — `tests/unit/test_validators.py` (24)
+### 5.3b Nombres de persona — `tests/unit/test_validators.py`
 
 Regla de H5 (`schemas/validators.py`, tipo `PersonName`): quita espacios al inicio y al final y junta los dobles; solo letras de cualquier alfabeto (con acentos y ñ), espacios, guion y apóstrofo; **mínimo 2 letras**; máximo 120 caracteres.
 
@@ -389,7 +372,7 @@ Regla de H5 (`schemas/validators.py`, tipo `PersonName`): quita espacios al inic
 | `test_max_length` | 120 caracteres sí, 121 no | ✅ |
 | `test_error_messages` | Mensajes `at least 2 letters` y `only contain letters` | ✅ |
 
-### 5.4 Sistema y CORS — `tests/api/test_system.py` (8)
+### 5.4 Sistema y CORS — `tests/api/test_system.py`
 
 | Prueba | Verifica | Resultado |
 |--------|----------|-----------|
@@ -402,7 +385,7 @@ Regla de H5 (`schemas/validators.py`, tipo `PersonName`): quita espacios al inic
 | `TestCors::test_preflight_from_unknown_origin_is_not_allowed` | Otro origen no recibe `allow-origin` | ✅ |
 | `TestCors::test_simple_request_from_allowed_origin` | Petición simple con origen permitido | ✅ |
 
-### 5.5 Autenticación — `tests/api/test_auth.py` (52)
+### 5.5 Autenticación — `tests/api/test_auth.py`
 
 **Login (`POST /api/v1/auth/login`)**
 
@@ -473,7 +456,7 @@ Regla de H5 (`schemas/validators.py`, tipo `PersonName`): quita espacios al inic
 | `test_logout_with_expired_token` | Token vencido → 204 | ✅ |
 | `test_logging_in_again_after_logout_works` | Después del logout se puede volver a entrar | ✅ |
 
-### 5.5b Límite de intentos de login — `tests/api/test_login_limit.py` (12)
+### 5.5b Límite de intentos de login — `tests/api/test_login_limit.py`
 
 H4: 5 intentos fallidos por email, después 429 durante 15 minutos. Las pruebas de tiempo usan la fixture `clock`, que reemplaza `services.auth_service._now` para avanzar el reloj sin esperar.
 
@@ -492,7 +475,7 @@ H4: 5 intentos fallidos por email, después 429 durante 15 minutos. Las pruebas 
 | `test_unknown_email_behaves_the_same` | Un email inexistente recibe los mismos 401 y 429: no se revela qué emails existen | ✅ |
 | `test_limit_is_configurable` | Con `login_max_attempts=2`, el tercer intento → 429 | ✅ |
 
-### 5.5c Servicio de autenticación — `tests/unit/test_auth_service.py` (6)
+### 5.5c Servicio de autenticación — `tests/unit/test_auth_service.py`
 
 | Prueba | Verifica | Resultado |
 |--------|----------|-----------|
@@ -503,7 +486,7 @@ H4: 5 intentos fallidos por email, después 429 durante 15 minutos. Las pruebas 
 | `test_failed_login_rows_outside_the_window_are_purged` | Se borran los registros de intentos fuera de la ventana | ✅ |
 | `test_clear_failed_logins_without_row_is_harmless` | Reiniciar un contador que no existe no falla | ✅ |
 
-### 5.5d Códigos de error estables — `tests/api/test_error_codes.py` (12)
+### 5.5d Códigos de error estables — `tests/api/test_error_codes.py`
 
 Contrato del frontend, sección 1.2 (DECISIÓN 7). Cada error de negocio trae `code` además de `detail`; el frontend elige el mensaje con `code`. Lo implementa `ApiError` en `core/errors.py`.
 
@@ -578,7 +561,7 @@ Contrato del frontend, sección 1.2 (DECISIÓN 7). Cada error de negocio trae `c
 | `test_delete_by_b_does_not_touch_a` | Borrar en B no borra el archivo de A | ✅ |
 | `test_files_are_separated_by_business_prefix` | Cada negocio en su prefijo `businesses/{id}/` | ✅ |
 
-### 5.5f Turnstile en el login — `tests/api/test_turnstile.py` (22)
+### 5.5f Turnstile en el login — `tests/api/test_turnstile.py`
 
 Solo se reemplaza Cloudflare, igual que S3 con moto: el fixture `siteverify` pone un `httpx.MockTransport` en `services.turnstile_service._transport` que responde como `siteverify` con los **secretos de prueba que publica Cloudflare** (`1x0000000000000000000000000000000AA` siempre pasa, `2x0000000000000000000000000000000AA` siempre falla). Así el CI y la demo no dependen de internet, y del endpoint a la petición HTTP corre el código real. `turnstile_on` enciende la bandera con `monkeypatch`.
 
@@ -655,7 +638,7 @@ Solo se reemplaza Cloudflare, igual que S3 con moto: el fixture `siteverify` pon
 | `test_external_url_passes_through` | Una URL externa pasa tal cual | ✅ |
 | `test_stored_key_without_storage_is_null` | Sin almacenamiento, una clave se reporta `null` | ✅ |
 
-### 5.6 Usuarios — `tests/api/test_user.py` (53)
+### 5.6 Usuarios — `tests/api/test_user.py`
 
 **Permisos**
 
@@ -732,7 +715,7 @@ Reproduce dos peticiones que pasan la revisión de email al mismo tiempo: la fix
 | `test_failed_update_leaves_user_unchanged` | Si el cambio falla, ni el email ni el nombre se guardan | ✅ |
 | `test_api_keeps_working_after_the_conflict` | Tras el `rollback`, la siguiente petición funciona | ✅ |
 
-### 5.6b Niveles — `tests/api/test_tier.py` (40)
+### 5.6b Niveles — `tests/api/test_tier.py`
 
 Contrato del frontend, sección 4. `GET /tier/list` y `PATCH /tier/{tier_id}/update`; las reglas viven en `services/tier_service.py`. El nivel se paga (`price_cents`), no se alcanza por puntos.
 
@@ -772,7 +755,7 @@ Contrato del frontend, sección 4. `GET /tier/list` y `PATCH /tier/{tier_id}/upd
 | `test_two_tiers_can_share_a_price` | Dos niveles pueden costar lo mismo | ✅ |
 | `test_out_of_range_is_rejected[...]` | Las restricciones `CHECK` de la base rechazan valores fuera de rango aunque se salte el servicio (4 casos) | ✅ |
 
-### 5.7 Aislamiento multi-negocio — `tests/api/test_isolation.py` (7)
+### 5.7 Aislamiento multi-negocio — `tests/api/test_isolation.py`
 
 Es la prueba obligatoria del MVP: *"0 filas de otro negocio, comprobado por test automático"*.
 
@@ -812,7 +795,7 @@ sequenceDiagram
 | `test_user_created_by_a_is_invisible_to_b` | Lo que crea A no aparece para B | ✅ |
 | `test_forged_business_id_in_token_body_has_no_effect` | Un JWT válido con `business_id` alterado no da acceso: el negocio se toma del usuario en la BD | ✅ |
 
-### 5.7b Aislamiento de niveles — `tests/api/test_isolation_tier.py` (4)
+### 5.7b Aislamiento de niveles — `tests/api/test_isolation_tier.py`
 
 | Prueba | Verifica | Resultado |
 |--------|----------|-----------|
@@ -821,7 +804,7 @@ sequenceDiagram
 | `test_other_business_and_nonexistent_look_identical` | Misma respuesta para "de otro negocio" e "inexistente" | ✅ |
 | `test_editing_own_tier_leaves_other_business_untouched` | Lo que B edita en sus niveles no toca los de A | ✅ |
 
-### 5.7c Clientes — `tests/api/test_customer.py` (81)
+### 5.7c Clientes — `tests/api/test_customer.py`
 
 Contrato del frontend, sección 3. Las reglas viven en `services/customer_service.py`. Los casos parametrizados cuentan uno por variante.
 
@@ -839,7 +822,7 @@ Contrato del frontend, sección 3. Las reglas viven en `services/customer_servic
 | `TestTierCount` | `/tier/list` cuenta solo tarjetas no canceladas | ✅ |
 | `TestCodeAndRaces` | Un código ya usado se regenera; tras 10 choques se rinde con error; dos altas con el mismo email a la vez → 409, no 500, y la API sigue respondiendo | ✅ |
 
-### 5.7d Aislamiento de clientes — `tests/api/test_isolation_customer.py` (11)
+### 5.7d Aislamiento de clientes — `tests/api/test_isolation_customer.py`
 
 | Prueba | Verifica | Resultado |
 |--------|----------|-----------|
@@ -855,15 +838,15 @@ Contrato del frontend, sección 3. Las reglas viven en `services/customer_servic
 | `test_renew_of_other_business_is_404_and_unchanged` | Renovar un cliente de B → 404, sin cambiar su vigencia ni registrar pago | ✅ |
 | `test_payment_list_of_other_business_looks_like_nonexistent` | Los pagos de un cliente de B responden igual que un cliente inexistente | ✅ |
 
-### 5.7e Servicio de clientes — `tests/unit/test_customer_service.py` (10)
+### 5.7e Servicio de clientes — `tests/unit/test_customer_service.py`
 
 `add_months` (mismo día, fin de mes y 29 de febrero), `normalize_code`, y que `generate_code` usa el alfabeto sin caracteres parecidos y produce códigos distintos.
 
-### 5.7f Fórmula de caja — `tests/unit/test_pricing_service.py` (14)
+### 5.7f Fórmula de caja — `tests/unit/test_pricing_service.py`
 
 `services/pricing_service.py` sin base de datos: el ejemplo de la rúbrica ($1,000.00 en Oro → 85 000, 85 puntos y $25.50), puntos y cashback sobre la base antes de restar el cashback usado, el cashback usado nunca pasa de la base, redondeo mitad hacia arriba al centavo, puntos hacia abajo por cada $10, tarjeta sin beneficios y nivel con todo en 0.
 
-### 5.7g Caja — `tests/api/test_checkout.py` (35)
+### 5.7g Caja — `tests/api/test_checkout.py`
 
 Contrato del frontend, sección 5. Los casos parametrizados cuentan uno por variante.
 
@@ -876,7 +859,7 @@ Contrato del frontend, sección 5. Los casos parametrizados cuentan uno por vari
 | `TestIdempotency` | La misma clave no cobra dos veces (`Idempotent-Replayed: true`); misma clave con otro monto → 409 `idempotency_conflict`; claves distintas son compras distintas; clave de más de 64 → 422; dos reintentos simultáneos → una sola compra | ✅ |
 | `TestPermissions` | `platform` → 403; sin sesión → 401 | ✅ |
 
-### 5.7h Aislamiento de caja — `tests/api/test_isolation_checkout.py` (4)
+### 5.7h Aislamiento de caja — `tests/api/test_isolation_checkout.py`
 
 | Prueba | Verifica | Resultado |
 |--------|----------|-----------|
@@ -885,7 +868,7 @@ Contrato del frontend, sección 5. Los casos parametrizados cuentan uno por vari
 | `test_balances_count_zero_rows_of_the_other_business` | Los saldos de A no suman compras de B | ✅ |
 | `test_idempotency_keys_are_per_business` | La misma `Idempotency-Key` en dos negocios son dos compras | ✅ |
 
-### 5.7i Movimientos — `tests/api/test_movement.py` (41)
+### 5.7i Movimientos — `tests/api/test_movement.py`
 
 Contrato del frontend, sección 6. Las compras se registran con `/checkout/create` y después se mueven en el tiempo. Los casos parametrizados cuentan uno por variante.
 
@@ -896,7 +879,7 @@ Contrato del frontend, sección 6. Las compras se registran con `/checkout/creat
 | `TestHelpers` | `pesos` (0, centavos sueltos, negativos) y `safe_cell` (`=`, `+`, `-`, `@`, vacío) | ✅ |
 | `TestPermissions` | `employee` y `platform` → 403 en las dos rutas; sin sesión → 401 | ✅ |
 
-### 5.7j Aislamiento de movimientos — `tests/api/test_isolation_movement.py` (3)
+### 5.7j Aislamiento de movimientos — `tests/api/test_isolation_movement.py`
 
 | Prueba | Verifica | Resultado |
 |--------|----------|-----------|
@@ -904,7 +887,7 @@ Contrato del frontend, sección 6. Las compras se registran con `/checkout/creat
 | `test_filtering_by_a_customer_of_the_other_business_finds_nothing` | `customer_id` o `q` de un cliente de B → lista vacía | ✅ |
 | `test_export_has_zero_rows_of_the_other_business` | El CSV de A no trae filas de B, ni filtrando por su cliente | ✅ |
 
-### 5.7k Plataforma — `tests/api/test_platform.py` (19)
+### 5.7k Plataforma — `tests/api/test_platform.py`
 
 Contrato del frontend, sección 7. No usa `BusinessId`, así que no lleva prueba de aislamiento entre negocios. En su lugar, `TestPrivacy` comprueba que no sale ningún dato de clientes.
 
@@ -914,7 +897,7 @@ Contrato del frontend, sección 7. No usa `BusinessId`, así que no lleva prueba
 | `TestPrivacy` | La respuesta no trae nombres, códigos, correos, puntos ni cashback de clientes; solo las 5 llaves del contrato | ✅ |
 | `TestPermissions` | `admin` y `employee` → 403; sin sesión → 401 | ✅ |
 
-### 5.7l Entrega de la tarjeta digital — `tests/api/test_card.py` (59)
+### 5.7l Entrega de la tarjeta digital — `tests/api/test_card.py`
 
 Contrato del frontend, sección 13 (enlace, correo, tarjeta pública y Google Wallet). Las rutas `/card` no usan sesión. El correo se prueba sin mocks: sin `SMTP_HOST` va a la bandeja en memoria (`email_service.OUTBOX`), y `tests/smtp_server.py` levanta un servidor SMTP real en `127.0.0.1` que acepta, rechaza o tarda. `tests/conftest.py` fuerza `SMTP_HOST=""` antes de importar la app, así que un `.env` local apuntando a Mailpit no cambia lo que verifican estas pruebas.
 
@@ -928,18 +911,18 @@ Contrato del frontend, sección 13 (enlace, correo, tarjeta pública y Google Wa
 | `TestGoogleWallet` | Sin configuración → 503 `wallet_unavailable` con `no-store`; token desconocido → 404 antes que el 503; tarjeta cancelada → 404; con configuración la tarjeta dice `wallet.google = true`; el JWT se firma con RS256 y se decodifica con la llave pública de prueba (`iss`, `aud`, `typ`, `origins`); lleva la clase del negocio y el objeto del cliente con el QR igual al `code`; usa el logo `https` del negocio si existe; una cuenta de servicio rota o una variable vacía → sin configurar | ✅ |
 | `TestPermissions` | `card-link` y `card-link/send`: `employee` y `platform` → 403; sin sesión → 401. La tarjeta pública abre sin sesión | ✅ |
 
-### 5.7m Aislamiento del enlace — `tests/api/test_isolation_card.py` (3)
+### 5.7m Aislamiento del enlace — `tests/api/test_isolation_card.py`
 
 | Prueba | Verifica | Resultado |
 |--------|----------|-----------|
 | `test_admin_b_gets_404_for_a_customer_of_a` | El admin de B no puede crear ni enviar el enlace de un cliente de A (404); no se guarda nada ni sale ningún correo | ✅ |
 | `test_a_link_of_a_shows_only_a` | El enlace de A muestra el negocio A aunque lo abra una sesión de B | ✅ |
 
-### 5.7n Límite por IP — `tests/unit/test_rate_limit.py` (5)
+### 5.7n Límite por IP — `tests/unit/test_rate_limit.py`
 
 `core/rate_limit.py`: ventana deslizante en memoria. Permite hasta el límite y luego da los segundos de espera; cuenta cada llave aparte; las peticiones viejas salen de la ventana; `reset` borra todo; con demasiadas llaves descarta las que ya no tienen peticiones.
 
-### 5.7o Pagos de membresía — `tests/api/test_membership_payment.py` (25)
+### 5.7o Pagos de membresía — `tests/api/test_membership_payment.py`
 
 Contrato del frontend, sección 9 (DECISIÓN 9).
 
@@ -950,7 +933,7 @@ Contrato del frontend, sección 9 (DECISIÓN 9).
 | `TestRenew` | Una tarjeta vigente renueva desde su `valid_until` y una vencida desde hoy; puede cambiar nivel, monto y método; renovar un nivel gratuito no registra pago; tarjeta cancelada → 409 `customer_cancelled` sin pago ni cambio; nivel desconocido o monto fuera de rango → 422; cliente inexistente → 404; el cajero → 403 | ✅ |
 | `TestPaymentList` | El más reciente primero, con método, monto, nivel, periodo y quién lo registró; conserva el nombre del nivel aunque luego cambie; pagina; vacía para un cliente gratuito; cliente inexistente → 404; el cajero → 403 | ✅ |
 
-### 5.8 Hallazgos conocidos — `tests/api/test_known_issues.py` (0)
+### 5.8 Hallazgos conocidos — `tests/api/test_known_issues.py`
 
 Hoy no hay hallazgos abiertos. El archivo se conserva vacío para registrar los siguientes como `xfail(strict=True)`.
 
@@ -964,7 +947,7 @@ Los 5 que pasaron por aquí (H1–H5) se corrigieron. Al corregir cada uno, `str
 | H4 | `test_login_limit.py` |
 | H5 | `test_validators.py` y `test_user.py` |
 
-### 5.9 Migraciones — `tests/db/test_migrations.py` (9)
+### 5.9 Migraciones — `tests/db/test_migrations.py`
 
 Usan su propia fixture `empty_database`, que deja la base sin ninguna tabla (ni `alembic_version`) y ejecutan Alembic con una conexión abierta. Detalle en [MIGRATIONS.md](MIGRATIONS.md#8-pruebas-de-las-migraciones).
 
@@ -988,7 +971,7 @@ Differences: [('add_column', None, 'users', Column('phone', AutoString(), table=
 
 ---
 
-### 5.10 Seed de demo — `tests/scripts/test_seed.py` (48)
+### 5.10 Seed de demo — `tests/scripts/test_seed.py`
 
 `scripts/seed.py` crea Café Aurora y Gimnasio Titán (`active`) con 4 usuarios (dueño de plataforma, admin y empleado de Café Aurora, y admin de Gimnasio Titán) y sus niveles: Bronce, Plata, Oro y Onyx en Café Aurora (beneficios del contrato, sección 8; precios de demo de $0, $199, $399 y $699) y Básico y Premium en Gimnasio Titán, distintos a propósito.
 
@@ -1031,7 +1014,7 @@ También se probó dentro de la imagen Docker: crea los datos con `SEED_PASSWORD
 
 ---
 
-### 5.11 Reglas de convención — `tests/rules/` (12)
+### 5.11 Reglas de convención — `tests/rules/`
 
 No prueban comportamiento: **leen el código fuente** (AST) y el árbol de archivos, y fallan cuando un módulo nuevo rompe una regla de `AGENTS.md` o contradice `ARCHITECTURE.md`. Las pruebas de los puntos 5.1–5.10 solo cubren lo que ya existe; estas atajan lo que alguien está por agregar mal.
 
@@ -1088,10 +1071,7 @@ Ejecutado el 17 de noviembre de 2026 sobre `main` en `f8d1fba`, en el homeserver
 
 ### SQLite
 
-```text
-$ uv run pytest -q
-778 passed in 64.70s (0:01:04)
-```
+El resultado de cada corrida (cuántas pasan y cuánto tarda) sale del run del CI o de la terminal de cada quien; este documento fija qué se ejecuta, no el récord del día.
 
 ### PostgreSQL 18.6
 
@@ -1131,7 +1111,7 @@ TOTAL                                 2145     73    352      8    96%
 
 El resto de paquetes está en 100 % (`api/`, `core/`, `models/`, `main.py` y `schemas/` salvo `checkout_schema.py`, que queda en 89 % por una rama de validación).
 
-El MVP pide ≥ 60 % de cobertura en `services/`: hoy está en **99 %** —979 statements, 6 sin cubrir, todos rutas de error—, y desde el PR #60 el job `test` del CI mide ese número con `--cov=services --cov-fail-under=90` y falla si baja, así que ya no depende de que alguien lo corra a mano.
+El MVP pide ≥ 60 % de cobertura en `services/`; desde el PR #60 el job `test` del CI lo mide con `--cov=services --cov-fail-under=90` y falla si baja, así que el umbral no depende de que alguien lo corra a mano. El porcentaje vigente de cada run queda en el artefacto `cobertura`, no en este documento.
 
 ### Pruebas más lentas
 
@@ -1144,7 +1124,7 @@ El MVP pide ≥ 60 % de cobertura en `services/`: hoy está en **99 %** —979 s
 0.36s  setup     tests/api/test_isolation_logo.py::test_files_are_separated_by_business_prefix
 ```
 
-Ya no domina el `setup`. Hasta el PR #61 lo pagaban las 778 pruebas —incluidas las de `tests/unit`, que no tocan la base— y la limpieza costaba 605 ms por prueba, así que la suite tardaba 13:12. Con ese PR la limpieza solo la piden `session` y `client`, y con el PR #63 deja de esperar al disco: `journal_mode=MEMORY` y `synchronous=OFF` en la base temporal bajan el `drop_all` + `create_all` a **11 ms**.
+Ya no domina el `setup`. Hasta el PR #61 lo pagaba toda la suite —incluidas las de `tests/unit`, que no tocan la base— y la limpieza costaba 605 ms por prueba, así que la suite tardaba 13:12. Con ese PR la limpieza solo la piden `session` y `client`, y con el PR #63 deja de esperar al disco: `journal_mode=MEMORY` y `synchronous=OFF` en la base temporal bajan el `drop_all` + `create_all` a **11 ms**.
 
 Lo que queda es tiempo real de prueba: `test_a_slow_provider_is_pending` simula un proveedor de cartera lento a propósito, y las del límite de login hacen entre 5 y 10 logins con Argon2id (~66 ms por verificación).
 
