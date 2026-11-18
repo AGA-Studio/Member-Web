@@ -33,6 +33,8 @@ class TestUpdate:
             "logo_url": None,
             "status": "active",
             "validity_months": 6,
+            "primary_color": None,
+            "primary_foreground": None,
         }
         assert admin.get(ME_URL).json()["business"] == response.json()
 

@@ -45,8 +45,12 @@ class CustomerCreatedResponse(CustomerResponse):
 
 
 class PublicBusinessResponse(BaseModel):
+    """`primary_color` and `primary_foreground` as in `/auth/me`: None means Member+ blue."""
+
     name: str
     logo_url: str | None
+    primary_color: str | None
+    primary_foreground: str | None
 
 
 class PublicTierResponse(BaseModel):

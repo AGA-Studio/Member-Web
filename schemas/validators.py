@@ -25,6 +25,15 @@ def normalize_person_name(value: str) -> str:
     return name
 
 
+HexColor = Annotated[
+    str,
+    Field(pattern=r"^#[0-9A-Fa-f]{6}$", examples=["#0062f2"]),
+    # Stored and returned in lowercase: "#0062F2" and "#0062f2" are the same color.
+    AfterValidator(str.lower),
+]
+"""A color as "#rrggbb". No shorthand ("#fff"), names ("red") or alpha."""
+
+
 PersonName = Annotated[
     str,
     Field(min_length=1, max_length=PERSON_NAME_MAX_LENGTH, examples=["José Luis"]),

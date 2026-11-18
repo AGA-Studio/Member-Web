@@ -344,7 +344,12 @@ class TestPublicCard:
             "active"
         ].valid_until.replace(tzinfo=UTC)
         assert body == {
-            "business": {"name": "Business A", "logo_url": None},
+            "business": {
+                "name": "Business A",
+                "logo_url": None,
+                "primary_color": None,
+                "primary_foreground": None,
+            },
             "full_name": "Laura Méndez",
             "code": "MP-4F7K2",
             "level": {"name": "Oro", "finish": "gold"},
@@ -367,7 +372,7 @@ class TestPublicCard:
             "valid_until",
             "wallet",
         }
-        assert set(body["business"]) == {"name", "logo_url"}
+        assert set(body["business"]) == {"name", "logo_url", "primary_color", "primary_foreground"}
         assert set(body["level"]) == {"name", "finish"}
 
     def test_is_never_cached(self, admin, cards) -> None:
