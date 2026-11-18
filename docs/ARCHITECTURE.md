@@ -103,7 +103,7 @@ flowchart TB
     SCH --> S7["pagination_schema.py — PageResponse"]
     SCH --> S8["checkout_schema.py — CheckoutCreate · ReceiptResponse"]
     SCH --> S9["movement_schema.py — MovementResponse · MovementPageResponse"]
-    SCH --> S10["platform_schema.py — PlatformBusinessResponse"]
+    SCH --> S10["platform_schema.py — PlatformBusinessResponse · PlatformBusinessDetailResponse · PlatformBusinessUpdate"]
     SCH --> S11["card_schema.py — CardLinkResponse · PublicCardResponse · CustomerCreatedResponse"]
     API --> A1["dependencies.py — CurrentUser · require_roles · BusinessId<br/>ensure_user_can_access"]
     API --> A2["auth_api.py — /auth"]
@@ -348,6 +348,8 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | GET | `/api/v1/movement/list` | admin | Historial paginado, más reciente primero, con `summary` del conjunto filtrado. Filtros `q`, `customer_id`, `from`, `to` |
 | GET | `/api/v1/movement/export` | admin | Mismos filtros que `list`, sin paginar, como CSV descargable |
 | GET | `/api/v1/platform/business/list` | platform | Negocios con su estado, `customers_count` y `logo_url` firmada (misma regla que `/auth/me`), paginados por nombre. Filtros `q` y `status`. Nunca datos de clientes |
+| GET | `/api/v1/platform/business/{business_id}` | platform | Detalle del negocio: lo de la lista más `validity_months` y `users_count` (usuarios activos). 404 `business_not_found` |
+| PATCH | `/api/v1/platform/business/{business_id}/update` | platform | Suspende o reactiva: cuerpo `{"status": "suspended" \| "active"}`; responde el detalle. Suspender corta las sesiones abiertas del negocio. 404 `business_not_found` |
 | GET | `/api/v1/card/{token}` | — (público) | Tarjeta pública del enlace: negocio, nombre, código, nivel, vigencia y `wallet.google`. 404 `card_link_not_found` |
 | GET | `/api/v1/card/{token}/google-wallet` | — (público) | `save_url` firmado para guardar la tarjeta en Google Wallet. 503 `wallet_unavailable` sin configuración |
 
@@ -387,6 +389,7 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | `card_email_rate_limited` | 429 | `/customer/{customer_id}/card-link/send`: ya se envió hace menos de 1 minuto o 5 veces en una hora (con `Retry-After`) |
 | `email_failed` | 502 | `/customer/{customer_id}/card-link/send`: el proveedor de correo falló |
 | `card_link_not_found` | 404 | `/card/{token}` y `/google-wallet`: token desconocido, revocado, tarjeta vencida o cancelada, o negocio suspendido. Siempre el mismo cuerpo |
+| `business_not_found` | 404 | `/platform/business/{business_id}` y `/update`: el negocio no existe |
 | `wallet_unavailable` | 503 | `/card/{token}/google-wallet`: Google Wallet sin configurar en este entorno |
 | `rate_limited` | 429 | `/card/...`: más de `CARD_RATE_LIMIT_PER_MINUTE` peticiones por minuto desde la misma IP (con `Retry-After`) |
 | `turnstile_failed` | 400 | `POST /api/v1/auth/login` con `TURNSTILE_ENABLED`: falta `X-Turnstile-Token`, Cloudflare lo rechaza, es de otro hostname o `siteverify` no respondió en 5 s. `detail` también es `turnstile_failed`, como fija el contrato de la wiki |
@@ -458,11 +461,23 @@ Ejemplo de la rúbrica, $1,000.00 en Oro (15 %, 1 punto por $10, 3 %): descuento
 - Un `customer_id` de otro negocio no es error: no coincide con nada y la lista sale vacía.
 - `export` responde `text/csv; charset=utf-8` con `Content-Disposition: attachment; filename="movimientos-AAAAMMDD.csv"` y BOM al inicio para que Excel lea los acentos. Columnas: Fecha (ISO UTC), Cajero, Cliente, Código, Concepto, Monto, Descuento, Total, Puntos, Cashback ganado, Cashback usado. Los importes van en pesos con dos decimales (`1000.00`). Un texto que empieza con `=`, `+`, `-` o `@` lleva un `'` delante para que la hoja de cálculo no lo ejecute como fórmula.
 
-**Plataforma (`/platform`).** Solo el rol `platform`, que no pertenece a ningún negocio: ve todos los negocios, pero solo su estado y su uso. Ninguna respuesta lleva datos de clientes, usuarios ni compras (decisión cerrada).
+**Plataforma (`/platform`).** Solo el rol `platform`, que no pertenece a ningún negocio: ve todos los negocios, pero solo su estado y su uso. Ninguna respuesta lleva datos de clientes, usuarios ni compras (decisión cerrada); `users_count` es un conteo, no una lista. Lo único que cambia es el estado del negocio.
 
 - `GET /platform/business/list` devuelve `id`, `name`, `logo_url`, `status`, `customers_count` y `created_at`, por `name` y luego `id`, con la paginación de las demás listas.
 - Filtros: `q` (nombre del negocio, sin distinguir mayúsculas) y `status` (`trial`, `active`, `suspended`).
 - `customers_count` cuenta las tarjetas **no canceladas**, con la misma regla que `customers_count` de un nivel. Sale de una sola consulta por página.
+- `GET /platform/business/{business_id}` agrega `validity_months` y `users_count` (usuarios activos del negocio; los desactivados no cuentan).
+- `PATCH /platform/business/{business_id}/update` solo acepta `status`, y solo `active` o `suspended`; cualquier otro campo se ignora. `trial` responde 422: un negocio nace en prueba y cómo sale de ahí depende de las casillas abiertas de alta y planes. Pedir el estado que ya tiene no es error (200 sin cambios).
+- Suspender no revoca tokens: `ensure_user_can_access` rechaza con 403 `business_suspended` el login y la siguiente petición de cualquier sesión abierta del negocio (H1). Reactivar (`active`) les devuelve el acceso; el dueño de plataforma no se ve afectado.
+
+```mermaid
+stateDiagram-v2
+    [*] --> trial: alta (seed)
+    trial --> active: PATCH update
+    trial --> suspended: PATCH update
+    active --> suspended: PATCH update
+    suspended --> active: PATCH update
+```
 
 **Tarjeta digital (`card_deliveries`, `card_emails`, `/card`).** El cliente recibe un correo con un enlace a `{FRONTEND_PUBLIC_URL}/tarjeta/<token>`; esa página del frontend pide `GET /card/{token}`, dibuja la tarjeta y arma la imagen y el PDF en el navegador. Reglas (`services/card_service.py`):
 
@@ -536,6 +551,8 @@ flowchart LR
     MOV --> VE["GET /export"]
 
     PLAT --> PB["GET /business/list"]
+    PLAT --> PG["GET /business/{business_id}"]
+    PLAT --> PU["PATCH /business/{business_id}/update"]
 
     CARD --> DG["GET /{token}"]
     CARD --> DW["GET /{token}/google-wallet"]
