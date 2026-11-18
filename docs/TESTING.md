@@ -916,7 +916,7 @@ Contrato del frontend, sección 7. No usa `BusinessId`, así que no lleva prueba
 
 ### 5.7l Entrega de la tarjeta digital — `tests/api/test_card.py` (59)
 
-Contrato del frontend, sección 13 (enlace, correo, tarjeta pública y Google Wallet). Las rutas `/card` no usan sesión. El correo se prueba sin mocks: sin `SMTP_HOST` va a la bandeja en memoria (`email_service.OUTBOX`), y `tests/smtp_server.py` levanta un servidor SMTP real en `127.0.0.1` que acepta, rechaza o tarda.
+Contrato del frontend, sección 13 (enlace, correo, tarjeta pública y Google Wallet). Las rutas `/card` no usan sesión. El correo se prueba sin mocks: sin `SMTP_HOST` va a la bandeja en memoria (`email_service.OUTBOX`), y `tests/smtp_server.py` levanta un servidor SMTP real en `127.0.0.1` que acepta, rechaza o tarda. `tests/conftest.py` fuerza `SMTP_HOST=""` antes de importar la app, así que un `.env` local apuntando a Mailpit no cambia lo que verifican estas pruebas.
 
 | Clase | Qué verifica | Resultado |
 |-------|--------------|-----------|
