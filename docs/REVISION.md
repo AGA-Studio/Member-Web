@@ -4,10 +4,12 @@ Lo que un cambio no puede romper, en una página.
 
 Este archivo lo lee `scripts/review_pr.py`, que comenta los PRs automáticamente. **No es la fuente de verdad**: la wiki manda (`wiki.neyzt.org`, colección `9no`) y este archivo es su resumen para revisar. Si aquí dice una cosa y la wiki otra, gana la wiki y esto se corrige.
 
-> Última sincronización con la wiki: **17 de noviembre de 2026**.
+> Última sincronización con la wiki: **18 de noviembre de 2026**.
 > Fuentes: *Decisiones por validar*, *MVP*, *Requisitos de referencia*, más `AGENTS.md` y `docs/ARCHITECTURE.md` de este repositorio.
 >
-> Cambio de la wiki de ese día que este archivo refleja: «¿Cómo se respalda?» ganó la viñeta *Restaurada desde el panel el 17 nov 2026* —`POSTGRES_DB` quedó en `memberplus`, el *Import backup* restauró el dump del 16 nov con los conteos idénticos y el drill a base desechable sigue siendo manual—. Igual que el cambio anterior: la casilla se corrigió **primero en la wiki**, con su nota fechada, y solo después esta tabla y `docs/DEPLOY.md` sección 11.
+> Cambio de la wiki de ese día que este archivo refleja: «Backend: imágenes» ganó la casilla *¿Cómo llega el logo del negocio al pase de Google Wallet y al correo de la tarjeta?* —el logo se sirve por `GET /api/v1/public/logo/{business_id}.png` como PNG cuadrado, **única excepción** a «bucket privado con URLs firmadas»— y quedó cerrada la marca del pase: `issuerName` = «Member+» y `programName` = nombre del negocio. La casilla se corrigió **primero en la wiki**, con su viñeta fechada, y solo después esta tabla y `docs/ARCHITECTURE.md`, `docs/STORAGE.md` y `docs/TESTING.md`.
+>
+> Cambio de la wiki del 17 de noviembre de 2026 que este archivo refleja: «¿Cómo se respalda?» ganó la viñeta *Restaurada desde el panel el 17 nov 2026* —`POSTGRES_DB` quedó en `memberplus`, el *Import backup* restauró el dump del 16 nov con los conteos idénticos y el drill a base desechable sigue siendo manual—. Igual que el cambio anterior: la casilla se corrigió **primero en la wiki**, con su nota fechada, y solo después esta tabla y `docs/DEPLOY.md` sección 11.
 >
 > Cambio del 15 de noviembre de 2026 que este archivo refleja: «¿Cómo se respalda?» pasó de «`pg_dump` diario + restic» a las dos capas actuales —backup nativo de Coolify para la base y `rclone copy` R2 → B2 para los objetos—. La casilla se corrigió **primero en la wiki**, con su nota fechada, y solo después se alinearon esta tabla y `docs/DEPLOY.md` sección 11.
 
@@ -44,6 +46,7 @@ Un PR no las contradice. Si de verdad hay que cambiarlas, se cambia primero la c
 | Hostnames | App en `memberplus.neyzt.org`, API en `api-memberplus.neyzt.org` | Next reescribe `/api/*`: cookie de primera parte, sin CORS en producción. **Guion y no punto**: el SSL Universal de Cloudflare solo cubre un nivel de subdominio |
 | Dueño de los datos | El negocio; Member+ solo los procesa | Dos avisos de privacidad |
 | Respaldo | Base: backup nativo de Coolify → B2, diario. Objetos: `rclone copy` R2 → B2 en el host | El schedule usa **Specific databases → `memberplus`**; con *All databases* el dump arrastra el catálogo en vez de la base sola. Restauración probada el 17 nov 2026 con el *Import backup* del panel, que escribe en el `POSTGRES_DB` del contenedor (`memberplus`). Casilla y notas: «¿Cómo se respalda?» en *Decisiones por validar* |
+| Imágenes | Bucket **privado**; en la base va la clave del objeto, nunca la URL | El navegador abre URLs firmadas de 1 h (`storage_service.public_url`). **Única excepción (18 nov 2026):** `GET /api/v1/public/logo/{business_id}.png` sirve el logo como PNG cuadrado para el pase de Google Wallet y el correo, que viven fuera de la sesión y sobreviven a la firma; el bucket sigue privado porque el API hace de proxy. El logo se guarda a 1024 px; las fotos siguen en 512 |
 
 ### Hallazgos ya decididos (H1–H7)
 
