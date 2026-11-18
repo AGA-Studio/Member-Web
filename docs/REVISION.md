@@ -41,7 +41,7 @@ Un PR no las contradice. Si de verdad hay que cambiarlas, se cambia primero la c
 | Entornos | Uno solo: la demo **es** producción | Sin app de demo aparte; rollback con `sha-<7>` |
 | Hostnames | App en `memberplus.neyzt.org`, API en `api-memberplus.neyzt.org` | Next reescribe `/api/*`: cookie de primera parte, sin CORS en producción. **Guion y no punto**: el SSL Universal de Cloudflare solo cubre un nivel de subdominio |
 | Dueño de los datos | El negocio; Member+ solo los procesa | Dos avisos de privacidad |
-| Respaldo | Base: backup nativo de Coolify → B2, diario. Objetos: `rclone copy` R2 → B2 en el host | El schedule usa **Specific databases → `memberplus`**; con *All databases* respalda `postgres` y no los datos |
+| Respaldo | Base: backup nativo de Coolify → B2, diario. Objetos: `rclone copy` R2 → B2 en el host | El schedule usa **Specific databases → `memberplus`**; con *All databases* el dump arrastra el catálogo en vez de la base sola. Restauración probada el 17 nov 2026 con el *Import backup* del panel, que escribe en el `POSTGRES_DB` del contenedor (`memberplus`) |
 
 ### Hallazgos ya decididos (H1–H7)
 
