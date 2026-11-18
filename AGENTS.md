@@ -142,6 +142,18 @@ Ningún router es gordo: el router valida y delega. El cálculo (descuento, punt
   componentes, `flowchart` para estructura y procesos, `stateDiagram-v2` para estados.
 - Etiquetas con caracteres especiales van entre comillas (`A["/user/create"]`).
 
+## Issues y pendientes
+
+- **Un bug o una mejora es un issue de GitHub**, no una nota en `docs/` ni en la wiki. Se crea en el
+  repo donde cae el cambio con `gh issue create -R AGA-Studio/Member-Web --label bug|enhancement|documentation|deuda`.
+  Antes, busca duplicados: `gh issue list -R AGA-Studio/Member-Web --state open --search "texto"`.
+- Si el hallazgo aparece a mitad de una tarea y queda fuera de su alcance, **se registra y se sigue**;
+  no se deja solo en un comentario del PR ni en la documentación.
+- Un issue se cierra con `Closes #N` en el PR y el merge verificado, o como *not planned* con el motivo
+  escrito; nunca se borra.
+- `docs/` describe lo implementado y la wiki decide requisitos: **ninguno de los dos acumula listas de
+  pendientes**. Un ítem, un hogar.
+
 ## Git
 
 - `main` es la única rama de larga vida. Trabajo nuevo en `feature/<descripcion-corta>` (o

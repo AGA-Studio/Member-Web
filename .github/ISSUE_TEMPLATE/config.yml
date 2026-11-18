@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Decisiones y requisitos (wiki)
+    url: https://wiki.neyzt.org
+    about: Las decisiones de producto y los requisitos viven en la wiki, no en un issue.
+  - name: Tablero de hitos (Kanban)
+    url: https://kan.neyzt.org/member-plus/final-9no
+    about: El trabajo planificado por hitos vive en el tablero Final 9no.
