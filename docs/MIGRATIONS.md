@@ -134,7 +134,7 @@ Autogenerate es una ayuda, no un oráculo. Hay cosas que **no detecta** o que ha
 | Borrar una tabla con `Enum` en PostgreSQL | El `downgrade` no borra el tipo `ENUM` | Agregar `sa.Enum(name="...").drop(op.get_bind(), checkfirst=True)` (como en la migración inicial) |
 | Columna nueva `NOT NULL` en una tabla con datos | Falla al aplicar | Agregar `server_default`, o crearla nullable, llenarla y luego volverla `NOT NULL` |
 | Datos (no estructura) | No los genera | Escribir el `op.execute(...)` o `op.bulk_insert(...)` a mano |
-| Políticas RLS, funciones o triggers | No los detecta | Escribirlos con `op.execute(...)` |
+| Políticas RLS, funciones o triggers | No los detecta | Escribirlos con `op.execute(...)`. Una tabla nueva con `business_id` necesita su política `tenant_isolation` (ver `e4a7b9c1d3f5`) y entrar en `db/rls.py` `TABLES` |
 
 Siempre se revisa también el `downgrade()`.
 
