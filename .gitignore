@@ -13,7 +13,7 @@ build/
 dist/
 
 # --- uv / entorno virtual ---
-.venv/
+.venv
 
 # --- Bases de datos locales (SQLite de respaldo) ---
 *.db

@@ -29,7 +29,7 @@ from sqlalchemy import event, text  # noqa: E402
 from sqlalchemy.exc import ProgrammingError  # noqa: E402
 from sqlmodel import Session, SQLModel  # noqa: E402
 
-from api.v1 import card_api  # noqa: E402
+from api.v1 import card_api, public_api  # noqa: E402
 from core.security import hash_password  # noqa: E402
 from db.database import engine  # noqa: E402
 from main import app  # noqa: E402
@@ -110,8 +110,9 @@ def _clean_database() -> Generator[None]:
 
 @pytest.fixture(autouse=True)
 def _reset_in_memory_state() -> Generator[None]:
-    """The public card rate limit and the dev email outbox live in memory."""
+    """The public rate limits and the dev email outbox live in memory."""
     card_api.public_limiter.reset()
+    public_api.asset_limiter.reset()
     email_service.OUTBOX.clear()
     yield
 

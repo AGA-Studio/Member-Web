@@ -24,6 +24,7 @@ from core.config import settings
 from models.business_model import Business
 from models.customer_model import Customer
 from models.tier_model import Tier
+from services import logo_service
 
 SAVE_URL = "https://pay.google.com/gp/v/save/"
 ISSUER_NAME = "Member+"
@@ -50,9 +51,13 @@ def is_configured() -> bool:
 
 
 def _logo(business: Business) -> str:
-    if business.logo_url and business.logo_url.startswith("https://"):
-        return business.logo_url
-    return settings.google_wallet_logo_url
+    """The business logo for the pass, or the Member+ fallback.
+
+    `logo_service.pass_logo_url` returns the stable public URL the API serves
+    as a square PNG: the stored key cannot go in the pass (Google needs an
+    `https` URL, and a signed one expires in an hour).
+    """
+    return logo_service.pass_logo_url(business) or settings.google_wallet_logo_url
 
 
 def _iso(moment: datetime) -> str:

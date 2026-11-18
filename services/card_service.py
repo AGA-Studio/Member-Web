@@ -49,7 +49,7 @@ from schemas.card_schema import (
     WalletAvailabilityResponse,
 )
 from schemas.customer_schema import CustomerCreate, CustomerStatus
-from services import customer_service, email_service, email_templates, wallet_service
+from services import customer_service, email_service, email_templates, logo_service, wallet_service
 from services.customer_service import as_utc, customer_status, utc_now
 
 TOKEN_BYTES = 32
@@ -170,14 +170,13 @@ def _one_line(text: str) -> str:
 
 
 def _email_logo(business: Business) -> str | None:
-    """The business logo, only when it is already a public image.
+    """The business logo, as a URL that stays alive in the reader's inbox.
 
     A stored key becomes a signed URL with an expiry (`storage_service`), and an
-    email outlives it: the picture would break in the reader's inbox.
+    email outlives it: the picture would break. The public logo route
+    (`logo_service.pass_logo_url`) serves it instead, with no expiry.
     """
-    if business.logo_url and business.logo_url.startswith("https://"):
-        return business.logo_url
-    return None
+    return logo_service.pass_logo_url(business)
 
 
 def platform_logo_url() -> str:

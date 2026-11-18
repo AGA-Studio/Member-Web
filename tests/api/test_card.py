@@ -13,7 +13,7 @@ from sqlmodel import Session, select
 
 from core.config import settings
 from models import BusinessStatus, CardDelivery, CardEmail, Customer, TierFinish
-from services import email_service, wallet_service
+from services import email_service, logo_service, wallet_service
 from tests.api.test_customer import add_customer, add_tier
 from tests.conftest import login
 from tests.smtp_server import SmtpServer
@@ -163,14 +163,20 @@ class TestSendLink:
         assert html.count("<img") == 1
         assert ">BA<" in html
 
-    def test_email_embeds_only_public_business_logos(self, admin, cards, session: Session) -> None:
-        """A stored key becomes a signed URL that expires: it never goes in an email."""
-        cards["business"].logo_url = "logos/business-a.png"
-        session.add(cards["business"])
+    def test_email_uses_the_public_route_for_a_stored_logo(
+        self, admin, cards, session: Session
+    ) -> None:
+        """A stored key becomes a signed URL that expires: the public route is used."""
+        business = cards["business"]
+        business.logo_url = f"businesses/{business.id}/logo/aurora.webp"
+        session.add(business)
         session.commit()
         self.send(admin, cards["active"])
         [message] = email_service.OUTBOX
-        assert html_of(message).count("<img") == 1
+        html = html_of(message)
+        assert html.count("<img") == 2
+        assert f"{settings.frontend_public_url}/api/v1/public/logo/{business.id}.png?v=" in html
+        assert "X-Amz-Signature" not in html
 
     def test_email_embeds_the_business_logo_when_it_is_public(self, admin, cards, session) -> None:
         logo = "https://cdn.ejemplo.mx/business-a.png"
@@ -512,6 +518,23 @@ class TestGoogleWallet:
         claims = decode_save_url(admin.get(self.url(token)).json()["save_url"], wallet)
         logo = claims["payload"]["loyaltyClasses"][0]["programLogo"]["sourceUri"]["uri"]
         assert logo == "https://cdn.example.com/aurora.png"
+
+    def test_uses_the_public_route_for_a_stored_logo(
+        self, admin, cards, wallet, session: Session
+    ) -> None:
+        """The stored key cannot go in the pass: a signed URL expires in an hour."""
+        business = cards["business"]
+        business.logo_url = f"businesses/{business.id}/logo/aurora.webp"
+        session.add(business)
+        session.commit()
+        token = new_link(admin, cards["active"])
+        claims = decode_save_url(admin.get(self.url(token)).json()["save_url"], wallet)
+        logo = claims["payload"]["loyaltyClasses"][0]["programLogo"]["sourceUri"]["uri"]
+        version = logo_service.logo_version(business.logo_url)
+        assert (
+            logo
+            == f"{settings.frontend_public_url}/api/v1/public/logo/{business.id}.png?v={version}"
+        )
 
     @pytest.mark.parametrize(
         "account", ["", "not json", "[]", '{"client_email": "a@b.c"}', '{"private_key": "k"}']

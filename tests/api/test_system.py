@@ -40,6 +40,7 @@ EXPECTED_PATHS = {
     "/api/v1/platform/business/{business_id}/update",
     "/api/v1/card/{token}",
     "/api/v1/card/{token}/google-wallet",
+    "/api/v1/public/logo/{business_id}.png",
 }
 
 
