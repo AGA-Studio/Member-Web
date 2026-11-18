@@ -37,6 +37,7 @@ class ErrorCode(StrEnum):
     WALLET_UNAVAILABLE = "wallet_unavailable"
     RATE_LIMITED = "rate_limited"
     TURNSTILE_FAILED = "turnstile_failed"
+    BUSINESS_NOT_FOUND = "business_not_found"
 
 
 class ApiError(HTTPException):
