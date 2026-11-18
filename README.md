@@ -191,6 +191,8 @@ tests/             pytest: api, db, unit, rules
 `main` es la única rama: trabajo en `feature/<nombre>`, PR a `main` y merge del equipo. El CI exige
 `lint`, `test` y `test (postgres)`; el revisor automático comenta pero no bloquea.
 
+¿Encontraste un bug o tienes una idea? → [Issues de este repo](https://github.com/AGA-Studio/Member-Web/issues/new/choose). El trabajo planificado por hitos vive en el [tablero Final 9no](https://kan.neyzt.org/member-plus/final-9no) y las decisiones, en la [wiki](https://wiki.neyzt.org).
+
 **Mergear a `main` despliega**: `image.yml` publica la imagen en GHCR y llama al deploy webhook de
 Coolify, que apunta al tag móvil `latest`. Los releases (`gh release create vX.Y.Z`) marcan el hito y
 publican `0.1.0`/`0.1`, pero ya no son la vía de despliegue.

@@ -1,0 +1,30 @@
+name: Mejora
+description: Una idea, deuda o funcionalidad que vale la pena trackear
+title: "[mejora] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: propuesta
+    attributes:
+      label: Qué se propone
+    validations:
+      required: true
+  - type: textarea
+    id: porque
+    attributes:
+      label: Por qué
+      description: Qué problema resuelve o qué se gana.
+    validations:
+      required: true
+  - type: input
+    id: contexto
+    attributes:
+      label: Contexto
+      description: Enlace a la wiki, al MVP o a la página que lo describe, si existe.
+  - type: textarea
+    id: criterio
+    attributes:
+      label: Criterio de aceptación
+      description: Cómo se sabe que quedó hecho.
+    validations:
+      required: true
