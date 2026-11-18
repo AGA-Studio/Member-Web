@@ -103,7 +103,7 @@ flowchart TB
     SCH --> S7["pagination_schema.py — PageResponse"]
     SCH --> S8["checkout_schema.py — CheckoutCreate · ReceiptResponse"]
     SCH --> S9["movement_schema.py — MovementResponse · MovementPageResponse"]
-    SCH --> S10["platform_schema.py — PlatformBusinessResponse · PlatformBusinessDetailResponse · PlatformBusinessUpdate"]
+    SCH --> S10["platform_schema.py — PlatformBusinessResponse · PlatformBusinessDetailResponse · PlatformBusinessUpdate · PlatformSummaryResponse"]
     SCH --> S11["card_schema.py — CardLinkResponse · PublicCardResponse · CustomerCreatedResponse"]
     API --> A1["dependencies.py — CurrentUser · require_roles · BusinessId<br/>ensure_user_can_access"]
     API --> A2["auth_api.py — /auth"]
@@ -348,6 +348,7 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | GET | `/api/v1/movement/list` | admin | Historial paginado, más reciente primero, con `summary` del conjunto filtrado. Filtros `q`, `customer_id`, `from`, `to` |
 | GET | `/api/v1/movement/export` | admin | Mismos filtros que `list`, sin paginar, como CSV descargable |
 | GET | `/api/v1/platform/business/list` | platform | Negocios con su estado, `customers_count` y `logo_url` firmada (misma regla que `/auth/me`), paginados por nombre. Filtros `q` y `status`. Nunca datos de clientes |
+| GET | `/api/v1/platform/business/summary` | platform | Resumen para el panel de plataforma: negocios por estado (`all`, `trial`, `active`, `suspended`), `customers_count` (tarjetas no canceladas) y `users_count` (usuarios activos) de todos los negocios. Solo conteos |
 | GET | `/api/v1/platform/business/{business_id}` | platform | Detalle del negocio: lo de la lista más `validity_months` y `users_count` (usuarios activos). 404 `business_not_found` |
 | PATCH | `/api/v1/platform/business/{business_id}/update` | platform | Suspende o reactiva: cuerpo `{"status": "suspended" \| "active"}`; responde el detalle. Suspender corta las sesiones abiertas del negocio. 404 `business_not_found` |
 | GET | `/api/v1/card/{token}` | — (público) | Tarjeta pública del enlace: negocio, nombre, código, nivel, vigencia y `wallet.google`. 404 `card_link_not_found` |
@@ -467,6 +468,7 @@ Ejemplo de la rúbrica, $1,000.00 en Oro (15 %, 1 punto por $10, 3 %): descuento
 - `GET /platform/business/list` devuelve `id`, `name`, `logo_url`, `status`, `customers_count` y `created_at`, por `name` y luego `id`, con la paginación de las demás listas.
 - Filtros: `q` (nombre del negocio, sin distinguir mayúsculas) y `status` (`trial`, `active`, `suspended`).
 - `customers_count` cuenta las tarjetas **no canceladas**, con la misma regla que `customers_count` de un nivel. Sale de una sola consulta por página.
+- `GET /platform/business/summary` suma todos los negocios: cuántos hay por estado y, en total, `customers_count` (tarjetas no canceladas, la misma regla de la lista) y `users_count` (usuarios activos de los negocios; el dueño de plataforma no cuenta). Incluye a los suspendidos. Son tres consultas de agregados y no devuelve nombres ni datos de nadie. La ruta se declara antes de `/business/{business_id}` para que `summary` no se lea como id.
 - `GET /platform/business/{business_id}` agrega `validity_months` y `users_count` (usuarios activos del negocio; los desactivados no cuentan).
 - `PATCH /platform/business/{business_id}/update` solo acepta `status`, y solo `active` o `suspended`; cualquier otro campo se ignora. `trial` responde 422: un negocio nace en prueba y cómo sale de ahí depende de las casillas abiertas de alta y planes. Pedir el estado que ya tiene no es error (200 sin cambios).
 - Suspender no revoca tokens: `ensure_user_can_access` rechaza con 403 `business_suspended` el login y la siguiente petición de cualquier sesión abierta del negocio (H1). Reactivar (`active`) les devuelve el acceso; el dueño de plataforma no se ve afectado.
@@ -554,6 +556,7 @@ flowchart LR
     MOV --> VE["GET /export"]
 
     PLAT --> PB["GET /business/list"]
+    PLAT --> PS["GET /business/summary"]
     PLAT --> PG["GET /business/{business_id}"]
     PLAT --> PU["PATCH /business/{business_id}/update"]
 

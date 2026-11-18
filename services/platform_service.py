@@ -29,6 +29,7 @@ from schemas.platform_schema import (
     PlatformBusinessDetailResponse,
     PlatformBusinessResponse,
     PlatformBusinessUpdate,
+    PlatformSummaryResponse,
 )
 from services import storage_service
 from services.customer_service import as_utc
@@ -87,6 +88,29 @@ def list_businesses(
         total=total,
         page=page,
         page_size=page_size,
+    )
+
+
+def summary(session: Session) -> PlatformSummaryResponse:
+    """Businesses by status, plus non-cancelled cards and active users of all of them."""
+    by_status = dict(
+        session.exec(select(Business.status, func.count()).group_by(Business.status)).all()
+    )
+    customers_count = session.exec(
+        select(func.count()).select_from(Customer).where(Customer.cancelled_at.is_(None))  # type: ignore[union-attr]
+    ).one()
+    users_count = session.exec(
+        select(func.count())
+        .select_from(User)
+        .where(User.business_id.is_not(None), User.is_active.is_(True))  # type: ignore[union-attr, attr-defined]
+    ).one()
+    return PlatformSummaryResponse(
+        all=sum(by_status.values()),
+        trial=by_status.get(BusinessStatus.TRIAL, 0),
+        active=by_status.get(BusinessStatus.ACTIVE, 0),
+        suspended=by_status.get(BusinessStatus.SUSPENDED, 0),
+        customers_count=customers_count,
+        users_count=users_count,
     )
 
 

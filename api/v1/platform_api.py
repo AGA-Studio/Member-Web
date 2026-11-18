@@ -16,6 +16,7 @@ from schemas.platform_schema import (
     PlatformBusinessDetailResponse,
     PlatformBusinessResponse,
     PlatformBusinessUpdate,
+    PlatformSummaryResponse,
 )
 from services import platform_service
 
@@ -38,6 +39,13 @@ def list_businesses(
     return platform_service.list_businesses(
         session, q=q, status_filter=status_filter, page=page, page_size=page_size
     )
+
+
+# Declared before `/business/{business_id}` so "summary" is not read as an id.
+@router.get("/business/summary", response_model=PlatformSummaryResponse)
+def summary(session: SessionDep) -> PlatformSummaryResponse:
+    """Businesses by status and total usage, for the platform dashboard. Only counts."""
+    return platform_service.summary(session)
 
 
 @router.get("/business/{business_id}", response_model=PlatformBusinessDetailResponse)
