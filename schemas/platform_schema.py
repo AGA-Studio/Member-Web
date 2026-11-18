@@ -31,6 +31,22 @@ class PlatformBusinessResponse(BaseModel):
     created_at: datetime
 
 
+class PlatformSummaryResponse(BaseModel):
+    """Totals for the platform dashboard: businesses by status and overall usage.
+
+    Only counts, like the list: no customer, user or purchase data.
+    """
+
+    all: int
+    trial: int
+    active: int
+    suspended: int
+    # Cards that are not cancelled, across every business (same rule as the list).
+    customers_count: int
+    # Active users (admin and employee) across every business; the platform is not counted.
+    users_count: int
+
+
 class PlatformBusinessDetailResponse(PlatformBusinessResponse):
     """One business: the list item plus its configuration and usage. Still no customer data."""
 
