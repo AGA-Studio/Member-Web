@@ -134,9 +134,10 @@ jobs:
           "
 
       # conftest.py toma TEST_DATABASE_URL, así que la suite de este job corre
-      # contra el servicio, no contra SQLite.
+      # contra el servicio, no contra SQLite. En serie a propósito: los workers
+      # de xdist comparten esta misma base y se borrarían las filas entre sí.
       - name: Pytest
-        run: uv run pytest -q -rx
+        run: uv run pytest -q -ra
 
       # Si conftest.py volviera a fijar SQLite, la base del servicio quedaría
       # vacía y este paso falla: impide una bandera verde que no probó Postgres.

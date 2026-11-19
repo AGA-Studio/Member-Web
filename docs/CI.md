@@ -87,14 +87,14 @@ Antes de subir, esto tiene que pasar en tu máquina:
 uv sync --locked                     # falla si uv.lock no corresponde al pyproject.toml
 uv run ruff check .                  # mismo lint que el job
 uv run ruff format --check .         # formato, sin modificar archivos
-uv run pytest -q -rx                 # prueba por prueba; -rx muestra por qué falló un xfail
+uv run pytest -q -ra                 # -ra resume skips, xfail y fallos
 ```
 
 Y contra PostgreSQL, que es lo que hace el tercer job:
 
 ```bash
 docker compose up -d db
-TEST_DATABASE_URL=postgresql+psycopg://memberplus:memberplus@localhost:5433/memberplus_test uv run pytest -q -rx
+TEST_DATABASE_URL=postgresql+psycopg://memberplus:memberplus@localhost:5433/memberplus_test uv run pytest -q -ra
 ```
 
 Ojo: el CI usa el puerto **5432** dentro del runner y tu compose expone **5433** en la máquina. Es el mismo servidor, distinto puerto.
@@ -243,6 +243,12 @@ Solo cinco clases de problema, todas de criterio, no de estilo:
 | Toca un archivo compartido sin mencionarlo | Cualquier cosa que no esté en `docs/REVISION.md` |
 
 Si no encuentra nada, lo dice en una línea. Nunca aprueba ni pide cambios formalmente: es un aviso para quien revisa, y su criterio manda.
+
+### Cómo corre
+
+`python3 -m scripts.review_pr`, con el Python del runner y sin instalar nada: el script solo usa la
+librería estándar. Antes bajaba `uv`, Python 3.14 y todo el `uv.lock` (~6 s por revisión) para un
+script que no importa ninguna dependencia del API; el frontend ya lo hacía de esta forma.
 
 ### El secreto
 
