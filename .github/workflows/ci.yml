@@ -68,9 +68,15 @@ jobs:
       # conftest.py usa un SQLite temporal; no hace falta servicio de base de datos.
       # La cobertura se mide en este job, el más rápido de los dos: si baja del
       # umbral el PR se frena antes de mergear, no al preparar la entrega.
+      #
+      # `-n auto` aquí sí y en `test (postgres)` no: cada worker de SQLite abre su
+      # propio archivo temporal (conftest.py), mientras que los workers de
+      # PostgreSQL comparten una sola base y se borrarían las filas entre sí.
+      # `--dist loadfile` mantiene juntas las pruebas de un mismo archivo.
       - name: Pytest con cobertura
         run: >
           uv run pytest -q -ra
+          -n auto --dist loadfile
           --cov=services --cov-fail-under=90
           --cov-report=term-missing --cov-report=xml
 

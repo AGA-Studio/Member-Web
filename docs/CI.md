@@ -40,17 +40,22 @@ Los tres corren en paralelo. Si uno falla, los demás siguen hasta terminar (no 
 | Job | Qué corre | Tiempo típico |
 |-----|-----------|---------------|
 | `lint` | `uv sync --locked`, `ruff check --output-format=github .`, `ruff format --check .` | ~6 s |
-| `test` | `uv run pytest -q -ra` con el SQLite temporal de `tests/conftest.py`, con cobertura de `services/` (umbral 90 %) y el artefacto `cobertura` | ~1m15s (pytest: ~61 s) |
-| `test (postgres)` | Servicio `postgres:18`, conexión real desde el engine, `pytest` con `TEST_DATABASE_URL`, y migraciones en una base aparte | ~1m50s (pytest: ~82 s) |
+| `test` | `uv run pytest -q -ra -n auto --dist loadfile` con el SQLite temporal de `tests/conftest.py` (un archivo por worker), con cobertura de `services/` (umbral 90 %) y el artefacto `cobertura` | ~44 s (pytest: ~34 s) |
+| `test (postgres)` | Servicio `postgres:18`, conexión real desde el engine, `pytest` con `TEST_DATABASE_URL` **en serie**, y migraciones en una base aparte | ~1m14s (pytest: ~50 s) |
 
 ### El gate de cobertura
 
 El job `test` corre:
 
 ```bash
-uv run pytest -q -ra --cov=services --cov-fail-under=90 \
+uv run pytest -q -ra -n auto --dist loadfile --cov=services --cov-fail-under=90 \
   --cov-report=term-missing --cov-report=xml
 ```
+
+`-n auto` reparte la suite entre los núcleos: cada worker abre su **propia** base SQLite temporal
+(`PYTEST_XDIST_WORKER` en el nombre del archivo) y `--dist loadfile` mantiene juntas las pruebas de un mismo
+archivo. El job `test (postgres)` **no** lo usa: ahí todos los workers comparten una sola base y se borrarían
+las filas entre sí.
 
 - **Umbral 90 %**, no el 60 % del MVP: `services/` está en 99 %, y con 60 el check pasaría aunque un módulo nuevo entrara sin una sola prueba.
 - El reporte queda como artefacto `cobertura` del run (14 días): es la evidencia citable del criterio, sin que nadie tenga que reproducirlo en su máquina.
