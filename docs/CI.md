@@ -40,17 +40,22 @@ Los tres corren en paralelo. Si uno falla, los demás siguen hasta terminar (no 
 | Job | Qué corre | Tiempo típico |
 |-----|-----------|---------------|
 | `lint` | `uv sync --locked`, `ruff check --output-format=github .`, `ruff format --check .` | ~6 s |
-| `test` | `uv run pytest -q -ra` con el SQLite temporal de `tests/conftest.py`, con cobertura de `services/` (umbral 90 %) y el artefacto `cobertura` | ~1m15s (pytest: ~61 s) |
-| `test (postgres)` | Servicio `postgres:18`, conexión real desde el engine, `pytest` con `TEST_DATABASE_URL`, y migraciones en una base aparte | ~1m50s (pytest: ~82 s) |
+| `test` | `uv run pytest -q -ra -n auto --dist loadfile` con el SQLite temporal de `tests/conftest.py` (un archivo por worker), con cobertura de `services/` (umbral 90 %) y el artefacto `cobertura` | ~44 s (pytest: ~34 s) |
+| `test (postgres)` | Servicio `postgres:18`, conexión real desde el engine, `pytest` con `TEST_DATABASE_URL` **en serie**, y migraciones en una base aparte | ~1m14s (pytest: ~50 s) |
 
 ### El gate de cobertura
 
 El job `test` corre:
 
 ```bash
-uv run pytest -q -ra --cov=services --cov-fail-under=90 \
+uv run pytest -q -ra -n auto --dist loadfile --cov=services --cov-fail-under=90 \
   --cov-report=term-missing --cov-report=xml
 ```
+
+`-n auto` reparte la suite entre los núcleos: cada worker abre su **propia** base SQLite temporal
+(`PYTEST_XDIST_WORKER` en el nombre del archivo) y `--dist loadfile` mantiene juntas las pruebas de un mismo
+archivo. El job `test (postgres)` **no** lo usa: ahí todos los workers comparten una sola base y se borrarían
+las filas entre sí.
 
 - **Umbral 90 %**, no el 60 % del MVP: `services/` está en 99 %, y con 60 el check pasaría aunque un módulo nuevo entrara sin una sola prueba.
 - El reporte queda como artefacto `cobertura` del run (14 días): es la evidencia citable del criterio, sin que nadie tenga que reproducirlo en su máquina.
@@ -87,14 +92,14 @@ Antes de subir, esto tiene que pasar en tu máquina:
 uv sync --locked                     # falla si uv.lock no corresponde al pyproject.toml
 uv run ruff check .                  # mismo lint que el job
 uv run ruff format --check .         # formato, sin modificar archivos
-uv run pytest -q -rx                 # prueba por prueba; -rx muestra por qué falló un xfail
+uv run pytest -q -ra                 # -ra resume skips, xfail y fallos
 ```
 
 Y contra PostgreSQL, que es lo que hace el tercer job:
 
 ```bash
 docker compose up -d db
-TEST_DATABASE_URL=postgresql+psycopg://memberplus:memberplus@localhost:5433/memberplus_test uv run pytest -q -rx
+TEST_DATABASE_URL=postgresql+psycopg://memberplus:memberplus@localhost:5433/memberplus_test uv run pytest -q -ra
 ```
 
 Ojo: el CI usa el puerto **5432** dentro del runner y tu compose expone **5433** en la máquina. Es el mismo servidor, distinto puerto.
@@ -243,6 +248,12 @@ Solo cinco clases de problema, todas de criterio, no de estilo:
 | Toca un archivo compartido sin mencionarlo | Cualquier cosa que no esté en `docs/REVISION.md` |
 
 Si no encuentra nada, lo dice en una línea. Nunca aprueba ni pide cambios formalmente: es un aviso para quien revisa, y su criterio manda.
+
+### Cómo corre
+
+`python3 -m scripts.review_pr`, con el Python del runner y sin instalar nada: el script solo usa la
+librería estándar. Antes bajaba `uv`, Python 3.14 y todo el `uv.lock` (~6 s por revisión) para un
+script que no importa ninguna dependencia del API; el frontend ya lo hacía de esta forma.
 
 ### El secreto
 

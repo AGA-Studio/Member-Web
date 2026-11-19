@@ -19,7 +19,7 @@ on:
 
 # Un push nuevo cancela la revisión anterior del mismo PR.
 concurrency:
-  group: review-${{ github.event.pull_request.number }}
+  group: review-${{ github.event.pull_request.number || inputs.pr }}
   cancel-in-progress: true
 
 permissions:
@@ -29,33 +29,27 @@ permissions:
 jobs:
   review:
     name: review
-    if: github.event.pull_request.draft == false
+    # Un `workflow_dispatch` no trae `pull_request`, así que sin la primera
+    # condición el run a mano se saltaría el job y quedaría verde sin revisar.
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # No es un check obligatorio: un revisor caído no puede frenar un merge.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
 
-      - name: Instalar uv
-        uses: astral-sh/setup-uv@v10.3.3
-        with:
-          version: "0.11.26"
-          python-version: "3.14"
-          enable-cache: true
-          cache-dependency-glob: uv.lock
-
-      - name: Instalar dependencias
-        run: uv sync --locked
-
       # Sin OPENCODE_API_KEY (PRs desde forks) el script no hace nada y sale 0.
+      #
+      # `scripts/review_pr.py` solo usa la librería estándar (argparse, json,
+      # urllib, pathlib), así que corre con el Python del runner: instalar uv,
+      # Python 3.14 y las dependencias del API costaba ~6 s por revisión para un
+      # script que no importa ninguna. Es lo mismo que hace el frontend.
       - name: Revisar contra docs/REVISION.md
         env:
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: >
-          uv run python -m scripts.review_pr
+          python3 -m scripts.review_pr
           --repo "${{ github.repository }}"
           --pr "${{ inputs.pr || github.event.pull_request.number }}"
