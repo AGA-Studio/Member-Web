@@ -49,7 +49,14 @@ uv run pytest --cov=services  # cobertura de services/, lo que mide el CI
 uv run pytest --durations=10  # las diez pruebas (o fixtures) más lentos
 uv run pytest tests/api/test_isolation.py      # un archivo
 uv run pytest -k "login"                       # por nombre
+
+# En paralelo, un proceso por núcleo. Cada worker usa su propia base SQLite
+# temporal, así que no se pisan. `--dist loadfile` mantiene juntas las pruebas
+# de un mismo archivo. Es lo que corre el job `test` del CI.
+uv run pytest -n auto --dist loadfile
 ```
+
+Solo para SQLite: el job `test (postgres)` corre la suite en serie porque todos los workers comparten una única base y se borrarían las filas entre sí.
 
 ### Con PostgreSQL
 
@@ -249,7 +256,8 @@ flowchart LR
 
 | Fixture | Qué hace |
 |---------|----------|
-| `_clean_database` | Se ejecuta antes de **cada** prueba: borra y recrea las tablas con `create_all` (más rápido que migrar en cada caso) y cierra el pool de conexiones. Ninguna prueba depende de otra. Que `create_all` y las migraciones producen el mismo esquema lo garantiza `test_models_and_migrations_are_in_sync`. |
+| `_database_schema` | Se ejecuta una sola vez por corrida: crea el esquema (`create_all`, más las políticas de RLS en PostgreSQL). Antes se recreaba en cada prueba y era la parte más cara de la suite. |
+| `_clean_database` | Se ejecuta antes de **cada** prueba y solo vacía las filas: `DELETE` por tabla en SQLite (`TRUNCATE ... RESTART IDENTITY CASCADE` en PostgreSQL). Si las tablas no existen —lo que dejan las pruebas de migraciones—, cae a `drop_all` + `create_all`. Ninguna prueba depende de otra. Que `create_all` y las migraciones producen el mismo esquema lo garantiza `test_models_and_migrations_are_in_sync`. |
 | `session` | Sesión de base de datos para preparar datos o revisar el estado final. |
 | `client` | `TestClient` sobre la app completa; conserva cookies entre peticiones como un navegador. |
 | `make_business` | Crea un negocio (por defecto `active`). |
@@ -300,7 +308,13 @@ sequenceDiagram
 
 ### Problema resuelto en la infraestructura
 
-Al correr en PostgreSQL, una prueba fallaba con `cached plan must not change result type`. psycopg prepara las consultas que se repiten y las guarda en cada conexión del pool. Como cada prueba **recrea** las tablas, esas consultas preparadas apuntaban a tablas viejas. Se resolvió con `engine.dispose()` después de recrear el esquema. No afecta a la aplicación: en producción el esquema no cambia con conexiones abiertas.
+Al correr en PostgreSQL, una prueba fallaba con `cached plan must not change result type`. psycopg prepara las consultas que se repiten y las guarda en cada conexión del pool, así que esas consultas preparadas apuntaban a tablas que la prueba anterior había recreado. Se resolvió con `engine.dispose()` después de recrear el esquema. No afecta a la aplicación: en producción el esquema no cambia con conexiones abiertas.
+
+Hoy el esquema se crea una sola vez por corrida y las pruebas solo vacían filas, así que el problema ya no aparece ni al paralelizar. Las pruebas de migraciones, que sí borran las tablas a propósito, vuelven a dejar la base sin tablas y la siguiente prueba reconstruye el esquema desde los modelos.
+
+### Coste de Argon2id
+
+`core/security.py` usa los parámetros de producción de Argon2id, que tardan ~48 ms por verificación. La suite inicia sesión cientos de veces, así que `tests/conftest.py` cambia `security.password_hash` por una instancia con `time_cost=1` y `memory_cost=8192` **solo durante las pruebas**: siguen siendo hashes `$argon2id$` reales y `tests/unit/test_security.py` prueba el algoritmo con sus propios hashes. Es la diferencia entre ~18 s y ~2 s de CPU dedicados a verificar contraseñas.
 
 ---
 
