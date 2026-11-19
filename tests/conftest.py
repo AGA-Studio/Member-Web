@@ -1,7 +1,7 @@
 """Shared test fixtures.
 
 Tests never touch the development database:
-- By default they use a temporary SQLite file.
+- By default they use a temporary SQLite file, one per pytest worker.
 - Set TEST_DATABASE_URL to run them against a dedicated PostgreSQL database
   (it is wiped before every test).
 
@@ -14,7 +14,10 @@ import tempfile
 from collections.abc import Callable, Generator
 from pathlib import Path
 
-_tmp_db = Path(tempfile.mkdtemp()) / "test.db"
+# One file per worker: `pytest -n auto --dist loadfile` runs several processes
+# at once, and a shared file would let them clobber each other's tables.
+_worker = os.environ.get("PYTEST_XDIST_WORKER", "main")
+_tmp_db = Path(tempfile.mkdtemp()) / f"test-{_worker}.db"
 os.environ["DATABASE_URL"] = os.environ.get("TEST_DATABASE_URL") or f"sqlite:///{_tmp_db}"
 os.environ["SECRET_KEY"] = "test-only-secret-key-not-used-anywhere-else"
 os.environ["CORS_ORIGINS"] = "http://localhost:3000"
@@ -25,11 +28,14 @@ os.environ["SMTP_HOST"] = ""
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
+from pwdlib import PasswordHash  # noqa: E402
+from pwdlib.hashers.argon2 import Argon2Hasher  # noqa: E402
 from sqlalchemy import event, text  # noqa: E402
-from sqlalchemy.exc import ProgrammingError  # noqa: E402
+from sqlalchemy.exc import OperationalError, ProgrammingError  # noqa: E402
 from sqlmodel import Session, SQLModel  # noqa: E402
 
 from api.v1 import card_api, public_api  # noqa: E402
+from core import security  # noqa: E402
 from core.security import hash_password  # noqa: E402
 from db import rls  # noqa: E402
 from db.database import engine  # noqa: E402
@@ -37,18 +43,24 @@ from main import app  # noqa: E402
 from models import Business, BusinessStatus, Role, User  # noqa: E402
 from services import email_service  # noqa: E402
 
+# Cheaper Argon2id parameters for the suite: these are still real `$argon2id$`
+# hashes, only with a smaller cost. The API logs in around 360 times across the
+# tests and each verification at production cost takes ~48 ms, which is nearly
+# 20 s of pure CPU. `tests/unit/test_security.py` tests the hashing itself and
+# still passes; production keeps the `pwdlib` defaults in core/security.py.
+security.password_hash = PasswordHash((Argon2Hasher(time_cost=1, memory_cost=8192, parallelism=1),))
+
 DEFAULT_PASSWORD = "password123"
 # Argon2id is slow on purpose; hash the shared password once per run.
 _DEFAULT_HASH = hash_password(DEFAULT_PASSWORD)
 LOGIN_URL = "/api/v1/auth/login"
 
 # SQLite flushes to disk (fsync twice) on every statement that writes, and the
-# suite recreates ten tables before every test: ~40 flushes, ~500 ms per test on
-# a normal disk. This database is deleted when the run ends, so durability buys
-# nothing here; keeping the journal in memory and skipping the flush does the
-# same DDL ~45x faster without changing what the tests verify. `synchronous` is
-# per connection and `_clean_database` disposes the pool after every test, so the
-# pragmas have to be applied on connect, not once at import.
+# suite writes a lot before every test: ~40 flushes, ~500 ms per test on a
+# normal disk. This database is deleted when the run ends, so durability buys
+# nothing here; keeping the journal in memory and skipping the flush makes the
+# same work ~45x faster without changing what the tests verify. `synchronous`
+# is per connection, so the pragmas have to be applied on connect.
 if engine.dialect.name == "sqlite":
 
     @event.listens_for(engine, "connect")
@@ -60,11 +72,19 @@ if engine.dialect.name == "sqlite":
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _postgres_schema() -> Generator[None]:
-    """PostgreSQL keeps its schema for the whole run; the tests only clear rows."""
+def _database_schema() -> Generator[None]:
+    """Create the schema once per run; every test only clears the rows.
+
+    Rebuilding the ten tables per test was the most expensive part of a test
+    (~8 ms of DDL on SQLite, ~120 ms of catalog work on PostgreSQL). Nothing
+    survives between tests anyway: the rows are deleted and the in-memory
+    state (rate limits, email outbox) is reset by their own fixtures.
+    """
     if engine.dialect.name == "postgresql":
         _create_postgres_schema()
         engine.dispose()
+    else:
+        SQLModel.metadata.create_all(engine)
     yield
 
 
@@ -93,13 +113,24 @@ def _truncate_tables() -> None:
         connection.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
 
 
+def _delete_sqlite_rows() -> None:
+    """Empty every table in reverse dependency order, with no DDL at all.
+
+    ~0.3 ms against ~8 ms for `drop_all` + `create_all`. A plain `DELETE`
+    leaves the rowids restarting from 1, so tests that read ids still see the
+    numbers they would see on a freshly recreated schema.
+    """
+    with engine.begin() as connection:
+        for table in reversed(SQLModel.metadata.sorted_tables):
+            connection.execute(text(f'DELETE FROM "{table.name}"'))
+
+
 @pytest.fixture
 def _clean_database() -> Generator[None]:
     """Every test that opens a session starts with empty tables.
 
-    Deliberately not `autouse`: the drop/create is the most expensive part of a
-    test (see the pragmas above), and a unit test that never touches the
-    database has no reason to pay it. `session` and `client` request this
+    Deliberately not `autouse`: a unit test that never touches the database has
+    no reason to pay for the cleanup. `session` and `client` request this
     fixture, so any test using the database gets it.
     """
     if engine.dialect.name == "postgresql":
@@ -113,11 +144,13 @@ def _clean_database() -> Generator[None]:
         yield
         return
 
-    SQLModel.metadata.drop_all(engine)
-    SQLModel.metadata.create_all(engine)
-    # SQLite has no prepared statements to invalidate; disposing here is what
-    # makes the next connection pick up the pragmas above.
-    engine.dispose()
+    try:
+        _delete_sqlite_rows()
+    except OperationalError:
+        # Same case on SQLite: the tables are missing (the migrations tests
+        # removed them) or are not the ones the models describe.
+        SQLModel.metadata.drop_all(engine)
+        SQLModel.metadata.create_all(engine)
     yield
 
 
@@ -190,18 +223,68 @@ def login(client: TestClient, email: str, password: str = DEFAULT_PASSWORD) -> s
 
 
 @pytest.fixture
-def two_businesses(make_business, make_user) -> dict:
-    """Scenario from the MVP demo: two businesses that must never see each other."""
-    business_a = make_business("Business A")
-    business_b = make_business("Business B")
+def two_businesses(session: Session) -> dict:
+    """Scenario from the MVP demo: two businesses that must never see each other.
+
+    One `flush` so the users can reference the business ids and one `commit`
+    for everything: seven commits per test, over ~400 tests, was a measurable
+    part of the suite.
+    """
+    business_a = Business(name="Business A", status=BusinessStatus.ACTIVE)
+    business_b = Business(name="Business B", status=BusinessStatus.ACTIVE)
+    session.add_all([business_a, business_b])
+    session.flush()
+
+    admin_a = User(
+        business_id=business_a.id,
+        name="Test User",
+        email="admin.a@demo.mx",
+        hashed_password=_DEFAULT_HASH,
+        role=Role.ADMIN,
+        is_active=True,
+    )
+    employee_a = User(
+        business_id=business_a.id,
+        name="Test User",
+        email="employee.a@demo.mx",
+        hashed_password=_DEFAULT_HASH,
+        role=Role.EMPLOYEE,
+        is_active=True,
+    )
+    admin_b = User(
+        business_id=business_b.id,
+        name="Test User",
+        email="admin.b@demo.mx",
+        hashed_password=_DEFAULT_HASH,
+        role=Role.ADMIN,
+        is_active=True,
+    )
+    employee_b = User(
+        business_id=business_b.id,
+        name="Test User",
+        email="employee.b@demo.mx",
+        hashed_password=_DEFAULT_HASH,
+        role=Role.EMPLOYEE,
+        is_active=True,
+    )
+    platform = User(
+        business_id=None,
+        name="Test User",
+        email="owner@memberplus.mx",
+        hashed_password=_DEFAULT_HASH,
+        role=Role.PLATFORM,
+        is_active=True,
+    )
+    session.add_all([admin_a, employee_a, admin_b, employee_b, platform])
+    session.commit()
     return {
         "business_a": business_a,
         "business_b": business_b,
-        "admin_a": make_user("admin.a@demo.mx", business=business_a, role=Role.ADMIN),
-        "employee_a": make_user("employee.a@demo.mx", business=business_a, role=Role.EMPLOYEE),
-        "admin_b": make_user("admin.b@demo.mx", business=business_b, role=Role.ADMIN),
-        "employee_b": make_user("employee.b@demo.mx", business=business_b, role=Role.EMPLOYEE),
-        "platform": make_user("owner@memberplus.mx", business=None, role=Role.PLATFORM),
+        "admin_a": admin_a,
+        "employee_a": employee_a,
+        "admin_b": admin_b,
+        "employee_b": employee_b,
+        "platform": platform,
     }
 
 

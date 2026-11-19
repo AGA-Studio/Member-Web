@@ -73,6 +73,11 @@ def empty_database(_clean_database: None) -> Generator[None]:
         connection.execute(text("DROP TABLE IF EXISTS alembic_version"))
     engine.dispose()
     yield
+    # Leave the database empty on purpose: the tables this test created came
+    # from Alembic, and the rest of the suite expects the schema `create_all`
+    # builds. With no tables, the next `_clean_database` falls back to
+    # `drop_all` + `create_all` and normalizes it.
+    SQLModel.metadata.drop_all(engine)
     with engine.begin() as connection:
         connection.execute(text("DROP TABLE IF EXISTS alembic_version"))
     engine.dispose()
