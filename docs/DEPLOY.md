@@ -107,6 +107,14 @@ Cómo se comporta:
    ```
 
    Crea Café Aurora, Gimnasio Titán y sus usuarios (ver el README). Se puede repetir sin duplicar nada y nunca cambia la contraseña de un usuario que ya existe. Sin `SEED_PASSWORD` en producción, se niega a correr.
+
+   Para que la demo tenga semanas de historial, la misma terminal ejecuta el simulador:
+
+   ```bash
+   python -m scripts.simulate --bulk      # 84 días de compras y 10 clientes por negocio
+   ```
+
+   Es determinista e idempotente por omisión: **se niega a correr dos veces** sobre la misma base (una segunda corrida no escribe nada); para regenerar el historial hay que rehacer el seed desde cero. No necesita `SEED_PASSWORD` (no crea usuarios) ni toca filas existentes.
 7. **Webhook de deploy (obligatorio: es el despliegue automático).** Dos piezas, una vez:
    - En Coolify → *Keys & Tokens* → *API Tokens* → crear un token con permiso **`deploy`** (solo ese). El valor se muestra una sola vez.
    - En la app → *Webhooks* → copiar **Deploy Webhook (auth required)**: `https://coolify.neyzt.org/api/v1/deploy?uuid=<uuid-de-la-app>&force=false`.
@@ -123,6 +131,13 @@ Cómo se comporta:
    **El `resource_uuid` de la respuesta es la app que se desplegó**: si no es la de este repo, el secreto `COOLIFY_WEBHOOK` está apuntando a la otra app (pasó el 13 nov: el backend desplegaba el frontend y el suyo no). El webhook es **por app**; el token es el mismo para las dos. Sin `COOLIFY_WEBHOOK` el paso solo avisa y el deploy sigue siendo manual.
 
    **`COOLIFY_TOKEN` es opcional** y solo se necesita si copiaste la URL de *auth required*: si la URL ya trae `?api_token=...` (el formato viejo), el paso detecta el token vacío y no manda cabecera. Mandar un `Bearer` vacío provoca 401 y tumba el run **después** de publicar la imagen.
+8. **Datos vivos para la demo (tarea programada).** Después de que la imagen con `scripts/simulate.py` esté desplegada —si se crea antes, el comando falla cada minuto con `No module named`—, en la app → *Scheduled Tasks* → nueva tarea:
+
+   - Nombre: `Simulador de datos (tick)`
+   - Comando: `python -m scripts.simulate --tick`
+   - Cron: `* * * * *` (cada minuto)
+
+   Cada ejecución es un proceso nuevo que inserta 1–2 compras de «ahora» y muere: no hay estado ni proceso residente. La llave de idempotencia lleva el minuto UTC, así que el cron y un *Run now* en el mismo minuto no duplican. Se apaga con el interruptor de la tarea en el panel (los datos ya insertados quedan). Encendida cuesta ~1 900 filas al día: encenderla para ensayos y la demo, apagarla después. **Si algún día se renombra o mueve `scripts/simulate.py`, esta tarea queda rota en silencio** (el log muestra `No module named`): actualizar el comando en el mismo cambio.
 
 ---
 
