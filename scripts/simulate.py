@@ -158,9 +158,7 @@ def load_cashiers(session: Session, businesses: dict[str, Business]) -> dict[str
     cashiers: dict[str, User] = {}
     for key, email in CASHIER_EMAILS.items():
         cashier = session.exec(
-            select(User).where(
-                User.email == email, User.business_id == businesses[key].id
-            )
+            select(User).where(User.email == email, User.business_id == businesses[key].id)
         ).first()
         if cashier is None:
             raise SimulateError(
@@ -233,9 +231,7 @@ def charge(
     return purchase
 
 
-def extra_customers(
-    session: Session, businesses: dict[str, Business], now: datetime
-) -> list[str]:
+def extra_customers(session: Session, businesses: dict[str, Business], now: datetime) -> list[str]:
     """The ten generated customers of each business (idempotent by email).
 
     Two of them per business were issued almost a year ago on purpose: they
@@ -244,18 +240,14 @@ def extra_customers(
     created: list[str] = []
     for key, business in businesses.items():
         tiers = session.exec(
-            select(Tier)
-            .where(Tier.business_id == business.id)
-            .order_by(Tier.price_cents, Tier.id)
+            select(Tier).where(Tier.business_id == business.id).order_by(Tier.price_cents, Tier.id)
         ).all()
         if not tiers:
             raise SimulateError(
                 f"«{business.name}» has no tiers; run `python -m scripts.seed` first"
             )
         admin = session.exec(
-            select(User).where(
-                User.business_id == business.id, User.role == Role.ADMIN
-            )
+            select(User).where(User.business_id == business.id, User.role == Role.ADMIN)
         ).first()
         if admin is None:
             raise SimulateError(
@@ -265,22 +257,16 @@ def extra_customers(
         for index, name in enumerate(EXTRA_CUSTOMER_NAMES[key], start=1):
             email = f"demo.{index:02d}@{EXTRA_EMAIL_DOMAINS[key]}"
             exists = session.exec(
-                select(Customer).where(
-                    Customer.business_id == business.id, Customer.email == email
-                )
+                select(Customer).where(Customer.business_id == business.id, Customer.email == email)
             ).first()
             if exists is not None:
                 continue
             code = f"{EXTRA_CODE_SERIES[key]}{index:02d}"
             taken = session.exec(
-                select(Customer).where(
-                    Customer.business_id == business.id, Customer.code == code
-                )
+                select(Customer).where(Customer.business_id == business.id, Customer.code == code)
             ).first()
             if taken is not None:
-                raise SimulateError(
-                    f"card code {code} is already used in «{business.name}»"
-                )
+                raise SimulateError(f"card code {code} is already used in «{business.name}»")
             days_ago = 330 + (index - 1) * 5 if index <= 2 else 10 + index * 6
             issued_at = now - timedelta(days=days_ago)
             tier = tiers[(index - 1) % len(tiers)]
@@ -343,9 +329,7 @@ def history(
     cashiers = load_cashiers(session, businesses)
     pools = {
         key: session.exec(
-            select(Customer)
-            .where(Customer.business_id == business.id)
-            .order_by(Customer.id)
+            select(Customer).where(Customer.business_id == business.id).order_by(Customer.id)
         ).all()
         for key, business in businesses.items()
     }
@@ -472,9 +456,7 @@ def tick(
             use_cashback=rng.random() < CASHBACK_CHANCE,
             idempotency_key=purchase_key,
         )
-        created.append(
-            f"created   purchase {business.name} / {purchase_key} {customer.code}"
-        )
+        created.append(f"created   purchase {business.name} / {purchase_key} {customer.code}")
     session.commit()
     return TickResult(created=created)
 
