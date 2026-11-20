@@ -1,6 +1,7 @@
 """scripts/simulate.py: demo history in bulk and the scheduled tick."""
 
 import random
+import re
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
@@ -27,6 +28,7 @@ from scripts.simulate import (
     SimulateError,
     bulk,
     charge,
+    extra_code,
     history,
     load_businesses,
     main,
@@ -127,7 +129,7 @@ class TestGuards:
             Customer(
                 business_id=aurora.id,
                 tier_id=tier.id,
-                code="MP-D101",  # the first deterministic code of the generator
+                code=extra_code("aurora", 1),  # the first generated code
                 full_name="Conflicto Total",
                 email="conflicto@correo.com",
                 issued_at=NOW,
@@ -364,6 +366,16 @@ class TestBulk:
                 select(Customer.code).where(Customer.business_id == business.id)
             ).all()
             assert len(codes) == len(set(codes))
+
+    def test_generated_codes_follow_the_numeric_rule(self, session: Session) -> None:
+        # docs/REVISION.md (Numeración): MP- plus 5 chars, no 0/O/1/I/L, not sequential.
+        seed(session, PASSWORD)
+        bulk(session, now=NOW, rng=random.Random(20261))
+        pattern = re.compile(r"^MP-[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{5}$")
+        extras = session.exec(select(Customer).where(Customer.email.like("demo.%"))).all()
+        assert extras
+        for customer in extras:
+            assert pattern.fullmatch(customer.code)
 
     def test_only_touches_the_demo_businesses(self, session: Session) -> None:
         seed(session, PASSWORD)
