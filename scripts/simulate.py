@@ -26,6 +26,7 @@ always recomputed from the purchase history
 """
 
 import argparse
+import hashlib
 import random
 import sys
 from dataclasses import dataclass, field
@@ -47,7 +48,15 @@ from models import (
     User,
 )
 from services import pricing_service
-from services.customer_service import add_months, as_utc, balance_of, utc_now
+from services.customer_service import (
+    CODE_ALPHABET,
+    CODE_LENGTH,
+    CODE_PREFIX,
+    add_months,
+    as_utc,
+    balance_of,
+    utc_now,
+)
 
 # Demos are keyed the same way as the seed: short key -> business name.
 DEMO_BUSINESSES = [("aurora", "Café Aurora"), ("titan", "Gimnasio Titán")]
@@ -115,8 +124,20 @@ EXTRA_CUSTOMER_NAMES = {
     ],
 }
 EXTRA_EMAIL_DOMAINS = {"aurora": "cafe-aurora.mx", "titan": "gimnasio-titan.mx"}
-# MP-D1… / MP-D2… : deterministic, unlike `generate_code()` (secrets).
-EXTRA_CODE_SERIES = {"aurora": "MP-D1", "titan": "MP-D2"}
+
+
+def extra_code(business_key: str, index: int) -> str:
+    """Card code of a generated customer, in the contract's format.
+
+    `docs/REVISION.md` (Numeración) fixes it: `MP-` plus five characters from
+    the alphabet without `0/O/1/I/L`, and **not sequential**. Hashing the fixed
+    inputs keeps the bulk reproducible without looking correlative;
+    `generate_code()` cannot be used because `secrets` would give a different
+    dataset on every fresh run.
+    """
+    digest = hashlib.sha256(f"simulate:{business_key}:{index}".encode()).digest()
+    tail = "".join(CODE_ALPHABET[byte % len(CODE_ALPHABET)] for byte in digest[:CODE_LENGTH])
+    return f"{CODE_PREFIX}{tail}"
 
 
 class SimulateError(Exception):
@@ -261,7 +282,7 @@ def extra_customers(session: Session, businesses: dict[str, Business], now: date
             ).first()
             if exists is not None:
                 continue
-            code = f"{EXTRA_CODE_SERIES[key]}{index:02d}"
+            code = extra_code(key, index)
             taken = session.exec(
                 select(Customer).where(Customer.business_id == business.id, Customer.code == code)
             ).first()

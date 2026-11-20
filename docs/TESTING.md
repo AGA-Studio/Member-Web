@@ -1062,6 +1062,7 @@ También se probó dentro de la imagen Docker: crea los datos con `SEED_PASSWORD
 | `test_hours_are_business_hours` | Compras entre 7:00 y 18:59 de Tijuana | ✅ |
 | `test_generated_names_pass_the_name_rule` | Los nombres generados cumplen `PersonName` (regla H5) | ✅ |
 | `test_codes_do_not_collide` | Códigos únicos dentro de cada negocio, sin chocar con los del seed | ✅ |
+| `test_generated_codes_follow_the_numeric_rule` | Los códigos cumplen `MP-XXXXX`: 5 caracteres del alfabeto sin `0/O/1/I/L`, no correlativos (decisión Numeración) | ✅ |
 | `test_only_touches_the_demo_businesses` | Ninguna fila fuera de Café Aurora o Gimnasio Titán | ✅ |
 | `test_marks_cards_as_expiring_soon` | Dos tarjetas por negocio quedan «por vencer» para el panel | ✅ |
 | `test_inserts_one_or_two_purchases_now` | 1–2 compras por tick, con `created_at` del momento del tick | ✅ |
@@ -1149,7 +1150,7 @@ Name                                 Stmts   Miss Branch BrPart  Cover   Missing
 --------------------------------------------------------------------------------
 scripts/review_pr.py                   155     65     32      2    60%   165-179, 183-192, 196-209, 235-236, 248-294, 317-327, 338-351
 scripts/seed.py                        136      1     42      1    99%   224
-scripts/simulate.py                    179      0     54      0   100%
+scripts/simulate.py                    183      0     54      0   100%
 services/auth_service.py                44      0     12      0   100%
 services/card_service.py               133      0     30      0   100%
 services/checkout_service.py            75      1     18      1    98%   214
@@ -1169,7 +1170,7 @@ services/turnstile_service.py           29      0      8      0   100%
 services/upload_service.py              23      0      4      0   100%
 services/wallet_service.py              38      0      6      0   100%
 --------------------------------------------------------------------------------
-TOTAL                                 2324     73    406      8    97%
+TOTAL                                 2328     73    406      8    97%
 ```
 
 El resto de paquetes está en 100 % (`api/`, `core/`, `models/`, `main.py` y `schemas/` salvo `checkout_schema.py`, que queda en 89 % por una rama de validación).
