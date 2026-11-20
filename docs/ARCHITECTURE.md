@@ -97,6 +97,7 @@ flowchart TB
     SRV --> SV11["payment_service.py — pagos de membresía"]
     SRV --> SV12["turnstile_service.py — Cloudflare Turnstile en el login"]
     SCR --> SC1["seed.py — 2 negocios demo, usuarios, niveles, clientes, compras y un enlace"]
+    SCR --> SC2["simulate.py — historial de demo (--bulk) y compra suelta para la tarea programada (--tick)"]
     SCH --> S1["user_schema.py — UserCreate · UserUpdate · UserResponse · MeResponse"]
     SCH --> S4["business_schema.py — BusinessUpdate · BusinessSummaryResponse"]
     SCH --> S2["token_schema.py — Token · TokenData"]
@@ -125,7 +126,7 @@ flowchart TB
 
 ## 3. Modelo de datos actual
 
-Existen las tablas de autenticación, los niveles, los clientes con su tarjeta, las compras y la entrega de la tarjeta digital; `python -m scripts.seed` las llena con dos negocios de demo (Café Aurora y Gimnasio Titán), sus usuarios, sus niveles, sus clientes (12 y 2), sus compras (12 y 1) y un enlace activo a la tarjeta `MP-4F7K2` (imprime la URL al crearlo).
+Existen las tablas de autenticación, los niveles, los clientes con su tarjeta, las compras y la entrega de la tarjeta digital; `python -m scripts.seed` las llena con dos negocios de demo (Café Aurora y Gimnasio Titán), sus usuarios, sus niveles, sus clientes (12 y 2), sus compras (12 y 1) y un enlace activo a la tarjeta `MP-4F7K2` (imprime la URL al crearlo). Para que la demo muestre un sistema vivo, `python -m scripts.simulate --bulk` agrega 84 días de compras retroactivas y 10 clientes por negocio (deterministas, idempotentes: se niega a correr dos veces), y `python -m scripts.simulate --tick` inserta una compra de «ahora» por minuto para la tarea programada de Coolify (ver DEPLOY.md, sección 4).
 
 ```mermaid
 erDiagram

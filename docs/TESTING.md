@@ -1037,9 +1037,49 @@ También se probó dentro de la imagen Docker: crea los datos con `SEED_PASSWORD
 
 ---
 
-### 5.11 Reglas de convención — `tests/rules/`
+### 5.11 Simulador de demo — `tests/scripts/test_simulate.py`
 
-No prueban comportamiento: **leen el código fuente** (AST) y el árbol de archivos, y fallan cuando un módulo nuevo rompe una regla de `AGENTS.md` o contradice `ARCHITECTURE.md`. Las pruebas de los puntos 5.1–5.10 solo cubren lo que ya existe; estas atajan lo que alguien está por agregar mal.
+`scripts/simulate.py` alimenta la demo después del seed: `--bulk` agrega 84 días de compras retroactivas y 10 clientes por negocio (deterministas con semilla fija; idempotente por omisión: se niega a correr dos veces), y `--tick` inserta 1–2 compras de «ahora» por minuto para la tarea programada de Coolify. Reutiliza `pricing_service.calculate` y las reglas de estado de tarjeta del seed, y no toca filas existentes.
+
+| Prueba | Verifica | Resultado |
+|--------|----------|-----------|
+| `test_bulk_requires_the_demo_businesses` | Sin seed no corre: error que manda a `scripts.seed` | ✅ |
+| `test_tick_requires_the_demo_businesses` | El tick también exige los negocios demo | ✅ |
+| `test_cli_without_mode_fails` | Sin `--bulk` ni `--tick`, argparse sale con código ≠ 0 | ✅ |
+| `test_missing_cashier_is_reported` | Sin el usuario de caja, error con mensaje claro | ✅ |
+| `test_business_without_tiers_is_reported` | Negocio sin niveles → error | ✅ |
+| `test_business_without_admin_is_reported` | Negocio sin admin → error (los pagos necesitan `recorded_by`) | ✅ |
+| `test_card_code_collision_is_reported` | Un código de la serie determinista ya usado → error | ✅ |
+| `test_history_skips_businesses_without_eligible_customers` | Sin clientes elegibles, el historial no escribe nada | ✅ |
+| `test_active_card_applies_benefits` | $1,000 en Oro: 15 % de descuento, 85 puntos, $25.50 de cashback; el saldo previo se respeta | ✅ |
+| `test_expired_card_has_no_benefits` | Tarjeta vencida: total completo, sin puntos ni cashback | ✅ |
+| `test_cancelled_card_after_cancellation_is_refused` | Cancelada: no se cobra después de `cancelled_at` | ✅ |
+| `test_charges_accumulate_per_customer` | Los saldos por cliente acumulan en orden cronológico | ✅ |
+| `test_creates_history_and_customers` | >150 compras `demo-` y 20 clientes; filas del seed intactas; pago inicial por tier con precio | ✅ |
+| `test_is_refused_on_a_second_run` | La segunda corrida del bulk no escribe nada | ✅ |
+| `test_is_reproducible` | Misma semilla + mismo `now` → mismas filas (borrando las `demo-` y repitiendo) | ✅ |
+| `test_respects_card_windows` | Ricardo compra activo y vencido (sin beneficios); Daniela nunca después de cancelar | ✅ |
+| `test_hours_are_business_hours` | Compras entre 7:00 y 18:59 de Tijuana | ✅ |
+| `test_generated_names_pass_the_name_rule` | Los nombres generados cumplen `PersonName` (regla H5) | ✅ |
+| `test_codes_do_not_collide` | Códigos únicos dentro de cada negocio, sin chocar con los del seed | ✅ |
+| `test_generated_codes_follow_the_numeric_rule` | Los códigos cumplen `MP-XXXXX`: 5 caracteres del alfabeto sin `0/O/1/I/L`, no correlativos (decisión Numeración) | ✅ |
+| `test_only_touches_the_demo_businesses` | Ninguna fila fuera de Café Aurora o Gimnasio Titán | ✅ |
+| `test_marks_cards_as_expiring_soon` | Dos tarjetas por negocio quedan «por vencer» para el panel | ✅ |
+| `test_inserts_one_or_two_purchases_now` | 1–2 compras por tick, con `created_at` del momento del tick | ✅ |
+| `test_same_minute_does_not_duplicate` | Dos corridas en el mismo minuto → la segunda es no-op | ✅ |
+| `test_alternates_businesses` | Los ticks alternan de negocio minuto a minuto | ✅ |
+| `test_only_picks_active_cards` | Nunca elige tarjetas vencidas ni canceladas | ✅ |
+| `test_without_active_customers_exits_clean` | Sin clientes activos no falla ni escribe | ✅ |
+| `test_bulk_prints_created` | `main --bulk` imprime lo creado y el resumen | ✅ |
+| `test_tick_prints_created` | `main --tick` imprime la compra creada | ✅ |
+| `test_tick_is_a_noop_in_the_same_minute` | El tick repetido en el mismo minuto sale en 0 sin escribir | ✅ |
+| `test_without_demo_data_returns_1` | Sin negocios demo, sale con código 1 y «Simulation aborted» | ✅ |
+
+---
+
+### 5.12 Reglas de convención — `tests/rules/`
+
+No prueban comportamiento: **leen el código fuente** (AST) y el árbol de archivos, y fallan cuando un módulo nuevo rompe una regla de `AGENTS.md` o contradice `ARCHITECTURE.md`. Las pruebas de los puntos 5.1–5.11 solo cubren lo que ya existe; estas atajan lo que alguien está por agregar mal.
 
 No usan fixtures ni base de datos, así que corren también en el job de PostgreSQL sin costo. Están dentro de `tests/`, de modo que `ci.yml` las recoge sin cambios: son parte de `pytest`.
 
@@ -1110,6 +1150,7 @@ Name                                 Stmts   Miss Branch BrPart  Cover   Missing
 --------------------------------------------------------------------------------
 scripts/review_pr.py                   155     65     32      2    60%   165-179, 183-192, 196-209, 235-236, 248-294, 317-327, 338-351
 scripts/seed.py                        136      1     42      1    99%   224
+scripts/simulate.py                    183      0     54      0   100%
 services/auth_service.py                44      0     12      0   100%
 services/card_service.py               133      0     30      0   100%
 services/checkout_service.py            75      1     18      1    98%   214
@@ -1129,7 +1170,7 @@ services/turnstile_service.py           29      0      8      0   100%
 services/upload_service.py              23      0      4      0   100%
 services/wallet_service.py              38      0      6      0   100%
 --------------------------------------------------------------------------------
-TOTAL                                 2145     73    352      8    96%
+TOTAL                                 2328     73    406      8    97%
 ```
 
 El resto de paquetes está en 100 % (`api/`, `core/`, `models/`, `main.py` y `schemas/` salvo `checkout_schema.py`, que queda en 89 % por una rama de validación).
