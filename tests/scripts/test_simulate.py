@@ -55,9 +55,7 @@ def minimal_businesses(
         session.add(business)
         session.flush()
         if with_tiers:
-            session.add(
-                Tier(business_id=business.id, name="Base", finish=TierFinish.SILVER)
-            )
+            session.add(Tier(business_id=business.id, name="Base", finish=TierFinish.SILVER))
         session.add(
             User(
                 business_id=business.id,
@@ -140,9 +138,7 @@ class TestGuards:
         with pytest.raises(SimulateError, match="already used"):
             bulk(session, now=NOW)
 
-    def test_history_skips_businesses_without_eligible_customers(
-        self, session: Session
-    ) -> None:
+    def test_history_skips_businesses_without_eligible_customers(self, session: Session) -> None:
         seed(session, PASSWORD)
         businesses = load_businesses(session)
         for customer in session.exec(select(Customer)).all():
@@ -220,11 +216,23 @@ class TestCharge:
 
         caja = session.exec(select(User).where(User.email == "caja@cafe-aurora.mx")).one()
         first = charge(
-            session, aurora, laura, caja, NOW - timedelta(days=2), 50_000, "Brunch",
+            session,
+            aurora,
+            laura,
+            caja,
+            NOW - timedelta(days=2),
+            50_000,
+            "Brunch",
             idempotency_key="test-0003",
         )
         second = charge(
-            session, aurora, laura, caja, NOW - timedelta(days=1), 50_000, "Brunch",
+            session,
+            aurora,
+            laura,
+            caja,
+            NOW - timedelta(days=1),
+            50_000,
+            "Brunch",
             idempotency_key="test-0004",
         )
         assert second.points_balance_after == first.points_balance_after + second.points_earned
@@ -275,8 +283,13 @@ class TestBulk:
         seed(session, PASSWORD)
         bulk(session, now=NOW, days=7, rng=random.Random(20261))
         first = [
-            (row.idempotency_key, row.customer_id, row.amount_cents, row.concept,
-             row.created_at.isoformat())
+            (
+                row.idempotency_key,
+                row.customer_id,
+                row.amount_cents,
+                row.concept,
+                row.created_at.isoformat(),
+            )
             for row in purchases_with_prefix(session, "demo-")
         ]
         assert first
@@ -287,8 +300,13 @@ class TestBulk:
 
         bulk(session, now=NOW, days=7, rng=random.Random(20261))
         second = [
-            (row.idempotency_key, row.customer_id, row.amount_cents, row.concept,
-             row.created_at.isoformat())
+            (
+                row.idempotency_key,
+                row.customer_id,
+                row.amount_cents,
+                row.concept,
+                row.created_at.isoformat(),
+            )
             for row in purchases_with_prefix(session, "demo-")
         ]
         assert second == first
