@@ -2,12 +2,15 @@
 
 El API se despliega como **imagen Docker** construida en GitHub Actions y publicada en **GHCR**. Coolify no construye nada: solo hace `docker pull` y arranca el contenedor.
 
-**Estado actual (13 nov 2026).** Sirviendo en `https://api-memberplus.neyzt.org` (API) y `https://memberplus.neyzt.org` (frontend) — proyecto **Member+** de Coolify, imágenes `ghcr.io/aga-studio/member-web:latest` y `ghcr.io/aga-studio/member-plus-frontend:latest`, base `memberplus` en el PostgreSQL del mismo proyecto. **Mergear a `main` despliega**: el workflow *Image* publica la imagen y llama al deploy webhook de Coolify. No hay releases obligatorios y la demo **es** producción: un solo entorno.
+**Estado actual (21 nov 2026).** Sirviendo en `https://api-memberplus.neyzt.org` (API) y `https://memberplus.neyzt.org` — **host compartido entre la landing y el frontend** — proyecto **Member+** de Coolify, imágenes `ghcr.io/aga-studio/member-web:latest`, `ghcr.io/aga-studio/member-plus-frontend:latest` y `ghcr.io/aga-studio/member-plus-landing:latest`, base `memberplus` en el PostgreSQL del mismo proyecto. **Mergear a `main` despliega**: el workflow *Image* publica la imagen y llama al deploy webhook de Coolify. No hay releases obligatorios y la demo **es** producción: un solo entorno.
 
 | Host | Qué sirve |
 |---|---|
-| `memberplus.neyzt.org` | **Frontend** — desplegado (imagen `member-plus-frontend:latest`) |
+| `memberplus.neyzt.org` — `/`, `/privacidad`, `/terminos`, `/en*` y sus assets | **Landing** — desplegada el 21 nov 2026 (imagen `member-plus-landing:latest`); se indexa |
+| `memberplus.neyzt.org` — rutas de la app | **Frontend** — desplegado (imagen `member-plus-frontend:latest`); noindex |
 | `api-memberplus.neyzt.org` | **API** — en producción desde el 12 nov 2026 |
+
+El host del producto lo comparten **dos contenedores** y el reparto lo hace Traefik por prioridad de regla: la landing declara su propio router (`priority=100`) con la lista exacta de sus rutas y el frontend conserva `PathPrefix(/)`. Labels exactas, verificación y rollback: `docs/DEPLOY.md` del repo [Member-Plus-Landing](https://github.com/AGA-Studio/Member-Plus-Landing).
 
 **El navegador no llama al API directo.** Pide `/api/*` en el host del frontend y Next lo reescribe hacia el API: así la cookie httpOnly es de primera parte (sin CORS en producción y sin `SameSite=None`). El único cliente que pega al API de frente es el lector ESP32, con su token de dispositivo.
 
@@ -97,7 +100,7 @@ Cómo se comporta:
    - **Deja el healthcheck de Coolify apagado.** Para recursos de tipo *Docker Image*, Coolify lo implementa con `curl` o `wget` **dentro** del contenedor, y `python:3.14-slim` no trae ninguno de los dos: el contenedor quedaría `unhealthy` para siempre aunque la API responda, y el deploy se marcaría fallido. La imagen ya declara su propio `HEALTHCHECK` contra `/health` usando la stdlib, y Coolify muestra ese estado sin configurar nada. Si de todos modos quieres que Coolify lo evalúe, usa el tipo **`cmd`** con `python -c "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=3)"`, nunca `http`.
 4. **Variables** (ver sección 5). Como mínimo, `DATABASE_URL`, `SECRET_KEY`, `COOKIE_SECURE=true` y `CORS_ORIGINS`.
 5. **Dominio.** `api-memberplus.neyzt.org` sobre el wildcard `*.neyzt.org` que ya apunta al LXC. Traefik emite el router por app; no hay que abrir puertos.
-   - **El backend NO va en `memberplus.neyzt.org`**: ese nombre es del frontend. El reparto es `memberplus.neyzt.org` → frontend y `api-memberplus.neyzt.org` → API.
+   - **El backend NO va en `memberplus.neyzt.org`**: ese nombre es de la landing y del frontend. El reparto es `memberplus.neyzt.org` → landing + frontend y `api-memberplus.neyzt.org` → API.
    - **Un solo nivel de subdominio.** `api.memberplus.neyzt.org` (dos niveles) resuelve en DNS pero **falla el handshake TLS**: el certificado Universal de Cloudflare solo cubre `neyzt.org` y `*.neyzt.org`. Para usar subdominios anidados hace falta Advanced Certificate Manager (de pago). Por eso el guion en vez del punto.
    - Coolify **genera un dominio aleatorio** `<uuid>.<ip>.sslip.io` al crear la app: bórralo. `sslip.io` resuelve a la IP que lleva embebida — tu IP de WAN, donde no hay port forwarding al LXC — y Traefik fallaría el reto ACME para un nombre inalcanzable. El campo de dominio no lleva puerto ni barra final.
 6. **Datos de demo (una vez, después del primer despliegue).** En Coolify → la aplicación → *Terminal*, con `SEED_PASSWORD` definida en las variables:
@@ -120,7 +123,7 @@ Cómo se comporta:
 
    Con eso, el paso *Pedir deploy a Coolify* de `image.yml` hace `POST` al webhook (con `GET`, Coolify responde `405 This endpoint has changed to a POST request.`) y contesta `200` con `{"deployments":[{"resource_uuid":"…","deployment_uuid":"…"}]}`.
 
-   **El `resource_uuid` de la respuesta es la app que se desplegó**: si no es la de este repo, el secreto `COOLIFY_WEBHOOK` está apuntando a la otra app (pasó el 13 nov: el backend desplegaba el frontend y el suyo no). El webhook es **por app**; el token es el mismo para las dos. Sin `COOLIFY_WEBHOOK` el paso solo avisa y el deploy sigue siendo manual.
+   **El `resource_uuid` de la respuesta es la app que se desplegó**: si no es la de este repo, el secreto `COOLIFY_WEBHOOK` está apuntando a la otra app (pasó el 13 nov: el backend desplegaba el frontend y el suyo no). El webhook es **por app**; el token es el mismo para las tres. Sin `COOLIFY_WEBHOOK` el paso solo avisa y el deploy sigue siendo manual.
 
    **`COOLIFY_TOKEN` es opcional** y solo se necesita si copiaste la URL de *auth required*: si la URL ya trae `?api_token=...` (el formato viejo), el paso detecta el token vacío y no manda cabecera. Mandar un `Bearer` vacío provoca 401 y tumba el run **después** de publicar la imagen.
 
