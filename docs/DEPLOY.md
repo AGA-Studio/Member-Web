@@ -110,6 +110,13 @@ Cómo se comporta:
    ```
 
    Crea Café Aurora, Gimnasio Titán y sus usuarios (ver el README). Se puede repetir sin duplicar nada y nunca cambia la contraseña de un usuario que ya existe. Sin `SEED_PASSWORD` en producción, se niega a correr.
+   Para que la demo tenga semanas de historial, la misma terminal ejecuta el simulador:
+
+   ```bash
+   python -m scripts.simulate --bulk      # 84 días de compras y 10 clientes por negocio
+   ```
+
+   Es determinista e idempotente por omisión: **se niega a correr dos veces** sobre la misma base (una segunda corrida no escribe nada); para regenerar el historial hay que rehacer el seed desde cero. No necesita `SEED_PASSWORD` (no crea usuarios) ni toca filas existentes.
 7. **Webhook de deploy del API (obligatorio: es el despliegue automático del backend).** Dos piezas, una vez:
    - En Coolify → *Keys & Tokens* → *API Tokens* → crear un token con permiso **`deploy`** (solo ese). El valor se muestra una sola vez.
    - En la app → *Webhooks* → copiar **Deploy Webhook (auth required)**: `https://coolify.neyzt.org/api/v1/deploy?uuid=<uuid-de-la-app>&force=false`.
@@ -127,7 +134,6 @@ Cómo se comporta:
 
    **`COOLIFY_TOKEN` es opcional** y solo se necesita si copiaste la URL de *auth required*: si la URL ya trae `?api_token=...` (el formato viejo), el paso detecta el token vacío y no manda cabecera. Mandar un `Bearer` vacío provoca 401 y tumba el run **después** de publicar la imagen.
 
-
 7-bis. **Deploy del frontend: stack balanceado (desde el 23 nov 2026).** El frontend de
    `memberplus.neyzt.org` corre como stack de Compose *Frontend Balanced*: dos servicios
    (`web-a`/`web-b`) de la misma imagen `member-plus-frontend:latest`, sin dominios propios,
@@ -143,6 +149,14 @@ Cómo se comporta:
    repo del frontend ya no se usa y se puede borrar. La app *Frontend* original queda detenida
    como rollback del router completo: arrancarla y quitar `memberplus-lb.yaml` devuelve el
    dominio a una sola instancia en dos minutos.
+
+8. **Datos vivos para la demo (tarea programada).** Después de que la imagen con `scripts/simulate.py` esté desplegada —si se crea antes, el comando falla cada minuto con `No module named`—, en la app → *Scheduled Tasks* → nueva tarea:
+
+   - Nombre: `Simulador de datos (tick)`
+   - Comando: `python -m scripts.simulate --tick`
+   - Cron: `* * * * *` (cada minuto)
+
+   Cada ejecución es un proceso nuevo que inserta 1–2 compras de «ahora» y muere: no hay estado ni proceso residente. La llave de idempotencia lleva el minuto UTC, así que el cron y un *Run now* en el mismo minuto no duplican. Se apaga con el interruptor de la tarea en el panel (los datos ya insertados quedan). Encendida cuesta ~1 900 filas al día: encenderla para ensayos y la demo, apagarla después. **Si algún día se renombra o mueve `scripts/simulate.py`, esta tarea queda rota en silencio** (el log muestra `No module named`): actualizar el comando en el mismo cambio.
 
 ---
 
