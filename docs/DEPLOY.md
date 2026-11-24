@@ -2,15 +2,15 @@
 
 El API se despliega como **imagen Docker** construida en GitHub Actions y publicada en **GHCR**. Coolify no construye nada: solo hace `docker pull` y arranca el contenedor.
 
-**Estado actual (21 nov 2026).** Sirviendo en `https://api-memberplus.neyzt.org` (API) y `https://memberplus.neyzt.org` — **host compartido entre la landing y el frontend** — proyecto **Member+** de Coolify, imágenes `ghcr.io/aga-studio/member-web:latest`, `ghcr.io/aga-studio/member-plus-frontend:latest` y `ghcr.io/aga-studio/member-plus-landing:latest`, base `memberplus` en el PostgreSQL del mismo proyecto. **Mergear a `main` despliega**: el workflow *Image* publica la imagen y llama al deploy webhook de Coolify. No hay releases obligatorios y la demo **es** producción: un solo entorno.
+**Estado actual (23 nov 2026).** Sirviendo en `https://api-memberplus.neyzt.org` (API) y `https://memberplus.neyzt.org` — **host compartido entre la landing y el frontend** — proyecto **Member+** de Coolify, imágenes `ghcr.io/aga-studio/member-web:latest`, `ghcr.io/aga-studio/member-plus-frontend:latest` y `ghcr.io/aga-studio/member-plus-landing:latest`, base `memberplus` en el PostgreSQL del mismo proyecto. **Mergear a `main` despliega**: el workflow *Image* publica la imagen y avisa a Coolify — el API por el webhook de su app, el frontend pidiéndole al API de Coolify que jale la imagen y redespliegue su stack balanceado (sección 4, punto 7-bis). No hay releases obligatorios y la demo **es** producción: un solo entorno.
 
 | Host | Qué sirve |
 |---|---|
 | `memberplus.neyzt.org` — `/`, `/privacidad`, `/terminos`, `/en*` y sus assets | **Landing** — desplegada el 21 nov 2026 (imagen `member-plus-landing:latest`); se indexa |
-| `memberplus.neyzt.org` — rutas de la app | **Frontend** — desplegado (imagen `member-plus-frontend:latest`); noindex |
+| `memberplus.neyzt.org` — rutas de la app | **Frontend** — stack balanceado *Frontend Balanced* (dos servicios de `member-plus-frontend:latest`) detrás de Traefik desde el 23 nov 2026; noindex |
 | `api-memberplus.neyzt.org` | **API** — en producción desde el 12 nov 2026 |
 
-El host del producto lo comparten **dos contenedores** y el reparto lo hace Traefik por prioridad de regla: la landing declara su propio router (`priority=100`) con la lista exacta de sus rutas y el frontend conserva `PathPrefix(/)`. Labels exactas, verificación y rollback: `docs/DEPLOY.md` del repo [Member-Plus-Landing](https://github.com/AGA-Studio/Member-Plus-Landing).
+El host del producto lo comparten la landing y el **balanceador del frontend**, y el reparto lo hace Traefik por prioridad de regla: la landing declara su propio router (`priority=100`) con la lista exacta de sus rutas; el router del pool del frontend (`memberplus-lb`, dynamic config del proxy, `priority=60`) conserva `PathPrefix(/)`. Labels exactas, verificación y rollback: `docs/DEPLOY.md` del repo [Member-Plus-Landing](https://github.com/AGA-Studio/Member-Plus-Landing).
 
 **El navegador no llama al API directo.** Pide `/api/*` en el host del frontend y Next lo reescribe hacia el API: así la cookie httpOnly es de primera parte (sin CORS en producción y sin `SameSite=None`). El único cliente que pega al API de frente es el lector ESP32, con su token de dispositivo.
 
@@ -64,7 +64,7 @@ La imagen final no lleva `tests/`, ni `.git`, ni `.env`, ni el CLI de uv. Todo l
 
 | Evento | Tags en GHCR | ¿Despliega? |
 |---|---|---|
-| push a `main` | `sha-<7>`, `main`, `latest` | **Sí**: el paso *Pedir deploy a Coolify* llama al webhook |
+| push a `main` | `sha-<7>`, `main`, `latest` | **Sí**: el paso *Pedir deploy a Coolify* avisa a Coolify (webhook de la app del API; `restart?latest=true` para el stack del frontend) |
 | release `v0.0.1` | `sha-<7>`, `0.0.1`, `0.0` | No: marca el hito, no toca producción |
 | `workflow_dispatch` | `sha-<7>` (de la rama elegida) | Solo si se lanzó desde `main` |
 
@@ -76,7 +76,7 @@ La imagen final no lleva `tests/`, ni `.git`, ni `.env`, ni el CLI de uv. Todo l
 
 ```bash
 git push origin main    # 1. el workflow Image construye y publica
-# 2. el mismo run llama al webhook de Coolify (paso "Pedir deploy a Coolify")
+# 2. el mismo run avisa a Coolify (paso "Pedir deploy a Coolify")
 # 3. Coolify hace pull del tag `latest` y reemplaza el contenedor
 ```
 
@@ -110,11 +110,11 @@ Cómo se comporta:
    ```
 
    Crea Café Aurora, Gimnasio Titán y sus usuarios (ver el README). Se puede repetir sin duplicar nada y nunca cambia la contraseña de un usuario que ya existe. Sin `SEED_PASSWORD` en producción, se niega a correr.
-7. **Webhook de deploy (obligatorio: es el despliegue automático).** Dos piezas, una vez:
+7. **Webhook de deploy del API (obligatorio: es el despliegue automático del backend).** Dos piezas, una vez:
    - En Coolify → *Keys & Tokens* → *API Tokens* → crear un token con permiso **`deploy`** (solo ese). El valor se muestra una sola vez.
    - En la app → *Webhooks* → copiar **Deploy Webhook (auth required)**: `https://coolify.neyzt.org/api/v1/deploy?uuid=<uuid-de-la-app>&force=false`.
 
-   Después, en **cada repo** (el webhook es por app; el token es el mismo):
+   Después, en **el repo del API** (el webhook es por app):
 
    ```bash
    gh secret set COOLIFY_WEBHOOK --body '<url-del-deploy-webhook>'
@@ -126,6 +126,23 @@ Cómo se comporta:
    **El `resource_uuid` de la respuesta es la app que se desplegó**: si no es la de este repo, el secreto `COOLIFY_WEBHOOK` está apuntando a la otra app (pasó el 13 nov: el backend desplegaba el frontend y el suyo no). El webhook es **por app**; el token es el mismo para las tres. Sin `COOLIFY_WEBHOOK` el paso solo avisa y el deploy sigue siendo manual.
 
    **`COOLIFY_TOKEN` es opcional** y solo se necesita si copiaste la URL de *auth required*: si la URL ya trae `?api_token=...` (el formato viejo), el paso detecta el token vacío y no manda cabecera. Mandar un `Bearer` vacío provoca 401 y tumba el run **después** de publicar la imagen.
+
+
+7-bis. **Deploy del frontend: stack balanceado (desde el 23 nov 2026).** El frontend de
+   `memberplus.neyzt.org` corre como stack de Compose *Frontend Balanced*: dos servicios
+   (`web-a`/`web-b`) de la misma imagen `member-plus-frontend:latest`, sin dominios propios,
+   detrás de un balanceador declarado en la dynamic config del proxy (`memberplus-lb.yaml`:
+   regla `Host(memberplus.neyzt.org) && PathPrefix(/)`, `priority: 60`, health check sobre
+   `/healthz.txt` cada 10 s; la landing conserva `priority=100`). Su workflow en el repo del
+   frontend **no usa el webhook**: llama a `POST https://coolify.neyzt.org/api/v1/services/{uuid}/restart?latest=true`
+   con `COOLIFY_TOKEN`, porque el webhook de un stack hace `force-recreate` **sin jalar la
+   imagen** (bug coollabsio/coolify#5318: publica una versión nueva y Coolify reinicia sobre
+   la anterior sin que nada falle). El endpoint del API de Coolify está exceptuado del geo-WAF
+   de la zona (`/api/*` y `/webhooks/*` de `coolify.neyzt.org` en las dos reglas geo), o los
+   runners de GitHub reciben reto o block según su región. El secreto `COOLIFY_WEBHOOK` del
+   repo del frontend ya no se usa y se puede borrar. La app *Frontend* original queda detenida
+   como rollback del router completo: arrancarla y quitar `memberplus-lb.yaml` devuelve el
+   dominio a una sola instancia en dos minutos.
 
 ---
 
@@ -190,6 +207,8 @@ pg_dump "$DATABASE_URL" -Fc -f respaldo-previa-$(date +%F).dump
 4. Las dos salidas, en orden de preferencia:
    - **Volver a desplegar hacia adelante** con un tag nuevo que corrija el problema.
    - **Bajar el esquema a mano**: `alembic downgrade <revision>` desde un contenedor con la imagen nueva, y después arrancar la vieja.
+
+- **El frontend balanceado** se rueda igual, pero fijando el `sha-<7>` en la imagen de los dos servicios del compose de *Frontend Balanced* y desplegando. La vuelta completa instantánea: arrancar la app *Frontend* detenida y quitar `memberplus-lb.yaml` del proxy devuelve el dominio a una sola instancia.
 
 Nunca se hace `downgrade` automático: una migración que borró una columna no puede devolver los datos.
 
@@ -303,7 +322,7 @@ La base está en una revisión que la imagen no conoce: se desplegó una imagen 
 El healthcheck consulta `http://127.0.0.1:$PORT/health` dentro del contenedor. Si `PORT` no coincide con el puerto en que escucha uvicorn, nunca pasa a `healthy`. También revisa el `--start-period`: la primera comprobación no ocurre hasta pasados 20 s.
 
 **La imagen no se actualiza en Coolify.**
-Coolify no adivina que hay imagen nueva: revisa que el webhook esté configurado (`COOLIFY_WEBHOOK` + `COOLIFY_TOKEN`) o redespliega a mano. Si el tag es `sha-`, cambia el tag: ese nunca se mueve.
+Coolify no adivina que hay imagen nueva. En el **API**, revisa el webhook (`COOLIFY_WEBHOOK` + `COOLIFY_TOKEN`). En el **frontend** (stack), revisa que el paso final llame a `restart?latest=true`: el webhook de un stack hace `force-recreate` sin jalar imagen (bug coollabsio/coolify#5318) y el sitio queda sirviendo la versión anterior **sin ningún error visible**. Si el tag es `sha-`, cambia el tag: ese nunca se mueve.
 
 **`NoSuchModuleError: Can't load plugin: sqlalchemy.dialects:postgres`.**
 La `DATABASE_URL` empieza con `postgres://`. SQLAlchemy 2 eliminó ese alias en 1.4: cámbialo a `postgresql+psycopg://`. Es el error más común de la primera puesta en marcha, y el contenedor queda en `Restarting (1)`.
