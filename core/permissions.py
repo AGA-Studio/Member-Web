@@ -23,6 +23,7 @@ class Permission(StrEnum):
     TIERS_MANAGE = "tiers.manage"
     USERS_MANAGE = "users.manage"
     BUSINESS_MANAGE = "business.manage"  # Name, validity, color and logo of the business.
+    AI_CHAT = "ai.chat"  # Read-only chat about the business's own data (issue #73).
     PLATFORM = "platform"  # Status and usage of every business, never their data.
 
 
@@ -36,7 +37,13 @@ _MANAGER = _COUNTER | {
 ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
     Role.PLATFORM: frozenset({Permission.PLATFORM}),
     Role.ADMIN: frozenset(
-        _MANAGER | {Permission.TIERS_MANAGE, Permission.USERS_MANAGE, Permission.BUSINESS_MANAGE}
+        _MANAGER
+        | {
+            Permission.TIERS_MANAGE,
+            Permission.USERS_MANAGE,
+            Permission.BUSINESS_MANAGE,
+            Permission.AI_CHAT,
+        }
     ),
     # Shift lead: the counter plus customers and history; no tiers, users or settings.
     Role.MANAGER: frozenset(_MANAGER),
