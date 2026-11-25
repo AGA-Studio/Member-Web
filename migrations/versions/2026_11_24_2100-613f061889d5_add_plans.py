@@ -80,7 +80,9 @@ def upgrade() -> None:
 
     with op.batch_alter_table("businesses") as batch:
         batch.add_column(sa.Column("plan_id", sa.Integer(), nullable=True))
-        batch.add_column(sa.Column("trial_ends_at", sa.DateTime(), nullable=True))
+        batch.add_column(
+            sa.Column("trial_ends_at", sqlmodel.sql.sqltypes.UTCDateTime(), nullable=True)
+        )
         batch.add_column(sa.Column("unit_price_cents", sa.Integer(), nullable=True))
         batch.create_foreign_key("fk_businesses_plan_id_plans", "plans", ["plan_id"], ["id"])
 
