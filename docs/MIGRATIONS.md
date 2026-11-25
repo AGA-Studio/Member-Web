@@ -190,7 +190,7 @@ El `&&` garantiza que la API nunca arranque con un esquema viejo. Antes de una m
 
 ## 7. Migraciones existentes
 
-Once migraciones hasta la fecha. El orden de la cadena es el de `down_revision`, de la más vieja a la más nueva:
+Catorce migraciones hasta la fecha. El orden de la cadena es el de `down_revision`, de la más vieja a la más nueva:
 
 | Revisión | Archivo | Qué hace |
 |----------|---------|----------|
@@ -205,6 +205,9 @@ Once migraciones hasta la fecha. El orden de la cadena es el de `down_revision`,
 | `b8d4f0a3c926` | `2026_11_13_0700-b8d4f0a3c926_add_card_emails.py` | Crea `card_emails`: cada envío de la tarjeta por correo, para el límite de frecuencia. |
 | `c1e5a7b9d2f4` | `2026_11_13_0800-c1e5a7b9d2f4_add_membership_payments.py` | Crea `membership_payments` y agrega `businesses.validity_months` (meses de vigencia por negocio). |
 | `146733b94fa0` | `2026_11_16_0842-146733b94fa0_add_photo_to_customers_and_users.py` | Agrega `customers.photo_url` y `users.photo_url`: la clave del bucket, nunca una URL. |
+| `d3f6a8c0e1b2` | `2026_11_18_1900-d3f6a8c0e1b2_add_primary_color_to_businesses.py` | Agrega `businesses.primary_color` (`#rrggbb` o `null`). |
+| `e4a7b9c1d3f5` | `2026_11_18_2000-e4a7b9c1d3f5_enable_row_level_security.py` | Escrita a mano, solo PostgreSQL. Crea el rol `memberplus_tenant` y la política `tenant_isolation` en cada tabla de negocio (Row Level Security). |
+| `0fad7d4917d8` | `2026_11_24_2000-0fad7d4917d8_add_manager_role.py` | Escrita a mano, solo PostgreSQL. Agrega `manager` al tipo `role` (`ALTER TYPE ... ADD VALUE`). PostgreSQL no borra valores de un `ENUM`: el `downgrade` pasa a los managers a `employee` y reconstruye el tipo. |
 
 ```mermaid
 flowchart LR
@@ -219,7 +222,10 @@ flowchart LR
     R8 --> R9["b8d4f0a3c926<br/>card emails"]
     R9 --> R10["c1e5a7b9d2f4<br/>membership payments"]
     R10 --> R11["146733b94fa0<br/>photos"]
-    R11 --> HEAD(["head"])
+    R11 --> R12["d3f6a8c0e1b2<br/>primary color"]
+    R12 --> R13["e4a7b9c1d3f5<br/>row level security"]
+    R13 --> R14["0fad7d4917d8<br/>manager role"]
+    R14 --> HEAD(["head"])
 ```
 
 SQL de la primera migración en PostgreSQL (`uv run alembic upgrade f689e0ec2cd6 --sql`). Crea los `ENUM` en mayúscula; la segunda migración los renombra:

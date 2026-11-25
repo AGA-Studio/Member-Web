@@ -33,7 +33,7 @@ No usar como referencia: el **ERS** ni el calendario y los responsables de la *G
 - **Sin reconocimiento facial.** La cámara —ESP32 o webcam— solo lee el QR; el lector identifica la
   tarjeta, no a la persona. Sin datos biométricos. La foto del cliente solo se muestra (panel y caja)
   y se borra al cancelar la membresía (corregida el 16 nov 2026).
-- Tres roles: `platform` (nosotros), `admin` y `employee`. Los clientes del negocio no inician sesión.
+- Cuatro roles: `platform` (nosotros), `admin`, `manager` (encargado: caja, clientes e historial) y `employee`. Los clientes del negocio no inician sesión. Las rutas piden un permiso (`require_permission`), nunca un rol; la matriz vive solo en `core/permissions.py`.
 - La compra en caja es **monto y concepto libre**: sin catálogo ni inventario. La tarjeta se
   identifica por **QR impreso o tecleo manual del código corto**.
 - **Los puntos son un historial de movimientos, no una columna del cliente**: el saldo se calcula.
