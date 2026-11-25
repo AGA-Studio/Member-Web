@@ -29,6 +29,7 @@ from api.v1 import (
     platform_api,
     profile_api,
     public_api,
+    registration_api,
     tier_api,
     user_api,
 )
@@ -54,6 +55,7 @@ API_V1_ROUTERS = [
     card_api.router,
     public_api.router,
     plan_api.router,
+    registration_api.router,
 ]
 
 

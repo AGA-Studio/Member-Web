@@ -34,7 +34,7 @@ from sqlalchemy import event, text  # noqa: E402
 from sqlalchemy.exc import OperationalError, ProgrammingError  # noqa: E402
 from sqlmodel import Session, SQLModel  # noqa: E402
 
-from api.v1 import card_api, public_api  # noqa: E402
+from api.v1 import card_api, public_api, registration_api  # noqa: E402
 from core import security  # noqa: E402
 from core.security import hash_password  # noqa: E402
 from db import rls  # noqa: E402
@@ -167,6 +167,7 @@ def _reset_in_memory_state() -> Generator[None]:
     """The public rate limits and the dev email outbox live in memory."""
     card_api.public_limiter.reset()
     public_api.asset_limiter.reset()
+    registration_api.registration_limiter.reset()
     email_service.OUTBOX.clear()
     yield
 
