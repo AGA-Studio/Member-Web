@@ -46,6 +46,9 @@ class TestList:
             "logo_url": None,
             "status": "active",
             "customers_count": 1,
+            "plan_key": "chain",
+            "plan_name": "Cadena",
+            "trial_ends_at": None,
         }
 
     def test_every_business_by_name(self, client: TestClient, platform) -> None:
@@ -93,7 +96,17 @@ class TestPrivacy:
             assert secret not in text
         keys = {key for item in client.get(URL).json()["items"] for key in item}
         # The logo is the business's own image, not data of its customers.
-        assert keys == {"id", "name", "logo_url", "status", "customers_count", "created_at"}
+        assert keys == {
+            "id",
+            "name",
+            "logo_url",
+            "status",
+            "customers_count",
+            "plan_key",
+            "plan_name",
+            "trial_ends_at",
+            "created_at",
+        }
 
 
 class TestPermissions:
@@ -164,15 +177,22 @@ class TestDetail:
         assert response.status_code == 200
         body = response.json()
         assert body.pop("created_at").endswith(("Z", "+00:00"))
+        plan = body.pop("plan")
         assert body == {
             "id": platform["a"].id,
             "name": "Business A",
             "logo_url": None,
             "status": "active",
             "customers_count": 1,
+            "plan_key": "chain",
+            "plan_name": "Cadena",
+            "trial_ends_at": None,
             "validity_months": 12,
             "users_count": 2,
         }
+        assert plan["plan"]["key"] == "chain"
+        assert plan["usage"]["customers"]["used"] == 1
+        assert plan["usage"]["users"]["used"] == 2
 
     def test_users_count_skips_inactive_users(
         self, client: TestClient, platform, make_user

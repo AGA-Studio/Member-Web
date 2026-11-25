@@ -24,6 +24,12 @@ from models.business_model import Business
 from models.customer_model import Customer
 from models.plan_model import Plan
 from models.user_model import User
+from schemas.plan_schema import (
+    PlanResponse,
+    PlanSummaryResponse,
+    PlanUsageResponse,
+    UsageItemResponse,
+)
 
 
 class Capacity(StrEnum):
@@ -233,3 +239,51 @@ def history_since(session: Session, business_id: int) -> datetime | None:
     """
     days = _plan_of(session, business_id).history_days
     return None if days is None else utc_now() - timedelta(days=days)
+
+
+# --- Summary and assignment ---------------------------------------------------
+
+
+def summary(session: Session, business_id: int) -> PlanSummaryResponse:
+    """Effective plan, trial and usage against the limits of the business."""
+    # The business always exists: the caller got its id from a token or a lookup.
+    business = session.get(Business, business_id)
+    plan = effective_plan(session, business)
+    assigned = session.get(Plan, business.plan_id) if business.plan_id is not None else None
+    used = usage(session, business.id)
+    return PlanSummaryResponse(
+        plan=PlanResponse.model_validate(plan),
+        assigned_plan_key=assigned.key if assigned else None,
+        trial_ends_at=as_utc(business.trial_ends_at) if business.trial_ends_at else None,
+        trial_active=trial_active(business),
+        unit_price_cents=business.unit_price_cents,
+        usage=PlanUsageResponse(
+            customers=UsageItemResponse(
+                used=used[Capacity.CUSTOMERS], limit=limit_of(plan, Capacity.CUSTOMERS)
+            ),
+            users=UsageItemResponse(
+                used=used[Capacity.USERS], limit=limit_of(plan, Capacity.USERS)
+            ),
+        ),
+    )
+
+
+def assign(
+    session: Session, business: Business, plan_id: int, unit_price_cents: int | None = None
+) -> None:
+    """The platform sets a plan by hand (no payment gateway). Does not commit.
+
+    Any plan of the catalog, hidden ones included. It ends a trial in progress:
+    the plan is now contracted. The agreed price defaults to the plan's price.
+    422 `plan_invalid` when the plan does not exist.
+    """
+    plan = session.get(Plan, plan_id)
+    if plan is None:
+        raise ApiError(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Plan not found",
+            code=ErrorCode.PLAN_INVALID,
+        )
+    business.plan_id = plan.id
+    business.trial_ends_at = None
+    business.unit_price_cents = plan.price_cents if unit_price_cents is None else unit_price_cents

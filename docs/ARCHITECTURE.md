@@ -368,6 +368,11 @@ flowchart LR
 - `history_days` nunca toca saldos: puntos y cashback se calculan con todos los movimientos.
 - El dueño de plataforma no tiene negocio y no lo limita ningún plan. `max_devices` y la IA aún no se revisan: no hay módulo que limitar.
 
+**Quién ve y cambia el plan:**
+
+- El admin ve el de su negocio en `GET /plan/summary`: el plan efectivo, el asignado, la prueba y el uso contra cada límite. El frontend lo usa para mostrar «3 de 50 clientes» antes de que salga un `limit_reached`.
+- La plataforma lo ve en la lista y el detalle de `/platform/business` y lo cambia a mano con `PATCH /platform/business/{business_id}/update` (`plan_id` y `unit_price_cents`), porque no hay pasarela de pagos. Asignar un plan termina la prueba: el plan queda contratado. El nuevo plan aplica en la siguiente petición; bajar de plan no borra nada.
+
 ### Alta de negocio (issue #69)
 
 Registro directo, sin aprobación manual (wiki, *Registro de negocios: decisión*): `services/registration_service.py` y `api/v1/registration_api.py`.
@@ -458,14 +463,15 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | GET | `/api/v1/checkout/{checkout_id}` | admin, manager, employee | Comprobante. El cajero solo ve los suyos; el admin y el manager, todos los del negocio (`receipts.all`) |
 | GET | `/api/v1/movement/list` | admin, manager | Historial paginado, más reciente primero, con `summary` del conjunto filtrado. Filtros `q`, `customer_id`, `from`, `to` |
 | GET | `/api/v1/movement/export` | admin, manager | Mismos filtros que `list`, sin paginar, como CSV descargable |
-| GET | `/api/v1/platform/business/list` | platform | Negocios con su estado, `customers_count` y `logo_url` firmada (misma regla que `/auth/me`), paginados por nombre. Filtros `q` y `status`. Nunca datos de clientes |
+| GET | `/api/v1/platform/business/list` | platform | Negocios con su estado, `customers_count` y `logo_url` firmada (misma regla que `/auth/me`), con su plan efectivo (`plan_key`, `plan_name`) y `trial_ends_at`, paginados por nombre. Filtros `q` y `status`. Nunca datos de clientes |
 | GET | `/api/v1/platform/business/summary` | platform | Resumen para el panel de plataforma: negocios por estado (`all`, `trial`, `active`, `suspended`), `customers_count` (tarjetas no canceladas) y `users_count` (usuarios activos) de todos los negocios. Solo conteos |
-| GET | `/api/v1/platform/business/{business_id}` | platform | Detalle del negocio: lo de la lista más `validity_months` y `users_count` (usuarios activos). 404 `business_not_found` |
-| PATCH | `/api/v1/platform/business/{business_id}/update` | platform | Suspende o reactiva: cuerpo `{"status": "suspended" \| "active"}`; responde el detalle. Suspender corta las sesiones abiertas del negocio. 404 `business_not_found` |
+| GET | `/api/v1/platform/business/{business_id}` | platform | Detalle del negocio: lo de la lista más `validity_months`, `users_count` (usuarios activos) y `plan` (la misma forma que `/plan/summary`). 404 `business_not_found` |
+| PATCH | `/api/v1/platform/business/{business_id}/update` | platform | Cuerpo con al menos uno de: `status` (`suspended` \| `active`), `plan_id` y `unit_price_cents`. Suspender corta las sesiones abiertas del negocio. `plan_id` asigna el plan a mano (sin pasarela), termina la prueba en curso y fija `unit_price_cents` al precio del plan si no se manda otro; cualquier plan del catálogo, también los ocultos. Responde el detalle. 404 `business_not_found`, 422 `plan_invalid` |
 | GET | `/api/v1/card/{token}` | — (público) | Tarjeta pública del enlace: negocio (con su color), nombre, código, nivel, vigencia y `wallet.google`. 404 `card_link_not_found` |
 | GET | `/api/v1/card/{token}/google-wallet` | — (público) | `save_url` firmado para guardar la tarjeta en Google Wallet. 503 `wallet_unavailable` sin configuración |
 | GET | `/api/v1/public/logo/{business_id}.png` | — (público) | Logo del negocio como PNG cuadrado de 1024 px con 15 % de margen: lo cargan el pase de Google Wallet, el correo de la tarjeta y la tarjeta pública (`/card/{token}`), que no pueden usar una URL firmada que caduca en 1 h. `Cache-Control` de un día (la URL lleva `?v=` con la huella de la clave). 404 sin logo, con negocio suspendido, sin almacenamiento o si el archivo no se puede leer |
 | GET | `/api/v1/plan/list` | — (público) | Catálogo de planes que se ofrecen (`is_public`), del más barato al más caro: `key`, `name`, `price_cents`, límites (`max_customers`, `max_users`, `max_devices`, `history_days`; `null` = sin límite), capacidades (`images_enabled`, `exports_enabled`, `ai_enabled`, `ai_messages_month`), `trial_days` e `is_default`. Igual para todos; no trae datos de ningún negocio |
+| GET | `/api/v1/plan/summary` | admin | Plan del negocio de la sesión: `plan` (el efectivo, con la forma de `/plan/list`), `assigned_plan_key` (el guardado; difiere si la prueba venció), `trial_ends_at`, `trial_active`, `unit_price_cents` y `usage` (`customers` y `users`, cada uno con `used` y `limit`; `null` = sin límite) |
 | POST | `/api/v1/registration/create` | — (público) | Alta de negocio (issue #69): `business_name`, `admin_name`, `email`, `password` y `plan_id` opcional (sin él, el plan por defecto). Crea en una transacción el negocio (`active`), su primer admin, tres niveles vacíos (Básico, Plata, Oro: $0 y sin beneficios) y el plan; un plan con prueba fija `trial_ends_at`. Responde 201 con `business_id`, `name`, `email`, `plan`, `plan_key` y `trial_ends_at`. Sin auto-login: el admin entra por `/auth/login`. 403 `registration_closed`, 429 `rate_limited`, 400 `turnstile_failed`, 422 `plan_invalid`, 409 `email_taken` |
 
 **Respuesta de `/auth/me`** (`MeResponse`): los campos de `UserResponse` más `business`, el resumen del negocio que el frontend muestra en el encabezado del panel y de la caja. No incluye datos de uso ni de clientes.
@@ -515,7 +521,7 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | `business_not_found` | 404 | `/platform/business/{business_id}` y `/update`: el negocio no existe |
 | `wallet_unavailable` | 503 | `/card/{token}/google-wallet`: Google Wallet sin configurar en este entorno |
 | `rate_limited` | 429 | `/card/...` y `/public/logo/...`: más de `CARD_RATE_LIMIT_PER_MINUTE` peticiones por minuto desde la misma IP. `/registration/create`: más de `REGISTRATION_RATE_LIMIT_PER_HOUR` intentos por hora desde la misma IP. Siempre con `Retry-After` |
-| `plan_invalid` | 422 | `/registration/create`: el plan no existe, no es público o es de pago sin prueba (se pide después y lo asigna la plataforma) |
+| `plan_invalid` | 422 | `/registration/create`: el plan no existe, no es público o es de pago sin prueba (se pide después y lo asigna la plataforma). `/platform/business/{business_id}/update`: el `plan_id` no existe |
 | `registration_closed` | 403 | `/registration/create` con `REGISTRATION_ENABLED` apagado |
 | `limit_reached` | 409 | `/customer/create`, `/user/create` y `/user/{user_id}/update` al reactivar: el plan efectivo ya no admite otro cliente o usuario |
 | `plan_required` | 403 | Subir imágenes o `/movement/export` con un plan que no incluye esa función |
@@ -595,7 +601,7 @@ Ejemplo de la rúbrica, $1,000.00 en Oro (15 %, 1 punto por $10, 3 %): descuento
 - `customers_count` cuenta las tarjetas **no canceladas**, con la misma regla que `customers_count` de un nivel. Sale de una sola consulta por página.
 - `GET /platform/business/summary` suma todos los negocios: cuántos hay por estado y, en total, `customers_count` (tarjetas no canceladas, la misma regla de la lista) y `users_count` (usuarios activos de los negocios; el dueño de plataforma no cuenta). Incluye a los suspendidos. Son tres consultas de agregados y no devuelve nombres ni datos de nadie. La ruta se declara antes de `/business/{business_id}` para que `summary` no se lea como id.
 - `GET /platform/business/{business_id}` agrega `validity_months` y `users_count` (usuarios activos del negocio; los desactivados no cuentan).
-- `PATCH /platform/business/{business_id}/update` solo acepta `status`, y solo `active` o `suspended`; cualquier otro campo se ignora. `trial` responde 422: un negocio nace en prueba y cómo sale de ahí depende de las casillas abiertas de alta y planes. Pedir el estado que ya tiene no es error (200 sin cambios).
+- `PATCH /platform/business/{business_id}/update` acepta `status` (solo `active` o `suspended`), `plan_id` y `unit_price_cents`; cualquier otro campo se ignora y un cuerpo sin ninguno de los tres es 422. `trial` responde 422: un negocio nace en prueba. Pedir el estado que ya tiene no es error (200 sin cambios). Asignar un plan termina la prueba (el plan queda contratado) y, sin `unit_price_cents`, toma el precio del plan; un `plan_id` inexistente es 422 `plan_invalid` y no cambia nada, ni el estado.
 - Suspender no revoca tokens: `ensure_user_can_access` rechaza con 403 `business_suspended` el login y la siguiente petición de cualquier sesión abierta del negocio (H1). Reactivar (`active`) les devuelve el acceso; el dueño de plataforma no se ve afectado.
 
 ```mermaid
