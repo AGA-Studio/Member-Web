@@ -7,17 +7,22 @@ no user id in the path, so nobody can reach someone else's photo.
 
 from typing import Annotated
 
-from fastapi import APIRouter, File, UploadFile
+from fastapi import APIRouter, Depends, File, UploadFile
 
-from api.v1.dependencies import CurrentUser, SessionDep
+from api.v1.dependencies import CurrentUser, SessionDep, require_plan_feature
 from api.v1.uploads import image_errors, read_image
 from schemas.user_schema import UserResponse
 from services import profile_service
+from services.plan_service import Feature
 
 router = APIRouter(prefix="/user/photo", tags=["user"])
 
 
-@router.post("/update", response_model=UserResponse)
+@router.post(
+    "/update",
+    response_model=UserResponse,
+    dependencies=[Depends(require_plan_feature(Feature.IMAGES))],
+)
 def update_photo(
     session: SessionDep,
     user: CurrentUser,

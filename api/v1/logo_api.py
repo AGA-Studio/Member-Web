@@ -9,12 +9,18 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, UploadFile
 
-from api.v1.dependencies import BusinessId, SessionDep, require_permission
+from api.v1.dependencies import (
+    BusinessId,
+    SessionDep,
+    require_permission,
+    require_plan_feature,
+)
 from api.v1.uploads import image_errors, read_image
 from core.permissions import Permission
 from models.business_model import Business
 from schemas.business_schema import BusinessSummaryResponse
 from services import logo_service
+from services.plan_service import Feature
 
 router = APIRouter(
     prefix="/logo",
@@ -28,7 +34,11 @@ def _business(session: SessionDep, business_id: int) -> Business:
     return session.get(Business, business_id)
 
 
-@router.post("/update", response_model=BusinessSummaryResponse)
+@router.post(
+    "/update",
+    response_model=BusinessSummaryResponse,
+    dependencies=[Depends(require_plan_feature(Feature.IMAGES))],
+)
 def update_logo(
     session: SessionDep,
     business_id: BusinessId,

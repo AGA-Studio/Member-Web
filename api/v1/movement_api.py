@@ -8,11 +8,17 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response
 
-from api.v1.dependencies import BusinessId, SessionDep, require_permission
+from api.v1.dependencies import (
+    BusinessId,
+    SessionDep,
+    require_permission,
+    require_plan_feature,
+)
 from core.permissions import Permission
 from schemas.movement_schema import MovementPageResponse
 from schemas.pagination_schema import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from services import movement_service
+from services.plan_service import Feature
 
 router = APIRouter(
     prefix="/movement",
@@ -53,6 +59,7 @@ def list_movements(
     "/export",
     response_class=Response,
     responses={200: {"content": {"text/csv": {}}, "description": "CSV file"}},
+    dependencies=[Depends(require_plan_feature(Feature.EXPORTS))],
 )
 def export_movements(
     session: SessionDep,

@@ -9,7 +9,12 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile, status
 
-from api.v1.dependencies import BusinessId, SessionDep, require_permission
+from api.v1.dependencies import (
+    BusinessId,
+    SessionDep,
+    require_permission,
+    require_plan_feature,
+)
 from api.v1.uploads import image_errors, read_image
 from core.permissions import Permission
 from models.user_model import User
@@ -25,6 +30,7 @@ from schemas.customer_schema import (
 from schemas.pagination_schema import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, PageResponse
 from schemas.payment_schema import MembershipPaymentResponse
 from services import card_service, customer_service, payment_service
+from services.plan_service import Feature
 
 router = APIRouter(prefix="/customer", tags=["customer"])
 
@@ -107,7 +113,11 @@ def cancel_customer(
     return customer_service.cancel_customer(session, business_id, customer_id)
 
 
-@router.post("/{customer_id}/photo/update", response_model=CustomerResponse, dependencies=managers)
+@router.post(
+    "/{customer_id}/photo/update",
+    response_model=CustomerResponse,
+    dependencies=[*managers, Depends(require_plan_feature(Feature.IMAGES))],
+)
 def update_customer_photo(
     customer_id: int,
     session: SessionDep,
