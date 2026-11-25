@@ -182,6 +182,10 @@ Cómo se comporta:
 | `CARD_RATE_LIMIT_PER_MINUTE` | `30` | Opcional. Peticiones por minuto y por IP a los endpoints públicos de la tarjeta |
 | `REGISTRATION_ENABLED` | `true` | Opcional, `false` por defecto: el alta pública de negocios responde 403 `registration_closed`. Encenderla **solo después de publicar el aviso de privacidad** (#75) |
 | `REGISTRATION_RATE_LIMIT_PER_HOUR` | `5` | Opcional. Intentos de alta por hora y por IP, válidos o no |
+| `AI_ENABLED` | `true` | Opcional, `false` por defecto: `/chat/send` responde 503 `ai_unavailable`. Encenderlo cuando el equipo fije el modelo gratis |
+| `AI_API_KEY`, `AI_MODEL` | — | Key de Opencode Go (solo en Coolify, nunca en el repo) y el modelo gratis del catálogo. Sin cualquiera de las dos, el chat queda apagado |
+| `AI_BASE_URL`, `AI_SESSION_HEADER` | `https://opencode.ai/inference/go/v1`, `x-opencode-session` | Opcionales. Otro proveedor compatible con OpenAI es cambiar la URL y vaciar la cabecera |
+| `AI_TOOLS_ENABLED`, `AI_TIMEOUT_SECONDS`, `AI_MAX_ROUNDS` | `true`, `20`, `3` | Opcionales. `false` si el modelo no maneja herramientas: el backend manda el resumen y los niveles en el prompt |
 | `PORT` | `8000` | Lo lee el entrypoint; Coolify puede inyectarlo |
 
 Nada de esto va en el repo. `.env.example` documenta las claves con valores falsos.
