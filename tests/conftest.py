@@ -186,8 +186,15 @@ def client(_clean_database: None) -> Generator[TestClient]:
 
 @pytest.fixture
 def make_business(session: Session) -> Callable[..., Business]:
-    def factory(name: str = "Business", status: BusinessStatus = BusinessStatus.ACTIVE) -> Business:
-        business = Business(name=name, status=status)
+    def factory(
+        name: str = "Business",
+        status: BusinessStatus = BusinessStatus.ACTIVE,
+        plan: str | None = "chain",
+    ) -> Business:
+        """`plan` is a catalog key; the biggest by default, so a test about
+        anything else never hits a plan limit. `None` = no plan (the default)."""
+        plan_row = plan_service.get_by_key(session, plan) if plan else None
+        business = Business(name=name, status=status, plan_id=plan_row.id if plan_row else None)
         session.add(business)
         session.commit()
         session.refresh(business)
@@ -239,8 +246,10 @@ def two_businesses(session: Session) -> dict:
     for everything: seven commits per test, over ~400 tests, was a measurable
     part of the suite.
     """
-    business_a = Business(name="Business A", status=BusinessStatus.ACTIVE)
-    business_b = Business(name="Business B", status=BusinessStatus.ACTIVE)
+    # The biggest plan, like `make_business`: tests about plan limits set their own.
+    top_plan = plan_service.get_by_key(session, "chain").id
+    business_a = Business(name="Business A", status=BusinessStatus.ACTIVE, plan_id=top_plan)
+    business_b = Business(name="Business B", status=BusinessStatus.ACTIVE, plan_id=top_plan)
     session.add_all([business_a, business_b])
     session.flush()
 

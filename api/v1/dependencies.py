@@ -16,6 +16,7 @@ from db.database import get_session
 from models.business_model import Business, BusinessStatus
 from models.user_model import User
 from schemas.token_schema import TokenData
+from services import plan_service
 from services.auth_service import is_token_revoked
 
 # The frontend sends the token in the httpOnly cookie; the Bearer header is kept for
@@ -132,3 +133,16 @@ def get_business_id(session: SessionDep, user: CurrentUser) -> int:
 
 
 BusinessId = Annotated[int, Depends(get_business_id)]
+
+
+def require_plan_feature(feature: plan_service.Feature):
+    """403 `plan_required` when the user's business plan lacks `feature`.
+
+    Users without a business (the platform owner) are not limited by a plan.
+    """
+
+    def checker(session: SessionDep, user: CurrentUser) -> None:
+        if user.business_id is not None:
+            plan_service.require_feature(session, user.business_id, feature)
+
+    return checker
