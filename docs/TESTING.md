@@ -780,7 +780,7 @@ Lee las rutas de `API_V1_ROUTERS` y el permiso que pide cada una (`require_permi
 | `test_each_route_answers_by_the_matrix[platform / admin / manager / employee]` | Cada rol llama a todas las rutas protegidas: 403 justo donde la matriz no le da el permiso (4 casos) | ✅ |
 | `TestManager` | `/auth/me` trae `permissions`; el admin crea un manager, que ve clientes y no usuarios; lee los comprobantes de otro cajero; no edita niveles ni el negocio; no ve clientes de otro negocio (404 en ficha y en `lookup`) | ✅ |
 
-### 5.6d Planes — `tests/unit/test_plan_service.py`, `tests/api/test_plan.py` y `tests/api/test_plan_limits.py`
+### 5.6d Planes — `tests/unit/test_plan_service.py`, `tests/api/test_plan.py`, `tests/api/test_plan_limits.py` y `tests/api/test_plan_summary.py`
 
 | Prueba | Verifica | Resultado |
 |--------|----------|-----------|
@@ -792,6 +792,10 @@ Lee las rutas de `API_V1_ROUTERS` y el permiso que pide cada una (`require_permi
 | `TestUserCapacity` | Crear sobre el límite → 409; un usuario inactivo no cuenta; reactivar sobre el límite → 409 y sigue inactivo; editar a un usuario activo no se bloquea | ✅ |
 | `TestFeatures` | Sin `images_enabled`, logo, foto del cliente y foto de perfil → 403 `plan_required`; sin `exports_enabled`, `/movement/export` → 403; con el plan, 200; el permiso se revisa antes que el plan | ✅ |
 | `TestHistoryWindow` / `TestPlatform` | `history_days` oculta las compras viejas de `/movement/list` sin cambiar el saldo de puntos; sin límite salen todas; el dueño de plataforma no queda limitado | ✅ |
+
+| `TestSummary` (`test_plan_summary.py`) | `/plan/summary` con la forma del contrato y el uso (las tarjetas canceladas no cuentan); prueba vigente; prueba vencida → Gratis con `assigned_plan_key` intacto; sin plan → Gratis; solo el admin (employee, manager y plataforma → 403; sin sesión → 401) | ✅ |
+| `TestPlatformAssign` | La plataforma asigna un plan: termina la prueba y toma el precio del plan; plan oculto con precio pactado; solo el precio; estado y plan juntos; `plan_id` inexistente → 422 `plan_invalid` sin cambiar nada, ni el estado; cuerpo inválido → 422; el plan nuevo aplica en la siguiente petición | ✅ |
+| `test_isolation_plan.py` | Un negocio no cuenta las tarjetas de otro ni ve su plan | ✅ |
 
 Las fixtures `make_business` y `two_businesses` usan el plan `chain` para que una prueba de otra cosa nunca choque con un límite; las de `test_plan_limits.py` fijan el suyo.
 
