@@ -43,15 +43,16 @@ from models import (
     TierFinish,
     User,
 )
-from services import card_service, pricing_service
+from services import card_service, plan_service, pricing_service
 from services.customer_service import VALIDITY_MONTHS, add_months, as_utc, balance_of, utc_now
 
 DEMO_PASSWORD = "demo12345"
 MIN_PASSWORD_LENGTH = 8
 
 BUSINESSES = [
-    {"key": "aurora", "name": "Café Aurora"},
-    {"key": "titan", "name": "Gimnasio Titán"},
+    # `plan`: key of services/plan_service.CATALOG, set only on a business that has none.
+    {"key": "aurora", "name": "Café Aurora", "plan": "business"},
+    {"key": "titan", "name": "Gimnasio Titán", "plan": "counter"},
 ]
 
 # (email, name, role, business key or None for the platform owner)
@@ -252,6 +253,7 @@ def resolve_password() -> str:
 def seed(session: Session, password: str) -> SeedResult:
     result = SeedResult()
 
+    plan_service.ensure_catalog(session)
     businesses: dict[str, Business] = {}
     for spec in BUSINESSES:
         business = session.exec(select(Business).where(Business.name == spec["name"])).first()
@@ -262,6 +264,11 @@ def seed(session: Session, password: str) -> SeedResult:
             result.created.append(f"business  {spec['name']}")
         else:
             result.existing.append(f"business  {spec['name']}")
+        if business.plan_id is None:
+            plan = plan_service.get_by_key(session, spec["plan"])
+            business.plan_id = plan.id
+            business.unit_price_cents = plan.price_cents
+            session.add(business)
         businesses[spec["key"]] = business
 
     hashed = hash_password(password)  # Argon2id is slow: hash once for every user.
