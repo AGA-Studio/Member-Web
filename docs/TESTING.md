@@ -789,6 +789,22 @@ Lee las rutas de `API_V1_ROUTERS` y el permiso que pide cada una (`require_permi
 | `test_answers_without_a_session` / `test_shape` / `test_unlimited_is_null` | `GET /plan/list` es público, con la forma del contrato y `null` = sin límite | ✅ |
 | `test_same_list_for_any_business` | El catálogo es igual para cualquier sesión: no depende del negocio | ✅ |
 
+### 5.6e Alta de negocio — `tests/api/test_registration.py`
+
+Los criterios de aceptación de *Registro de negocios: decisión* (wiki).
+
+| Prueba | Verifica | Resultado |
+|--------|----------|-----------|
+| `test_creates_business_admin_tiers_and_plan` | 201; negocio `active` en Gratis, nombre sin espacios sobrantes, email en minúscula y tres niveles vacíos | ✅ |
+| `test_the_admin_logs_in_to_an_empty_panel` | El admin nuevo entra por el login normal y ve su negocio, 3 niveles y 0 clientes | ✅ |
+| `test_a_plan_with_trial_starts_it` | `business` deja `trial_ends_at` a 30 días | ✅ |
+| `test_paid_or_hidden_plan_is_plan_invalid` / `test_unknown_plan_is_plan_invalid` | Mostrador (de pago sin prueba), Cadena (oculto) o un id inexistente → 422 `plan_invalid`, sin escribir nada | ✅ |
+| `test_taken_email_is_409_and_writes_nothing` | Email en uso (sin importar mayúsculas) → 409 `email_taken` y cero filas nuevas | ✅ |
+| `test_two_sign_ups_at_once_never_500` | Con la verificación previa apagada, el índice único detiene la segunda alta: 409 y nada a medias (H6) | ✅ |
+| `test_invalid_fields_are_422` | Nombres de 1 letra, email inválido o contraseña corta → 422 de FastAPI (4 casos) | ✅ |
+| `test_the_new_business_sees_no_other_business` | El negocio nuevo no ve clientes ni niveles de otro (aislamiento) | ✅ |
+| `TestGuards` | Cerrado por defecto (403 `registration_closed`, nada escrito); el sexto intento por IP en una hora → 429 con `Retry-After`; con `TURNSTILE_ENABLED`, token rechazado → 400 y válido → 201 | ✅ |
+
 ### 5.7 Aislamiento multi-negocio — `tests/api/test_isolation.py`
 
 Es la prueba obligatoria del MVP: *"0 filas de otro negocio, comprobado por test automático"*.
