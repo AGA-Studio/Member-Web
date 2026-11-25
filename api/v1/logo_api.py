@@ -9,17 +9,17 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, UploadFile
 
-from api.v1.dependencies import BusinessId, SessionDep, require_roles
+from api.v1.dependencies import BusinessId, SessionDep, require_permission
 from api.v1.uploads import image_errors, read_image
+from core.permissions import Permission
 from models.business_model import Business
-from models.user_model import Role
 from schemas.business_schema import BusinessSummaryResponse
 from services import logo_service
 
 router = APIRouter(
     prefix="/logo",
     tags=["logo"],
-    dependencies=[Depends(require_roles(Role.ADMIN))],
+    dependencies=[Depends(require_permission(Permission.BUSINESS_MANAGE))],
 )
 
 

@@ -109,7 +109,7 @@ flowchart TB
     SCH --> S9["movement_schema.py — MovementResponse · MovementPageResponse"]
     SCH --> S10["platform_schema.py — PlatformBusinessResponse · PlatformBusinessDetailResponse · PlatformBusinessUpdate · PlatformSummaryResponse"]
     SCH --> S11["card_schema.py — CardLinkResponse · PublicCardResponse · CustomerCreatedResponse"]
-    API --> A1["dependencies.py — CurrentUser · require_roles · BusinessId<br/>ensure_user_can_access"]
+    API --> A1["dependencies.py — CurrentUser · require_permission · BusinessId<br/>ensure_user_can_access"]
     API --> A2["auth_api.py — /auth"]
     API --> AL["logo_api.py — /logo"]
     API --> AB["business_api.py — /business"]
@@ -159,7 +159,7 @@ erDiagram
         string name
         string email UK
         string hashed_password "Argon2id"
-        enum role "platform | admin | employee"
+        enum role "platform | admin | manager | employee"
         bool is_active
         string photo_url "nullable; clave del bucket"
         datetime created_at
@@ -271,8 +271,26 @@ erDiagram
 flowchart LR
     P["platform<br/>(nosotros)"] -- "ve estado y uso,<br/>no datos de clientes" --> B["Todos los negocios"]
     A["admin"] -- "administra" --> BA["Su negocio"]
+    M["manager"] -- "caja, clientes e historial de" --> BA
     E["employee"] -- "opera la caja de" --> BA
 ```
+
+Las rutas no preguntan por el rol sino por un **permiso** (`require_permission(Permission.X)`, en `api/v1/dependencies.py`). Qué permisos tiene cada rol vive en un solo lugar, `core/permissions.py` (issue #72), y `/auth/me` devuelve la lista en `permissions` para que el frontend muestre u oculte por permiso, no por nombre de rol.
+
+| Permiso | Qué abre | platform | admin | manager | employee |
+|---------|----------|:--------:|:-----:|:-------:|:--------:|
+| `checkout` | Cobrar en caja y leer sus comprobantes | | ✅ | ✅ | ✅ |
+| `receipts.all` | Leer cualquier comprobante del negocio, no solo los propios | | ✅ | ✅ | |
+| `customers.lookup` | Buscar una tarjeta por su código | | ✅ | ✅ | ✅ |
+| `customers.manage` | Listar, crear, editar, renovar y cancelar clientes; foto, pagos y enlace de la tarjeta | | ✅ | ✅ | |
+| `movements.read` | Historial de compras, sus totales y el CSV | | ✅ | ✅ | |
+| `tiers.read` | Ver los niveles | | ✅ | ✅ | ✅ |
+| `tiers.manage` | Editar los niveles | | ✅ | | |
+| `users.manage` | Usuarios del negocio | | ✅ | | |
+| `business.manage` | Nombre, vigencia, color y logo | | ✅ | | |
+| `platform` | Panel de plataforma (estado y uso, nunca datos) | ✅ | | | |
+
+Los roles son fijos en código a propósito: un negocio chico no tiene quién administre permisos por usuario. El rol se fija al crear el usuario y no se cambia después.
 
 ### Estados de un negocio
 
@@ -331,29 +349,29 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | POST | `/api/v1/logo/update` | admin | Sube o reemplaza el logo del negocio del token (`multipart/form-data`, campo `file`). JPEG, PNG o WebP de hasta 2 MB; se guarda como WebP de 512 px sin metadatos y borra el anterior. Devuelve el negocio con `logo_url` firmada. 413 `image_too_large`, 422 `image_invalid`, 503 `storage_unavailable` |
 | POST | `/api/v1/logo/delete` | admin | Quita el logo y borra el archivo. Repetirlo no cambia nada |
 | GET | `/api/v1/user/list` | admin | Usuarios de su negocio |
-| POST | `/api/v1/user/create` | admin | Crea un admin o employee en su negocio |
+| POST | `/api/v1/user/create` | admin | Crea un admin, manager o employee en su negocio |
 | GET | `/api/v1/user/{user_id}` | admin | Detalle de un usuario de su negocio |
 | PATCH | `/api/v1/user/{user_id}/update` | admin | Edita nombre, email, contraseña o `is_active`. Un admin no puede desactivarse a sí mismo (400) |
-| GET | `/api/v1/tier/list` | admin, employee | Niveles de su negocio, sin paginar, del más barato al más caro (`price_cents`), con `customers_count` |
+| GET | `/api/v1/tier/list` | admin, manager, employee | Niveles de su negocio, sin paginar, del más barato al más caro (`price_cents`), con `customers_count` |
 | PATCH | `/api/v1/tier/{tier_id}/update` | admin | Edita `name`, `finish`, `price_cents`, `discount_percent`, `points_per_ten`, `cashback_percent` (todos opcionales). Fuera de rango → 422 `tier_invalid` |
-| GET | `/api/v1/customer/list` | admin | Clientes paginados por `full_name`. Filtros `q` (nombre, email o código), `level_id`, `status` (`active` \| `expiring` \| `expired` \| `cancelled`), `page`, `page_size` (8 por defecto, máx. 500). Una página que no existe devuelve la última |
-| GET | `/api/v1/customer/summary` | admin | Conteos `all`, `active` (incluye las por vencer), `expiring`, `expired`, `cancelled` |
-| GET | `/api/v1/customer/lookup` | admin, employee | Tarjeta por `code` (QR o tecleado; ignora espacios y mayúsculas). Responde también para vencidas y canceladas. 404 `customer_not_found` |
-| POST | `/api/v1/customer/create` | admin | Alta con `full_name`, `email`, `phone` y `level_id` opcionales. Genera `code`, `issued_at` y `valid_until` (+`validity_months` del negocio). Registra el primer pago (`payment_method` = `cash` \| `card` \| `transfer`, `cash` por defecto; `amount_cents`, por defecto el precio del nivel; 0 no registra pago). Con `send_card_email` (`true` por defecto) envía el enlace a la tarjeta; la respuesta agrega `card_email.status` (`sent` \| `failed` \| `pending` \| `skipped`) y un correo fallido no falla el alta. 409 `email_taken` |
-| GET | `/api/v1/customer/{customer_id}` | admin | Ficha del cliente |
-| PATCH | `/api/v1/customer/{customer_id}/update` | admin | Edita `full_name`, `email`, `phone` (`null` lo borra) o `level_id` (cambio de nivel). 409 `email_taken` |
-| POST | `/api/v1/customer/{customer_id}/cancel` | admin | Cancela la tarjeta, revoca su enlace y **borra su foto**; irreversible y repetirlo no cambia nada |
-| POST | `/api/v1/customer/{customer_id}/photo/update` | admin | Sube o reemplaza la foto del cliente (`multipart/form-data`, campo `file`), solo para mostrarse. JPEG, PNG o WebP de hasta 2 MB → WebP de 512 px sin metadatos. Devuelve el cliente con `photo_url` firmada. 404 si es de otro negocio, 409 `customer_cancelled`, 413 `image_too_large`, 422 `image_invalid`, 503 `storage_unavailable` |
-| POST | `/api/v1/customer/{customer_id}/photo/delete` | admin | Quita la foto del cliente. Sin foto, responde 200 igual |
-| POST | `/api/v1/customer/{customer_id}/renew` | admin | Renueva `validity_months` meses: desde `valid_until` si sigue vigente, desde hoy si venció. Cuerpo opcional: `level_id` (cambia de nivel), `payment_method`, `amount_cents` (por defecto el precio del nivel; 0 no registra pago). 409 `customer_cancelled` |
-| GET | `/api/v1/customer/{customer_id}/payment/list` | admin | Pagos de membresía del cliente, el más reciente primero, paginados: `kind` (`new` \| `renewal`), `method`, `amount_cents`, `level` {`id`, `name` con que se pagó}, `period_start`, `period_end`, `recorded_by_name` |
-| POST | `/api/v1/customer/{customer_id}/card-link` | admin | Enlace nuevo a la tarjeta digital (`url`, `expires_at` = `valid_until`); revoca el anterior. 409 `customer_cancelled` o `customer_expired` |
-| POST | `/api/v1/customer/{customer_id}/card-link/send` | admin | Envía por correo un enlace nuevo (`sent_to`, `last_sent_at`). 429 `card_email_rate_limited`, 502 `email_failed` |
-| POST | `/api/v1/checkout/preview` | admin, employee | Mismo cuerpo que `create`; calcula y no guarda nada |
-| POST | `/api/v1/checkout/create` | admin, employee | Registra la compra (`customer_id`, `amount_cents`, `concept` opcional, `use_cashback`) y devuelve el comprobante (201). Cabecera opcional `Idempotency-Key`. El cajero sale del token |
-| GET | `/api/v1/checkout/{checkout_id}` | admin, employee | Comprobante. El cajero solo ve los suyos; el admin, todos los del negocio |
-| GET | `/api/v1/movement/list` | admin | Historial paginado, más reciente primero, con `summary` del conjunto filtrado. Filtros `q`, `customer_id`, `from`, `to` |
-| GET | `/api/v1/movement/export` | admin | Mismos filtros que `list`, sin paginar, como CSV descargable |
+| GET | `/api/v1/customer/list` | admin, manager | Clientes paginados por `full_name`. Filtros `q` (nombre, email o código), `level_id`, `status` (`active` \| `expiring` \| `expired` \| `cancelled`), `page`, `page_size` (8 por defecto, máx. 500). Una página que no existe devuelve la última |
+| GET | `/api/v1/customer/summary` | admin, manager | Conteos `all`, `active` (incluye las por vencer), `expiring`, `expired`, `cancelled` |
+| GET | `/api/v1/customer/lookup` | admin, manager, employee | Tarjeta por `code` (QR o tecleado; ignora espacios y mayúsculas). Responde también para vencidas y canceladas. 404 `customer_not_found` |
+| POST | `/api/v1/customer/create` | admin, manager | Alta con `full_name`, `email`, `phone` y `level_id` opcionales. Genera `code`, `issued_at` y `valid_until` (+`validity_months` del negocio). Registra el primer pago (`payment_method` = `cash` \| `card` \| `transfer`, `cash` por defecto; `amount_cents`, por defecto el precio del nivel; 0 no registra pago). Con `send_card_email` (`true` por defecto) envía el enlace a la tarjeta; la respuesta agrega `card_email.status` (`sent` \| `failed` \| `pending` \| `skipped`) y un correo fallido no falla el alta. 409 `email_taken` |
+| GET | `/api/v1/customer/{customer_id}` | admin, manager | Ficha del cliente |
+| PATCH | `/api/v1/customer/{customer_id}/update` | admin, manager | Edita `full_name`, `email`, `phone` (`null` lo borra) o `level_id` (cambio de nivel). 409 `email_taken` |
+| POST | `/api/v1/customer/{customer_id}/cancel` | admin, manager | Cancela la tarjeta, revoca su enlace y **borra su foto**; irreversible y repetirlo no cambia nada |
+| POST | `/api/v1/customer/{customer_id}/photo/update` | admin, manager | Sube o reemplaza la foto del cliente (`multipart/form-data`, campo `file`), solo para mostrarse. JPEG, PNG o WebP de hasta 2 MB → WebP de 512 px sin metadatos. Devuelve el cliente con `photo_url` firmada. 404 si es de otro negocio, 409 `customer_cancelled`, 413 `image_too_large`, 422 `image_invalid`, 503 `storage_unavailable` |
+| POST | `/api/v1/customer/{customer_id}/photo/delete` | admin, manager | Quita la foto del cliente. Sin foto, responde 200 igual |
+| POST | `/api/v1/customer/{customer_id}/renew` | admin, manager | Renueva `validity_months` meses: desde `valid_until` si sigue vigente, desde hoy si venció. Cuerpo opcional: `level_id` (cambia de nivel), `payment_method`, `amount_cents` (por defecto el precio del nivel; 0 no registra pago). 409 `customer_cancelled` |
+| GET | `/api/v1/customer/{customer_id}/payment/list` | admin, manager | Pagos de membresía del cliente, el más reciente primero, paginados: `kind` (`new` \| `renewal`), `method`, `amount_cents`, `level` {`id`, `name` con que se pagó}, `period_start`, `period_end`, `recorded_by_name` |
+| POST | `/api/v1/customer/{customer_id}/card-link` | admin, manager | Enlace nuevo a la tarjeta digital (`url`, `expires_at` = `valid_until`); revoca el anterior. 409 `customer_cancelled` o `customer_expired` |
+| POST | `/api/v1/customer/{customer_id}/card-link/send` | admin, manager | Envía por correo un enlace nuevo (`sent_to`, `last_sent_at`). 429 `card_email_rate_limited`, 502 `email_failed` |
+| POST | `/api/v1/checkout/preview` | admin, manager, employee | Mismo cuerpo que `create`; calcula y no guarda nada |
+| POST | `/api/v1/checkout/create` | admin, manager, employee | Registra la compra (`customer_id`, `amount_cents`, `concept` opcional, `use_cashback`) y devuelve el comprobante (201). Cabecera opcional `Idempotency-Key`. El cajero sale del token |
+| GET | `/api/v1/checkout/{checkout_id}` | admin, manager, employee | Comprobante. El cajero solo ve los suyos; el admin y el manager, todos los del negocio (`receipts.all`) |
+| GET | `/api/v1/movement/list` | admin, manager | Historial paginado, más reciente primero, con `summary` del conjunto filtrado. Filtros `q`, `customer_id`, `from`, `to` |
+| GET | `/api/v1/movement/export` | admin, manager | Mismos filtros que `list`, sin paginar, como CSV descargable |
 | GET | `/api/v1/platform/business/list` | platform | Negocios con su estado, `customers_count` y `logo_url` firmada (misma regla que `/auth/me`), paginados por nombre. Filtros `q` y `status`. Nunca datos de clientes |
 | GET | `/api/v1/platform/business/summary` | platform | Resumen para el panel de plataforma: negocios por estado (`all`, `trial`, `active`, `suspended`), `customers_count` (tarjetas no canceladas) y `users_count` (usuarios activos) de todos los negocios. Solo conteos |
 | GET | `/api/v1/platform/business/{business_id}` | platform | Detalle del negocio: lo de la lista más `validity_months` y `users_count` (usuarios activos). 404 `business_not_found` |
@@ -374,7 +392,8 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
   "is_active": true,
   "created_at": "2026-11-12T23:28:01.536737Z",
   "photo_url": null,
-  "business": { "id": 1, "name": "Café Aurora", "logo_url": null, "status": "active", "validity_months": 12, "primary_color": "#0062f2", "primary_foreground": "#ffffff" }
+  "business": { "id": 1, "name": "Café Aurora", "logo_url": null, "status": "active", "validity_months": 12, "primary_color": "#0062f2", "primary_foreground": "#ffffff" },
+  "permissions": ["checkout", "customers.lookup", "tiers.read"]
 }
 ```
 
@@ -714,7 +733,7 @@ sequenceDiagram
     alt usuario inactivo o negocio suspendido
         DEP-->>C: 403
     end
-    DEP->>DEP: require_roles(admin)
+    DEP->>DEP: require_permission(users.manage)
     alt rol sin permiso
         DEP-->>C: 403 Permission denied
     end
@@ -735,7 +754,7 @@ flowchart LR
     RT["get_request_token<br/>cookie o Bearer"] --> T
     T["get_token_data<br/>JWT → TokenData<br/>401 si el jti está revocado"] --> CU["get_current_user<br/>User desde la BD"]
     CU --> CA["get_current_active_user<br/>= CurrentUser<br/>ensure_user_can_access:<br/>403 si inactivo o negocio suspendido"]
-    CA --> RR["require_roles(...)<br/>403 si el rol no coincide"]
+    CA --> RR["require_permission(...)<br/>403 si el rol no tiene el permiso"]
     CA --> BI["get_business_id<br/>= BusinessId<br/>activa RLS en la sesión"]
     SD["get_session<br/>= SessionDep"] --> CU
     SD --> CA

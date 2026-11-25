@@ -194,6 +194,7 @@ class TestCurrentUser:
             "created_at",
             "photo_url",
             "business",
+            "permissions",
         }
 
     def test_cookie_has_priority_over_bearer(self, client: TestClient, two_businesses) -> None:

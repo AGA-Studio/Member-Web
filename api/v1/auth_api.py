@@ -16,6 +16,7 @@ from api.v1.dependencies import (
 )
 from core.config import settings
 from core.errors import ApiError, ErrorCode
+from core.permissions import permissions_of
 from core.security import create_access_token, decode_access_token, verify_password
 from models.business_model import Business
 from models.user_model import User
@@ -120,4 +121,5 @@ def me(session: SessionDep, user: CurrentUser) -> MeResponse:
     return MeResponse(
         **UserResponse.model_validate(user).model_dump(),
         business=logo_service.business_summary(business) if business else None,
+        permissions=permissions_of(user.role),
     )

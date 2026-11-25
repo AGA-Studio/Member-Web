@@ -373,7 +373,7 @@ Columna **Resultado**: ✅ pasa en SQLite y PostgreSQL · ⚠️ `xfail` esperad
 | `test_business_defaults` | Negocio nuevo: `status=trial`, `logo_url=null`, `created_at` | ✅ |
 | `test_user_defaults` | Usuario nuevo: `role=employee`, `is_active=true` | ✅ |
 | `test_email_unique_constraint` | La base rechaza emails duplicados (`IntegrityError`) | ✅ |
-| `test_enum_values` | Valores exactos de `Role` y `BusinessStatus` | ✅ |
+| `test_enum_values` | Valores exactos de `Role` (con `manager`) y `BusinessStatus` | ✅ |
 
 ### 5.3b Nombres de persona — `tests/unit/test_validators.py`
 
@@ -768,6 +768,17 @@ Contrato del frontend, sección 4. `GET /tier/list` y `PATCH /tier/{tier_id}/upd
 | `test_price_limits_are_accepted` | $0 (nivel gratuito) y $1,000,000.00 son válidos | ✅ |
 | `test_two_tiers_can_share_a_price` | Dos niveles pueden costar lo mismo | ✅ |
 | `test_out_of_range_is_rejected[...]` | Las restricciones `CHECK` de la base rechazan valores fuera de rango aunque se salte el servicio (4 casos) | ✅ |
+
+### 5.6c Permisos por rol — `tests/api/test_permissions.py`
+
+Lee las rutas de `API_V1_ROUTERS` y el permiso que pide cada una (`require_permission`), así que una ruta nueva queda cubierta sin tocar la prueba.
+
+| Prueba | Verifica | Resultado |
+|--------|----------|-----------|
+| `test_every_role_has_an_entry` | Cada valor de `Role` tiene su fila en `core/permissions.py` | ✅ |
+| `test_the_routes_were_found` | Todo permiso (salvo `receipts.all`, que no es una ruta) la pide al menos una ruta | ✅ |
+| `test_each_route_answers_by_the_matrix[platform / admin / manager / employee]` | Cada rol llama a todas las rutas protegidas: 403 justo donde la matriz no le da el permiso (4 casos) | ✅ |
+| `TestManager` | `/auth/me` trae `permissions`; el admin crea un manager, que ve clientes y no usuarios; lee los comprobantes de otro cajero; no edita niveles ni el negocio; no ve clientes de otro negocio (404 en ficha y en `lookup`) | ✅ |
 
 ### 5.7 Aislamiento multi-negocio — `tests/api/test_isolation.py`
 

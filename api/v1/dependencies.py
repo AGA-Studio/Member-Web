@@ -9,11 +9,12 @@ from sqlmodel import Session
 
 from core.config import settings
 from core.errors import ApiError, ErrorCode
+from core.permissions import Permission, has_permission
 from core.security import decode_access_token
 from db import rls
 from db.database import get_session
 from models.business_model import Business, BusinessStatus
-from models.user_model import Role, User
+from models.user_model import User
 from schemas.token_schema import TokenData
 from services.auth_service import is_token_revoked
 
@@ -100,14 +101,19 @@ def get_current_active_user(
 CurrentUser = Annotated[User, Depends(get_current_active_user)]
 
 
-def require_roles(*roles: Role):
-    """Usage: `Depends(require_roles(Role.ADMIN))`."""
+def require_permission(permission: Permission):
+    """Usage: `Depends(require_permission(Permission.CUSTOMERS_MANAGE))`.
+
+    Which role holds which permission lives only in `core/permissions.py`.
+    """
 
     def checker(user: CurrentUser) -> User:
-        if user.role not in roles:
+        if not has_permission(user.role, permission):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
         return user
 
+    # Lets tests/rules and tests/api/test_permissions.py read each route's permission.
+    checker.permission = permission  # type: ignore[attr-defined]
     return checker
 
 

@@ -53,3 +53,6 @@ class MeResponse(UserResponse):
     """
 
     business: BusinessSummaryResponse | None
+    # What this role may do (`core/permissions.py`), so the frontend shows or
+    # hides by permission instead of comparing role names.
+    permissions: list[str] = []

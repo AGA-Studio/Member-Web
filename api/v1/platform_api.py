@@ -8,9 +8,9 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 
-from api.v1.dependencies import SessionDep, require_roles
+from api.v1.dependencies import SessionDep, require_permission
+from core.permissions import Permission
 from models.business_model import BusinessStatus
-from models.user_model import Role
 from schemas.pagination_schema import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, PageResponse
 from schemas.platform_schema import (
     PlatformBusinessDetailResponse,
@@ -23,7 +23,7 @@ from services import platform_service
 router = APIRouter(
     prefix="/platform",
     tags=["platform"],
-    dependencies=[Depends(require_roles(Role.PLATFORM))],
+    dependencies=[Depends(require_permission(Permission.PLATFORM))],
 )
 
 

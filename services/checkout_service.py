@@ -25,10 +25,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from core.errors import ApiError, ErrorCode
+from core.permissions import Permission, has_permission
 from models.customer_model import Customer
 from models.purchase_model import CardStatus, Purchase
 from models.tier_model import Tier
-from models.user_model import Role, User
+from models.user_model import User
 from schemas.checkout_schema import (
     CheckoutCreate,
     CheckoutPreviewResponse,
@@ -226,7 +227,7 @@ def get_receipt(
     purchase = session.get(Purchase, checkout_id)
     if purchase is None or purchase.business_id != business_id:
         raise _checkout_not_found
-    # A cashier only sees their own receipts; someone else's looks nonexistent.
-    if user.role == Role.EMPLOYEE and purchase.cashier_id != user.id:
+    # Without RECEIPTS_ALL (the cashier) only their own receipts; any other looks nonexistent.
+    if not has_permission(user.role, Permission.RECEIPTS_ALL) and purchase.cashier_id != user.id:
         raise _checkout_not_found
     return _receipt_of(session, purchase)

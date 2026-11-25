@@ -1,4 +1,4 @@
-"""Router for /api/v1/user: admin and employee accounts of a business.
+"""Router for /api/v1/user: admin, manager and employee accounts of a business.
 
 Every operation is scoped to the token's business (`BusinessId`).
 """
@@ -7,8 +7,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import select
 
-from api.v1.dependencies import BusinessId, CurrentUser, SessionDep, require_roles
+from api.v1.dependencies import BusinessId, CurrentUser, SessionDep, require_permission
 from core.errors import ApiError, ErrorCode
+from core.permissions import Permission
 from core.security import hash_password
 from models.user_model import Role, User
 from schemas.user_schema import UserCreate, UserResponse, UserUpdate
@@ -16,7 +17,7 @@ from schemas.user_schema import UserCreate, UserResponse, UserUpdate
 router = APIRouter(
     prefix="/user",
     tags=["user"],
-    dependencies=[Depends(require_roles(Role.ADMIN))],
+    dependencies=[Depends(require_permission(Permission.USERS_MANAGE))],
 )
 
 
