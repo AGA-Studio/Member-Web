@@ -1,20 +1,21 @@
 """Router for /api/v1/checkout: charge at the counter and read the receipt.
 
-Admins and cashiers can charge. The cashier who charges comes from the token.
+Admins, managers and cashiers can charge. The cashier who charges comes from the token.
 """
 
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, Response, status
 
-from api.v1.dependencies import BusinessId, SessionDep, require_roles
-from models.user_model import Role, User
+from api.v1.dependencies import BusinessId, SessionDep, require_permission
+from core.permissions import Permission
+from models.user_model import User
 from schemas.checkout_schema import CheckoutCreate, CheckoutPreviewResponse, ReceiptResponse
 from services import checkout_service
 
 router = APIRouter(prefix="/checkout", tags=["checkout"])
 
-CounterUser = Annotated[User, Depends(require_roles(Role.ADMIN, Role.EMPLOYEE))]
+CounterUser = Annotated[User, Depends(require_permission(Permission.CHECKOUT))]
 IdempotencyKey = Annotated[str | None, Header(alias="Idempotency-Key", min_length=1, max_length=64)]
 
 

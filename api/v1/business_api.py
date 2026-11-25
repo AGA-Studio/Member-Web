@@ -7,15 +7,15 @@ no way to reach another business. Reading the settings is part of `/auth/me`
 
 from fastapi import APIRouter, Depends
 
-from api.v1.dependencies import BusinessId, SessionDep, require_roles
-from models.user_model import Role
+from api.v1.dependencies import BusinessId, SessionDep, require_permission
+from core.permissions import Permission
 from schemas.business_schema import BusinessSummaryResponse, BusinessUpdate
 from services import business_service, logo_service
 
 router = APIRouter(
     prefix="/business",
     tags=["business"],
-    dependencies=[Depends(require_roles(Role.ADMIN))],
+    dependencies=[Depends(require_permission(Permission.BUSINESS_MANAGE))],
 )
 
 

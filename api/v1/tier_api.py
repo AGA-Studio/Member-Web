@@ -1,13 +1,14 @@
 """Router for /api/v1/tier: membership levels of a business.
 
 Every operation is scoped to the token's business (`BusinessId`). The cashier
-can read the tiers (the checkout shows their benefits); only the admin edits them.
+can read the tiers (the checkout shows their benefits); only the admin edits them
+(`core/permissions.py`).
 """
 
 from fastapi import APIRouter, Depends
 
-from api.v1.dependencies import BusinessId, SessionDep, require_roles
-from models.user_model import Role
+from api.v1.dependencies import BusinessId, SessionDep, require_permission
+from core.permissions import Permission
 from schemas.tier_schema import TierResponse, TierUpdate
 from services import tier_service
 
@@ -17,7 +18,7 @@ router = APIRouter(prefix="/tier", tags=["tier"])
 @router.get(
     "/list",
     response_model=list[TierResponse],
-    dependencies=[Depends(require_roles(Role.ADMIN, Role.EMPLOYEE))],
+    dependencies=[Depends(require_permission(Permission.TIERS_READ))],
 )
 def list_tiers(session: SessionDep, business_id: BusinessId) -> list[TierResponse]:
     """All the business's tiers, without pagination, from the cheapest to the most expensive."""
@@ -27,7 +28,7 @@ def list_tiers(session: SessionDep, business_id: BusinessId) -> list[TierRespons
 @router.patch(
     "/{tier_id}/update",
     response_model=TierResponse,
-    dependencies=[Depends(require_roles(Role.ADMIN))],
+    dependencies=[Depends(require_permission(Permission.TIERS_MANAGE))],
 )
 def update_tier(
     tier_id: int, data: TierUpdate, session: SessionDep, business_id: BusinessId

@@ -1,4 +1,4 @@
-"""Router for /api/v1/movement: purchase history of the business (admin only).
+"""Router for /api/v1/movement: purchase history of the business (admin and manager).
 
 The business comes from the token. Both routes take the same filters.
 """
@@ -8,8 +8,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response
 
-from api.v1.dependencies import BusinessId, SessionDep, require_roles
-from models.user_model import Role
+from api.v1.dependencies import BusinessId, SessionDep, require_permission
+from core.permissions import Permission
 from schemas.movement_schema import MovementPageResponse
 from schemas.pagination_schema import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from services import movement_service
@@ -17,7 +17,7 @@ from services import movement_service
 router = APIRouter(
     prefix="/movement",
     tags=["movement"],
-    dependencies=[Depends(require_roles(Role.ADMIN))],
+    dependencies=[Depends(require_permission(Permission.MOVEMENTS_READ))],
 )
 
 SearchText = Annotated[str | None, Query(max_length=120, description="Customer name or code")]
