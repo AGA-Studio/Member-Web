@@ -353,6 +353,21 @@ flowchart LR
 - Los negocios que existían antes de esa migración quedaron en el plan `business` sin prueba, para no cerrarles nada de lo que ya usaban. El seed pone a Café Aurora en `business` y a Gimnasio Titán en `counter`.
 - Las pruebas cargan el catálogo con `plan_service.ensure_catalog` después de limpiar la base, porque `create_all` crea la tabla vacía.
 
+**Lo que el plan limita** (siempre con el plan efectivo; un campo `null` es sin límite):
+
+| Límite | Dónde se revisa | Respuesta |
+|--------|-----------------|-----------|
+| `max_customers` (tarjetas no canceladas) | `customer_service.create_customer` | 409 `limit_reached` |
+| `max_users` (usuarios activos) | `/user/create` y `/user/{user_id}/update` al reactivar | 409 `limit_reached` |
+| `images_enabled` | `/logo/update`, `/customer/{customer_id}/photo/update`, `/user/photo/update` (dependencia `require_plan_feature`) | 403 `plan_required` |
+| `exports_enabled` | `/movement/export` | 403 `plan_required` |
+| `history_days` | `/movement/list` (y su `summary`) y `/movement/export` filtran desde hace N días | Sin error: las compras más viejas no salen |
+
+- El permiso se revisa antes que el plan: un employee ve el 403 de permiso, no una invitación a subir de plan.
+- Cancelar una tarjeta o desactivar un usuario libera su lugar. Bajar de plan no borra nada: solo impide agregar más.
+- `history_days` nunca toca saldos: puntos y cashback se calculan con todos los movimientos.
+- El dueño de plataforma no tiene negocio y no lo limita ningún plan. `max_devices` y la IA aún no se revisan: no hay módulo que limitar.
+
 ### Alta de negocio (issue #69)
 
 Registro directo, sin aprobación manual (wiki, *Registro de negocios: decisión*): `services/registration_service.py` y `api/v1/registration_api.py`.
@@ -502,6 +517,8 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | `rate_limited` | 429 | `/card/...` y `/public/logo/...`: más de `CARD_RATE_LIMIT_PER_MINUTE` peticiones por minuto desde la misma IP. `/registration/create`: más de `REGISTRATION_RATE_LIMIT_PER_HOUR` intentos por hora desde la misma IP. Siempre con `Retry-After` |
 | `plan_invalid` | 422 | `/registration/create`: el plan no existe, no es público o es de pago sin prueba (se pide después y lo asigna la plataforma) |
 | `registration_closed` | 403 | `/registration/create` con `REGISTRATION_ENABLED` apagado |
+| `limit_reached` | 409 | `/customer/create`, `/user/create` y `/user/{user_id}/update` al reactivar: el plan efectivo ya no admite otro cliente o usuario |
+| `plan_required` | 403 | Subir imágenes o `/movement/export` con un plan que no incluye esa función |
 | `turnstile_failed` | 400 | `POST /api/v1/auth/login` y `POST /api/v1/registration/create` con `TURNSTILE_ENABLED`: falta `X-Turnstile-Token`, Cloudflare lo rechaza, es de otro hostname o `siteverify` no respondió en 5 s. `detail` también es `turnstile_failed`, como fija el contrato de la wiki |
 
 Cada módulo nuevo agrega sus códigos a `ErrorCode` (`core/errors.py`).

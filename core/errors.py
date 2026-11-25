@@ -40,6 +40,8 @@ class ErrorCode(StrEnum):
     BUSINESS_NOT_FOUND = "business_not_found"
     PLAN_INVALID = "plan_invalid"
     REGISTRATION_CLOSED = "registration_closed"
+    LIMIT_REACHED = "limit_reached"
+    PLAN_REQUIRED = "plan_required"
 
 
 class ApiError(HTTPException):

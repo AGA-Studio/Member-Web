@@ -44,7 +44,7 @@ class TestCatalog:
 
 class TestEffectivePlan:
     def test_no_plan_is_the_default(self, session: Session, make_business) -> None:
-        business = make_business()
+        business = make_business(plan=None)
         assert business.plan_id is None
         assert plan_service.effective_plan(session, business).key == "free"
 

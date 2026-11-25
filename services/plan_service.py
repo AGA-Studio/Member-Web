@@ -12,13 +12,42 @@ Rules (wiki, "Planes y límites: propuesta"):
   them is a new migration (the catalog is data) plus this list (tests and seed).
 """
 
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 
+from fastapi import status
+from sqlalchemy import func
 from sqlmodel import Session, select
 
+from core.errors import ApiError, ErrorCode
 from models.business_model import Business
+from models.customer_model import Customer
 from models.plan_model import Plan
-from services.customer_service import as_utc, utc_now
+from models.user_model import User
+
+
+class Capacity(StrEnum):
+    """What a plan counts. Checked only when creating (or reactivating) one."""
+
+    CUSTOMERS = "customers"
+    USERS = "users"
+
+
+class Feature(StrEnum):
+    """What a plan switches on or off. Existing data is never removed."""
+
+    IMAGES = "images"
+    EXPORTS = "exports"
+    AI = "ai"
+
+
+def utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
+def as_utc(moment: datetime) -> datetime:
+    return moment if moment.tzinfo else moment.replace(tzinfo=UTC)
+
 
 # key, name, price_cents, customers, users, devices, history_days,
 # images, exports, ai, ai_messages_month, trial_days, is_default, is_public
@@ -141,3 +170,66 @@ def effective_plan(session: Session, business: Business, now: datetime | None = 
         return default_plan(session)
     plan = session.get(Plan, business.plan_id)
     return plan if plan is not None else default_plan(session)
+
+
+# --- Enforcement --------------------------------------------------------------
+
+
+def _plan_of(session: Session, business_id: int) -> Plan:
+    business = session.get(Business, business_id)
+    if business is None:
+        return default_plan(session)
+    return effective_plan(session, business)
+
+
+def usage(session: Session, business_id: int) -> dict[Capacity, int]:
+    """What counts against the limits: non-cancelled cards and active users."""
+    customers = session.exec(
+        select(func.count())
+        .select_from(Customer)
+        .where(Customer.business_id == business_id, Customer.cancelled_at.is_(None))  # type: ignore[union-attr]
+    ).one()
+    users = session.exec(
+        select(func.count())
+        .select_from(User)
+        .where(User.business_id == business_id, User.is_active.is_(True))  # type: ignore[attr-defined]
+    ).one()
+    return {Capacity.CUSTOMERS: customers, Capacity.USERS: users}
+
+
+def limit_of(plan: Plan, capacity: Capacity) -> int | None:
+    return getattr(plan, f"max_{capacity.value}")
+
+
+def assert_capacity(session: Session, business_id: int, capacity: Capacity) -> None:
+    """409 `limit_reached` when one more would pass the plan's limit."""
+    limit = limit_of(_plan_of(session, business_id), capacity)
+    if limit is not None and usage(session, business_id)[capacity] >= limit:
+        raise ApiError(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"The plan allows {limit} {capacity.value}",
+            code=ErrorCode.LIMIT_REACHED,
+        )
+
+
+def has_feature(plan: Plan, feature: Feature) -> bool:
+    return bool(getattr(plan, f"{feature.value}_enabled"))
+
+
+def require_feature(session: Session, business_id: int, feature: Feature) -> None:
+    """403 `plan_required` when the business's plan does not include `feature`."""
+    if not has_feature(_plan_of(session, business_id), feature):
+        raise ApiError(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"The plan does not include {feature.value}",
+            code=ErrorCode.PLAN_REQUIRED,
+        )
+
+
+def history_since(session: Session, business_id: int) -> datetime | None:
+    """Oldest moment the history may show, or None for all of it.
+
+    Filters the movement list, its export and their totals; never a balance.
+    """
+    days = _plan_of(session, business_id).history_days
+    return None if days is None else utc_now() - timedelta(days=days)

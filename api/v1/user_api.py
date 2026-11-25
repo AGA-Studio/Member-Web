@@ -13,6 +13,7 @@ from core.permissions import Permission
 from core.security import hash_password
 from models.user_model import Role, User
 from schemas.user_schema import UserCreate, UserResponse, UserUpdate
+from services import plan_service
 
 router = APIRouter(
     prefix="/user",
@@ -67,6 +68,7 @@ def list_users(session: SessionDep, business_id: BusinessId) -> list[User]:
 def create_user(data: UserCreate, session: SessionDep, business_id: BusinessId) -> User:
     if data.role == Role.PLATFORM:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Role not allowed")
+    plan_service.assert_capacity(session, business_id, plan_service.Capacity.USERS)
     email = data.email.lower()
     _ensure_email_available(session, email)
     user = User(
@@ -100,6 +102,9 @@ def update_user(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="You cannot deactivate your own account",
         )
+    # Reactivating a user takes a seat of the plan again, like creating one.
+    if changes.get("is_active") is True and not user.is_active:
+        plan_service.assert_capacity(session, business_id, plan_service.Capacity.USERS)
     if "email" in changes:
         changes["email"] = changes["email"].lower()
         if changes["email"] != user.email:
