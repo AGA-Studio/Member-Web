@@ -1,4 +1,4 @@
-"""scripts/seed.py: demo data for the MVP (two isolated businesses)."""
+"""scripts/seed.py: demo data for the MVP (three businesses, one on the free plan)."""
 
 import pytest
 from fastapi.testclient import TestClient
@@ -12,6 +12,7 @@ from models import (
     CardDelivery,
     CardStatus,
     Customer,
+    Plan,
     Purchase,
     Role,
     Tier,
@@ -19,7 +20,16 @@ from models import (
 )
 from schemas.validators import normalize_person_name
 from scripts import seed as seed_module
-from scripts.seed import CUSTOMERS, DEMO_PASSWORD, USERS, SeedError, resolve_password, seed
+from scripts.seed import (
+    CUSTOMERS,
+    DEMO_PASSWORD,
+    USERS,
+    SeedError,
+    resolve_password,
+    seed,
+    sol_customers,
+)
+from services.customer_service import balance_of
 from tests.conftest import login
 
 PASSWORD = "seed-password-123"
@@ -30,10 +40,10 @@ def users_by_email(session: Session) -> dict[str, User]:
 
 
 class TestSeedData:
-    def test_creates_two_active_businesses(self, session: Session) -> None:
+    def test_creates_three_active_businesses(self, session: Session) -> None:
         seed(session, PASSWORD)
         businesses = session.exec(select(Business)).all()
-        assert {b.name for b in businesses} == {"Café Aurora", "Gimnasio Titán"}
+        assert {b.name for b in businesses} == {"Café Aurora", "Gimnasio Titán", "Abarrotes Sol"}
         assert {b.status for b in businesses} == {BusinessStatus.ACTIVE}
 
     def test_creates_the_demo_users_with_their_roles(self, session: Session) -> None:
@@ -44,6 +54,8 @@ class TestSeedData:
             "admin@cafe-aurora.mx": Role.ADMIN,
             "caja@cafe-aurora.mx": Role.EMPLOYEE,
             "admin@gimnasio-titan.mx": Role.ADMIN,
+            "admin@abarrotes-sol.mx": Role.ADMIN,
+            "caja@abarrotes-sol.mx": Role.EMPLOYEE,
         }
 
     def test_users_belong_to_the_right_business(self, session: Session) -> None:
@@ -51,10 +63,13 @@ class TestSeedData:
         users = users_by_email(session)
         aurora = session.exec(select(Business).where(Business.name == "Café Aurora")).one()
         titan = session.exec(select(Business).where(Business.name == "Gimnasio Titán")).one()
+        sol = session.exec(select(Business).where(Business.name == "Abarrotes Sol")).one()
         assert users["owner@memberplus.mx"].business_id is None
         assert users["admin@cafe-aurora.mx"].business_id == aurora.id
         assert users["caja@cafe-aurora.mx"].business_id == aurora.id
         assert users["admin@gimnasio-titan.mx"].business_id == titan.id
+        assert users["admin@abarrotes-sol.mx"].business_id == sol.id
+        assert users["caja@abarrotes-sol.mx"].business_id == sol.id
 
     def test_passwords_are_hashed(self, session: Session) -> None:
         seed(session, PASSWORD)
@@ -163,6 +178,25 @@ class TestSeedCustomers:
         assert code[3:].isalnum() and not set(code[3:]) & set("01OIL")
 
 
+class TestGeneratedCustomers:
+    """Abarrotes Sol's 50 cards are generated: same rules as the written ones."""
+
+    def test_fifty_unique_customers(self) -> None:
+        rows = sol_customers()
+        assert len(rows) == 50
+        assert len({row[1] for row in rows}) == 50  # card codes
+        assert len({row[2] for row in rows}) == 50  # full names
+        assert len({row[3] for row in rows}) == 50  # emails
+
+    def test_they_follow_the_same_rules_as_the_written_ones(self) -> None:
+        for _, code, name, _email, phone, _tier, _days, cancelled in sol_customers():
+            assert normalize_person_name(name) == name
+            assert code[3:].isalnum() and not set(code[3:]) & set("01OIL")
+            assert phone is None or len(phone.replace(" ", "")) == 10
+            # Nobody cancelled: `usage` counts every live card, and the plan has to be full.
+            assert cancelled is False
+
+
 class TestSeedPurchases:
     def test_balances_follow_the_checkout_formula(
         self, session: Session, client: TestClient
@@ -192,19 +226,97 @@ class TestSeedPurchases:
         assert (roberto["points_balance"], roberto["cashback_balance_cents"]) == (106, 1_078)
 
 
+class TestSeedFreePlan:
+    """Abarrotes Sol runs on the free plan, exactly at its limits (issue #70 demo)."""
+
+    def test_abarrotes_sol_is_on_the_free_plan(self, session: Session) -> None:
+        seed(session, PASSWORD)
+        sol = session.exec(select(Business).where(Business.name == "Abarrotes Sol")).one()
+        plan = session.get(Plan, sol.plan_id)
+        assert plan.key == "free"
+        # No trial: the demo shows the limits, not a trial that ends at midnight.
+        assert (sol.unit_price_cents, sol.trial_ends_at) == (0, None)
+
+    def test_the_panel_shows_both_limits_full(self, session: Session, client: TestClient) -> None:
+        seed(session, PASSWORD)
+        login(client, "admin@abarrotes-sol.mx", PASSWORD)
+        body = client.get("/api/v1/plan/summary").json()
+        assert (body["plan"]["key"], body["assigned_plan_key"]) == ("free", "free")
+        assert body["usage"] == {
+            "customers": {"used": 50, "limit": 50},
+            "users": {"used": 2, "limit": 2},
+        }
+
+    def test_the_next_customer_is_over_the_limit(
+        self, session: Session, client: TestClient
+    ) -> None:
+        seed(session, PASSWORD)
+        login(client, "admin@abarrotes-sol.mx", PASSWORD)
+        response = client.post(
+            "/api/v1/customer/create",
+            json={"full_name": "Cliente Cincuenta y Uno", "email": "extra@abarrotes-sol.mx"},
+        )
+        assert response.status_code == 409
+        assert response.json()["code"] == "limit_reached"
+
+    def test_the_next_user_is_over_the_limit(self, session: Session, client: TestClient) -> None:
+        seed(session, PASSWORD)
+        login(client, "admin@abarrotes-sol.mx", PASSWORD)
+        response = client.post(
+            "/api/v1/user/create",
+            json={
+                "name": "Nuevo Empleado",
+                "email": "nuevo@abarrotes-sol.mx",
+                "password": "password123",
+            },
+        )
+        assert response.status_code == 409
+        assert response.json()["code"] == "limit_reached"
+
+    def test_the_export_is_outside_the_plan(self, session: Session, client: TestClient) -> None:
+        seed(session, PASSWORD)
+        login(client, "admin@abarrotes-sol.mx", PASSWORD)
+        response = client.get("/api/v1/movement/export")
+        assert response.status_code == 403
+        assert response.json()["code"] == "plan_required"
+
+    def test_the_history_window_hides_three_purchases(
+        self, session: Session, client: TestClient
+    ) -> None:
+        seed(session, PASSWORD)
+        sol = session.exec(select(Business).where(Business.name == "Abarrotes Sol")).one()
+        stored = session.exec(select(Purchase).where(Purchase.business_id == sol.id)).all()
+        assert len(stored) == 12  # nine inside the window, three before it
+
+        login(client, "admin@abarrotes-sol.mx", PASSWORD)
+        body = client.get("/api/v1/movement/list").json()
+        assert body["summary"]["count"] == 9  # the 60 days of the free plan
+
+        # The window never touches a balance: cliente.12 bought once, 65 days ago.
+        old = session.exec(
+            select(Customer).where(
+                Customer.business_id == sol.id,
+                Customer.email == "cliente.12@abarrotes-sol.mx",
+            )
+        ).one()
+        assert balance_of(session, sol.id, old.id).points > 0
+        assert old.id not in {item["customer"]["id"] for item in body["items"]}
+
+
 class TestIdempotency:
     def test_second_run_creates_nothing(self, session: Session) -> None:
         first = seed(session, PASSWORD)
         second = seed(session, PASSWORD)
-        assert len(first.created) == 40
+        # 3 businesses + 6 users + 9 tiers + 64 customers + 25 purchases + 1 card link
+        assert len(first.created) == 108
         assert second.created == []
-        assert len(second.existing) == 40
+        assert len(second.existing) == 108
         assert second.card_url is None
-        assert len(session.exec(select(Business)).all()) == 2
-        assert len(session.exec(select(User)).all()) == 4
-        assert len(session.exec(select(Tier)).all()) == 6
-        assert len(session.exec(select(Customer)).all()) == 14
-        assert len(session.exec(select(Purchase)).all()) == 13
+        assert len(session.exec(select(Business)).all()) == 3
+        assert len(session.exec(select(User)).all()) == 6
+        assert len(session.exec(select(Tier)).all()) == 9
+        assert len(session.exec(select(Customer)).all()) == 64
+        assert len(session.exec(select(Purchase)).all()) == 25
         assert len(session.exec(select(CardDelivery)).all()) == 1
 
     def test_existing_password_is_never_changed(self, session: Session) -> None:
@@ -218,7 +330,7 @@ class TestIdempotency:
         session.commit()
         result = seed(session, PASSWORD)
         assert result.existing == ["business  Café Aurora"]
-        assert len(session.exec(select(Business)).all()) == 2
+        assert len(session.exec(select(Business)).all()) == 3
 
 
 class TestSeedCardLink:

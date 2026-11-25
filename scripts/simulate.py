@@ -26,7 +26,6 @@ always recomputed from the purchase history
 """
 
 import argparse
-import hashlib
 import random
 import sys
 from dataclasses import dataclass, field
@@ -47,11 +46,9 @@ from models import (
     Tier,
     User,
 )
+from scripts.demo import demo_code
 from services import pricing_service
 from services.customer_service import (
-    CODE_ALPHABET,
-    CODE_LENGTH,
-    CODE_PREFIX,
     add_months,
     as_utc,
     balance_of,
@@ -133,11 +130,10 @@ def extra_code(business_key: str, index: int) -> str:
     the alphabet without `0/O/1/I/L`, and **not sequential**. Hashing the fixed
     inputs keeps the bulk reproducible without looking correlative;
     `generate_code()` cannot be used because `secrets` would give a different
-    dataset on every fresh run.
+    dataset on every fresh run. The namespace keeps the bulk's codes apart from
+    the seed's.
     """
-    digest = hashlib.sha256(f"simulate:{business_key}:{index}".encode()).digest()
-    tail = "".join(CODE_ALPHABET[byte % len(CODE_ALPHABET)] for byte in digest[:CODE_LENGTH])
-    return f"{CODE_PREFIX}{tail}"
+    return demo_code(f"simulate:{business_key}", index)
 
 
 class SimulateError(Exception):

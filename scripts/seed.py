@@ -1,5 +1,8 @@
-"""Demo data: two businesses that must never see each other, with users, tiers,
-customers and purchases.
+"""Demo data: three businesses, with users, tiers, customers and purchases.
+
+Two of them (Café Aurora and Gimnasio Titán) must never see each other; the
+third (Abarrotes Sol) runs on the free plan and sits exactly at its limits, so
+the demo can show a `limit_reached` and a `plan_required` without faking data.
 
 Run after the migrations:
 
@@ -43,6 +46,7 @@ from models import (
     TierFinish,
     User,
 )
+from scripts.demo import demo_code
 from services import card_service, plan_service, pricing_service
 from services.customer_service import VALIDITY_MONTHS, add_months, as_utc, balance_of, utc_now
 
@@ -53,6 +57,8 @@ BUSINESSES = [
     # `plan`: key of services/plan_service.CATALOG, set only on a business that has none.
     {"key": "aurora", "name": "Café Aurora", "plan": "business"},
     {"key": "titan", "name": "Gimnasio Titán", "plan": "counter"},
+    # The free plan, at its limit on purpose: 50 cards and 2 users (see SOL_* below).
+    {"key": "sol", "name": "Abarrotes Sol", "plan": "free"},
 ]
 
 # (email, name, role, business key or None for the platform owner)
@@ -61,6 +67,8 @@ USERS = [
     ("admin@cafe-aurora.mx", "Ana Torres", Role.ADMIN, "aurora"),
     ("caja@cafe-aurora.mx", "Luis Pérez", Role.EMPLOYEE, "aurora"),
     ("admin@gimnasio-titan.mx", "Marco Ruiz", Role.ADMIN, "titan"),
+    ("admin@abarrotes-sol.mx", "Rubén Salgado", Role.ADMIN, "sol"),
+    ("caja@abarrotes-sol.mx", "Brenda Ochoa", Role.EMPLOYEE, "sol"),
 ]
 
 # (business key, name, finish, price in cents, discount %, points per $10, cashback %)
@@ -74,6 +82,10 @@ TIERS = [
     ("aurora", "Onyx", TierFinish.ONYX, 69_900, "20", 2, "5"),
     ("titan", "Básico", TierFinish.SILVER, 29_900, "0", 1, "0"),
     ("titan", "Premium", TierFinish.ONYX, 59_900, "10", 2, "2"),
+    # Abarrotes Sol: cheap membership, better tier costs more (the "por cobro" rule).
+    ("sol", "Básico", TierFinish.BRONZE, 0, "0", 1, "0"),
+    ("sol", "Frecuente", TierFinish.SILVER, 4_900, "5", 1, "1"),
+    ("sol", "Vecino", TierFinish.GOLD, 9_900, "10", 1, "2"),
 ]
 
 # (business key, code, full name, email, phone, tier, card issued N days ago, cancelled)
@@ -218,6 +230,89 @@ PURCHASES = [
     ("titan", "MP-3GYM4", "admin@gimnasio-titan.mx", 12, 59_900, "Clase personalizada", False),
 ]
 
+# --- Abarrotes Sol: the free plan at its limit ---------------------------------
+#
+# The free plan allows 50 cards and 2 users, and shows 60 days of history. Sol
+# carries exactly 50 (nobody cancelled: `usage` counts every live card) and two
+# users, so creating one more from the panel answers 409 `limit_reached`; the
+# export answers 403 `plan_required`. Three of its purchases are older than 60
+# days on purpose: they stay out of the movement list and its totals while the
+# points and cashback balances still count them.
+
+SOL_CUSTOMERS_COUNT = 50
+SOL_FIRST_NAMES = (
+    "Norma",
+    "Gilberto",
+    "Adriana",
+    "Erick",
+    "Sandra",
+    "Manuel",
+    "Yolanda",
+    "Ismael",
+    "Rosalba",
+    "Cuauhtémoc",
+)
+SOL_LAST_NAMES = ("Aguayo", "Beltrán", "Cárdenas", "Lozano", "Núñez")
+SOL_CASHIER = "caja@abarrotes-sol.mx"
+
+# (customer number, days ago, amount in cents, concept, use cashback), oldest first:
+# the balance snapshots accumulate in this order, like `PURCHASES`.
+SOL_PURCHASE_SPECS = [
+    (3, 90, 22_500, "Despensa de la semana", False),
+    (7, 75, 9_800, "Refrescos y botanas", False),
+    (12, 65, 14_200, "Pan y leche", False),
+    (18, 55, 18_400, "Abarrotes surtidos", False),
+    (24, 42, 7_600, "Verdura del día", False),
+    (29, 35, 11_900, "Caja de huevo", False),
+    (33, 28, 16_300, "Detergente y limpieza", False),
+    (38, 21, 8_200, "Tortillas y crema", False),
+    (41, 14, 25_700, "Carnicería", False),
+    (45, 9, 5_400, "Botanas para la tarde", False),
+    (3, 5, 19_900, "Despensa de la semana", False),
+    (3, 2, 12_300, "Botanas para la tarde", True),
+]
+
+
+def sol_customers() -> list[tuple[str, str, str, str, str | None, str, int, bool]]:
+    """The 50 customers of Abarrotes Sol, in the shape of `CUSTOMERS`.
+
+    Generated, not written out: the fixed name lists, the email series and the
+    hashed codes keep a fresh database reproducible (these cards are printed and
+    carried by QR). Tiers rotate so the three levels have cards.
+    """
+    tiers = [name for key, name, *_ in TIERS if key == "sol"]
+    rows: list[tuple[str, str, str, str, str | None, str, int, bool]] = []
+    for index in range(1, SOL_CUSTOMERS_COUNT + 1):
+        position = index - 1
+        first = SOL_FIRST_NAMES[position % len(SOL_FIRST_NAMES)]
+        last = SOL_LAST_NAMES[(position + position // len(SOL_FIRST_NAMES)) % len(SOL_LAST_NAMES)]
+        rows.append(
+            (
+                "sol",
+                demo_code("seed:sol", index),
+                f"{first} {last}",
+                f"cliente.{index:02d}@abarrotes-sol.mx",
+                None if index % 4 == 0 else f"664 100 {index:04d}",
+                tiers[position % len(tiers)],
+                10 + position * 3 % 170,
+                False,
+            )
+        )
+    return rows
+
+
+def sol_purchases() -> list[tuple[str, str, str, int, int, str, bool]]:
+    """`SOL_PURCHASE_SPECS` with the card code of each customer resolved."""
+    return [
+        ("sol", demo_code("seed:sol", number), SOL_CASHIER, days, amount, concept, cashback)
+        for number, days, amount, concept, cashback in SOL_PURCHASE_SPECS
+    ]
+
+
+# Everything the seed writes, in the shape of the two lists above.
+DEMO_CUSTOMERS = CUSTOMERS + sol_customers()
+DEMO_PURCHASES = PURCHASES + sol_purchases()
+
 
 def card_status_at(customer: Customer, moment: datetime) -> CardStatus:
     """Status the card had at `moment` (the seed charges in the past)."""
@@ -310,7 +405,7 @@ def seed(session: Session, password: str) -> SeedResult:
     session.flush()
 
     now = utc_now()
-    for key, code, name, email, phone, tier_name, days_ago, cancelled in CUSTOMERS:
+    for key, code, name, email, phone, tier_name, days_ago, cancelled in DEMO_CUSTOMERS:
         business = businesses[key]
         label = f"customer  {business.name} / {email}"
         query = select(Customer).where(Customer.business_id == business.id, Customer.email == email)
@@ -357,7 +452,7 @@ def seed(session: Session, password: str) -> SeedResult:
         result.created.append(label)
     session.flush()
 
-    for number, row in enumerate(PURCHASES, start=1):
+    for number, row in enumerate(DEMO_PURCHASES, start=1):
         key, code, cashier_email, days_ago, amount, concept, use_cashback = row
         business = businesses[key]
         idempotency_key = f"seed-{number:02d}"
