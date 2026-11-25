@@ -1056,15 +1056,17 @@ Differences: [('add_column', None, 'users', Column('phone', AutoString(), table=
 
 ### 5.10 Seed de demo — `tests/scripts/test_seed.py`
 
-`scripts/seed.py` crea Café Aurora y Gimnasio Titán (`active`) con 4 usuarios (dueño de plataforma, admin y empleado de Café Aurora, y admin de Gimnasio Titán) y sus niveles: Bronce, Plata, Oro y Onyx en Café Aurora (beneficios del contrato, sección 8; precios de demo de $0, $199, $399 y $699) y Básico y Premium en Gimnasio Titán, distintos a propósito.
+`scripts/seed.py` crea Café Aurora, Gimnasio Titán y Abarrotes Sol (`active`) con 6 usuarios (dueño de plataforma, admin y empleado de Café Aurora, admin de Gimnasio Titán, y admin y empleado de Abarrotes Sol) y sus niveles: Bronce, Plata, Oro y Onyx en Café Aurora (beneficios del contrato, sección 8; precios de demo de $0, $199, $399 y $699), Básico y Premium en Gimnasio Titán, distintos a propósito, y Básico, Frecuente y Vecino en Abarrotes Sol ($0, $49 y $99); cada negocio va a un plan distinto del catálogo (`business`, `counter` y `free`).
+
+Abarrotes Sol existe para demostrar los límites del plan Gratis con datos reales: 50 clientes y 2 usuarios (exactamente sus límites, sin nadie cancelado porque `usage` cuenta las tarjetas vivas) y 12 compras, tres de ellas de hace más de 60 días. Sus 50 tarjetas se generan de forma determinista (listas de nombres fijas, serie de correos y códigos con hash) en vez de escribirse a mano; el simulador no lo toca.
 
 | Prueba | Verifica | Resultado |
 |--------|----------|-----------|
-| `test_creates_two_active_businesses` | Los dos negocios, en estado `active` | ✅ |
-| `test_creates_the_demo_users_with_their_roles` | Los 4 usuarios con su rol | ✅ |
+| `test_creates_three_active_businesses` | Los tres negocios, en estado `active` | ✅ |
+| `test_creates_the_demo_users_with_their_roles` | Los 6 usuarios con su rol | ✅ |
 | `test_users_belong_to_the_right_business` | Cada usuario en su negocio; el dueño sin negocio | ✅ |
 | `test_passwords_are_hashed` | Contraseñas en Argon2id y verificables | ✅ |
-| `test_demo_names_follow_the_name_rule[...]` | Los nombres de demo cumplen `PersonName` (4 casos) | ✅ |
+| `test_demo_names_follow_the_name_rule[...]` | Los nombres de demo cumplen `PersonName` (6 casos) | ✅ |
 | `test_cafe_aurora_gets_the_contract_tiers` | Café Aurora tiene los 4 niveles del contrato, vistos desde `/tier/list` | ✅ |
 | `test_gimnasio_titan_gets_different_tiers` | Gimnasio Titán tiene Básico y Premium | ✅ |
 | `test_a_better_tier_costs_more` | En cada negocio, el nivel más caro da igual o más descuento | ✅ |
@@ -1074,15 +1076,23 @@ Differences: [('add_column', None, 'users', Column('phone', AutoString(), table=
 | `test_the_contract_card_is_found_at_the_counter` | `MP-4F7K2` (Laura Méndez, Oro) se encuentra en caja | ✅ |
 | `test_tiers_count_the_seeded_customers` | `customers_count` de cada nivel coincide con el seed (sin la cancelada) | ✅ |
 | `test_demo_customers_follow_the_rules[...]` | Nombres válidos y códigos sin caracteres parecidos (14 casos) | ✅ |
+| `test_fifty_unique_customers` | Abarrotes Sol tiene 50 tarjetas con códigos, nombres y correos únicos | ✅ |
+| `test_they_follow_the_same_rules_as_the_written_ones` | Las 50 generadas cumplen `PersonName`, el alfabeto del código con 10 dígitos de teléfono y ninguna cancelada | ✅ |
 | `test_balances_follow_the_checkout_formula` | Laura Méndez: $1,000 en Oro y luego $250 usando su cashback → 106 puntos y $6.38 | ✅ |
 | `test_purchase_after_expiry_earned_nothing` | Ricardo Flores compra con la tarjeta activa y otra vez ya vencida: la segunda no gana nada | ✅ |
 | `test_gimnasio_titan_has_its_own_purchase` | Gimnasio Titán tiene su propia compra y saldos | ✅ |
-| `test_second_run_creates_nothing` | Correrlo dos veces no duplica nada (39 registros) | ✅ |
+| `test_abarrotes_sol_is_on_the_free_plan` | Abarrotes Sol queda en `free`, sin prueba y sin precio de unidad | ✅ |
+| `test_the_panel_shows_both_limits_full` | `/plan/summary` del plan Gratis: 50 de 50 clientes y 2 de 2 usuarios | ✅ |
+| `test_the_next_customer_is_over_the_limit` | Crear el cliente 51 responde 409 `limit_reached` | ✅ |
+| `test_the_next_user_is_over_the_limit` | Crear el tercer usuario responde 409 `limit_reached` | ✅ |
+| `test_the_export_is_outside_the_plan` | `/movement/export` responde 403 `plan_required` | ✅ |
+| `test_the_history_window_hides_three_purchases` | Con 12 compras guardadas, `/movement/list` muestra 9 (los 60 días del plan) y el saldo del cliente viejo sigue completo | ✅ |
+| `test_second_run_creates_nothing` | Correrlo dos veces no duplica nada (108 registros) | ✅ |
 | `test_existing_password_is_never_changed` | Una segunda corrida con otra contraseña no cambia la existente | ✅ |
 | `test_completes_partial_data` | Si ya existe un negocio, crea solo lo que falta | ✅ |
 | `test_admin_a_sees_only_cafe_aurora` | El admin de Café Aurora ve solo a sus 2 usuarios | ✅ |
 | `test_admin_b_sees_nothing_of_a` | El admin de Gimnasio Titán no ve nada de Café Aurora | ✅ |
-| `test_every_demo_user_can_log_in` | Los 4 usuarios inician sesión con su rol | ✅ |
+| `test_every_demo_user_can_log_in` | Los 6 usuarios inician sesión con su rol | ✅ |
 | `test_development_uses_the_demo_password` | En desarrollo sin `SEED_PASSWORD` usa `demo12345` | ✅ |
 | `test_seed_password_wins` | `SEED_PASSWORD` tiene prioridad | ✅ |
 | `test_production_requires_seed_password` | En producción sin `SEED_PASSWORD` → error | ✅ |
@@ -1099,7 +1109,7 @@ También se probó dentro de la imagen Docker: crea los datos con `SEED_PASSWORD
 
 ### 5.11 Simulador de demo — `tests/scripts/test_simulate.py`
 
-`scripts/simulate.py` alimenta la demo después del seed: `--bulk` agrega 84 días de compras retroactivas y 10 clientes por negocio (deterministas con semilla fija; idempotente por omisión: se niega a correr dos veces), y `--tick` inserta 1–2 compras de «ahora» por minuto para la tarea programada de Coolify. Reutiliza `pricing_service.calculate` y las reglas de estado de tarjeta del seed, y no toca filas existentes.
+`scripts/simulate.py` alimenta la demo después del seed: `--bulk` agrega 84 días de compras retroactivas y 10 clientes por negocio (deterministas con semilla fija; idempotente por omisión: se niega a correr dos veces), y `--tick` inserta 1–2 compras de «ahora» por minuto para la tarea programada de Coolify. Reutiliza `pricing_service.calculate` y las reglas de estado de tarjeta del seed, y no toca filas existentes. Solo alimenta a Café Aurora y a Gimnasio Titán: Abarrotes Sol se queda fuera a propósito, para que siga clavado en el límite de 50 clientes del plan `free`.
 
 | Prueba | Verifica | Resultado |
 |--------|----------|-----------|
@@ -1123,7 +1133,7 @@ También se probó dentro de la imagen Docker: crea los datos con `SEED_PASSWORD
 | `test_generated_names_pass_the_name_rule` | Los nombres generados cumplen `PersonName` (regla H5) | ✅ |
 | `test_codes_do_not_collide` | Códigos únicos dentro de cada negocio, sin chocar con los del seed | ✅ |
 | `test_generated_codes_follow_the_numeric_rule` | Los códigos cumplen `MP-XXXXX`: 5 caracteres del alfabeto sin `0/O/1/I/L`, no correlativos (decisión Numeración) | ✅ |
-| `test_only_touches_the_demo_businesses` | Ninguna fila fuera de Café Aurora o Gimnasio Titán | ✅ |
+| `test_only_touches_the_demo_businesses` | Ninguna fila fuera de Café Aurora o Gimnasio Titán (Abarrotes Sol nunca recibe compras `demo-`) | ✅ |
 | `test_marks_cards_as_expiring_soon` | Dos tarjetas por negocio quedan «por vencer» para el panel | ✅ |
 | `test_inserts_one_or_two_purchases_now` | 1–2 compras por tick, con `created_at` del momento del tick | ✅ |
 | `test_same_minute_does_not_duplicate` | Dos corridas en el mismo minuto → la segunda es no-op | ✅ |

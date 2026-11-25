@@ -109,14 +109,14 @@ Cómo se comporta:
    python -m scripts.seed
    ```
 
-   Crea Café Aurora, Gimnasio Titán y sus usuarios (ver el README). Se puede repetir sin duplicar nada y nunca cambia la contraseña de un usuario que ya existe. Sin `SEED_PASSWORD` en producción, se niega a correr.
+   Crea Café Aurora, Gimnasio Titán, Abarrotes Sol y sus usuarios (ver el README). Se puede repetir sin duplicar nada y nunca cambia la contraseña de un usuario que ya existe. Sin `SEED_PASSWORD` en producción, se niega a correr.
    Para que la demo tenga semanas de historial, la misma terminal ejecuta el simulador:
 
    ```bash
-   python -m scripts.simulate --bulk      # 84 días de compras y 10 clientes por negocio
+   python -m scripts.simulate --bulk      # 84 días de compras y 10 clientes por negocio de demo
    ```
 
-   Es determinista e idempotente por omisión: **se niega a correr dos veces** sobre la misma base (una segunda corrida no escribe nada); para regenerar el historial hay que rehacer el seed desde cero. No necesita `SEED_PASSWORD` (no crea usuarios) ni toca filas existentes.
+   Es determinista e idempotente por omisión: **se niega a correr dos veces** sobre la misma base (una segunda corrida no escribe nada); para regenerar el historial hay que rehacer el seed desde cero. No necesita `SEED_PASSWORD` (no crea usuarios) ni toca filas existentes, y solo alimenta a Café Aurora y a Gimnasio Titán: Abarrotes Sol se queda en el límite del plan `free` para mostrar los 409 y los 403 del catálogo.
 7. **Webhook de deploy del API (obligatorio: es el despliegue automático del backend).** Dos piezas, una vez:
    - En Coolify → *Keys & Tokens* → *API Tokens* → crear un token con permiso **`deploy`** (solo ese). El valor se muestra una sola vez.
    - En la app → *Webhooks* → copiar **Deploy Webhook (auth required)**: `https://coolify.neyzt.org/api/v1/deploy?uuid=<uuid-de-la-app>&force=false`.

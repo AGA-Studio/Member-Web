@@ -97,7 +97,7 @@ flowchart TB
     SRV --> SV11["payment_service.py — pagos de membresía"]
     SRV --> SV12["turnstile_service.py — Cloudflare Turnstile en el login"]
     SRV --> SV13["ai_service.py — chat del admin: herramientas de solo lectura"]
-    SCR --> SC1["seed.py — 2 negocios demo, usuarios, niveles, clientes, compras y un enlace"]
+    SCR --> SC1["seed.py — 3 negocios demo (uno en el plan Gratis, lleno), usuarios, niveles, clientes, compras y un enlace"]
     SCR --> SC2["simulate.py — historial de demo (--bulk) y compra suelta para la tarea programada (--tick)"]
     SCH --> S1["user_schema.py — UserCreate · UserUpdate · UserResponse · MeResponse"]
     SCH --> S4["business_schema.py — BusinessUpdate · BusinessSummaryResponse"]
@@ -128,7 +128,7 @@ flowchart TB
 
 ## 3. Modelo de datos actual
 
-Existen las tablas de autenticación, los niveles, los clientes con su tarjeta, las compras y la entrega de la tarjeta digital; `python -m scripts.seed` las llena con dos negocios de demo (Café Aurora y Gimnasio Titán), sus usuarios, sus niveles, sus clientes (12 y 2), sus compras (12 y 1) y un enlace activo a la tarjeta `MP-4F7K2` (imprime la URL al crearlo). Para que la demo muestre un sistema vivo, `python -m scripts.simulate --bulk` agrega 84 días de compras retroactivas y 10 clientes por negocio (deterministas, idempotentes: se niega a correr dos veces), y `python -m scripts.simulate --tick` inserta una compra de «ahora» por minuto para la tarea programada de Coolify (ver DEPLOY.md, sección 4).
+Existen las tablas de autenticación, los niveles, los clientes con su tarjeta, las compras y la entrega de la tarjeta digital; `python -m scripts.seed` las llena con tres negocios de demo: Café Aurora y Gimnasio Titán, sus usuarios, sus niveles, sus clientes (12 y 2), sus compras (12 y 1) y un enlace activo a la tarjeta `MP-4F7K2` (imprime la URL al crearlo), más Abarrotes Sol en el plan `free` con 50 clientes y 2 usuarios (justo sus límites) y 12 compras, tres de ellas fuera de los 60 días que ese plan muestra. Para que la demo muestre un sistema vivo, `python -m scripts.simulate --bulk` agrega 84 días de compras retroactivas y 10 clientes a Aurora y a Titán (deterministas, idempotentes: se niega a correr dos veces), y `python -m scripts.simulate --tick` inserta una compra de «ahora» por minuto para la tarea programada de Coolify (ver DEPLOY.md, sección 4). El simulador no toca a Abarrotes Sol: ese negocio se queda clavado en el límite del plan `free`.
 
 ```mermaid
 erDiagram
@@ -286,7 +286,7 @@ erDiagram
     }
 ```
 
-**Niveles (`tiers`).** Cada negocio define los suyos; el seed solo carga una plantilla (Bronce, Plata, Oro y Onyx en Café Aurora; Básico y Premium en Gimnasio Titán). `finish` es el acabado visual de la tarjeta y lo elige el negocio; el nombre es libre. Un beneficio en `0` equivale a deshabilitado para ese nivel. **El cliente sube de nivel pagando** (decisión "por cobro": mejor nivel = más beneficio y más costo), así que cada nivel tiene `price_cents` y no hay umbral de puntos; los puntos solo son un saldo. Los rangos se validan en `services/tier_service.py` (422 `tier_invalid`) y la base los repite con restricciones `CHECK` como última defensa.
+**Niveles (`tiers`).** Cada negocio define los suyos; el seed solo carga una plantilla (Bronce, Plata, Oro y Onyx en Café Aurora; Básico y Premium en Gimnasio Titán; y Básico, Frecuente y Vecino, de $0, $49 y $99, en Abarrotes Sol). `finish` es el acabado visual de la tarjeta y lo elige el negocio; el nombre es libre. Un beneficio en `0` equivale a deshabilitado para ese nivel. **El cliente sube de nivel pagando** (decisión "por cobro": mejor nivel = más beneficio y más costo), así que cada nivel tiene `price_cents` y no hay umbral de puntos; los puntos solo son un saldo. Los rangos se validan en `services/tier_service.py` (422 `tier_invalid`) y la base los repite con restricciones `CHECK` como última defensa.
 
 `revoked_tokens` (H2) y `login_attempts` (H4) son tablas de seguridad, no datos de un negocio: no llevan `business_id` ni se relacionan con `users`. Se limpian solas: un token revocado se borra cuando ya habría expirado, y un registro de intentos se borra al iniciar sesión bien o cuando pasa la ventana de bloqueo.
 
@@ -353,7 +353,7 @@ flowchart LR
 
 - `status` es acceso y el plan son capacidades: que termine la prueba no suspende al negocio, no borra nada ni apaga tarjetas emitidas.
 - Los números del catálogo (`plan_service.CATALOG`) son la sugerencia de arranque de *Planes y límites: propuesta* en la wiki; los fija el equipo. Cambiarlos es una migración nueva, porque el catálogo es dato: la migración `613f061889d5` lleva su propia copia.
-- Los negocios que existían antes de esa migración quedaron en el plan `business` sin prueba, para no cerrarles nada de lo que ya usaban. El seed pone a Café Aurora en `business` y a Gimnasio Titán en `counter`.
+- Los negocios que existían antes de esa migración quedaron en el plan `business` sin prueba, para no cerrarles nada de lo que ya usaban. El seed pone a Café Aurora en `business`, a Gimnasio Titán en `counter` y a Abarrotes Sol en `free` (50 clientes y 2 usuarios: justo en el límite, sin prueba, para poder demostrar el 409 `limit_reached` y el 403 `plan_required` con datos reales).
 - Las pruebas cargan el catálogo con `plan_service.ensure_catalog` después de limpiar la base, porque `create_all` crea la tabla vacía.
 
 **Lo que el plan limita** (siempre con el plan efectivo; un campo `null` es sin límite):

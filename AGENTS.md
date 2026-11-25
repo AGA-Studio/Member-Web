@@ -51,7 +51,7 @@ FastAPI · SQLModel (síncrono) · PostgreSQL 18 · pwdlib (Argon2id) · PyJWT �
 uv sync                              # instalar dependencias
 docker compose up -d                 # PostgreSQL en localhost:5433
 uv run alembic upgrade head          # aplicar migraciones
-uv run python -m scripts.seed        # datos de demo: 2 negocios y sus usuarios (idempotente)
+uv run python -m scripts.seed        # datos de demo: 3 negocios y sus usuarios (idempotente)
 uv run uvicorn main:app --reload     # API en http://127.0.0.1:8000/docs
 uv run pytest                        # pruebas (SQLite temporal)
 uv run ruff check . && uv run ruff format .

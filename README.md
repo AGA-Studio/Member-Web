@@ -136,6 +136,8 @@ En desarrollo, el seed usa la contraseña `demo12345` (o la de `SEED_PASSWORD` e
 | `admin@cafe-aurora.mx` | Administrador | Café Aurora |
 | `caja@cafe-aurora.mx` | Empleado de caja | Café Aurora |
 | `admin@gimnasio-titan.mx` | Administrador | Gimnasio Titán |
+| `admin@abarrotes-sol.mx` | Administrador | Abarrotes Sol (plan Gratis, lleno) |
+| `caja@abarrotes-sol.mx` | Empleado de caja | Abarrotes Sol |
 
 ## Comandos
 
@@ -146,7 +148,7 @@ En desarrollo, el seed usa la contraseña `demo12345` (o la de `SEED_PASSWORD` e
 | `uv run alembic upgrade head` | Aplica migraciones |
 | `uv run alembic revision --autogenerate -m "..."` | Genera una migración (revisarla a mano) |
 | `uv run alembic check` | Falla si los modelos y las migraciones divergen |
-| `uv run python -m scripts.seed` | Datos de demo con dos negocios |
+| `uv run python -m scripts.seed` | Datos de demo con tres negocios |
 
 ## API
 
