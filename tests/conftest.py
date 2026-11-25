@@ -41,7 +41,7 @@ from db import rls  # noqa: E402
 from db.database import engine  # noqa: E402
 from main import app  # noqa: E402
 from models import Business, BusinessStatus, Role, User  # noqa: E402
-from services import email_service  # noqa: E402
+from services import email_service, plan_service  # noqa: E402
 
 # Cheaper Argon2id parameters for the suite: these are still real `$argon2id$`
 # hashes, only with a smaller cost. The API logs in around 360 times across the
@@ -141,6 +141,7 @@ def _clean_database() -> Generator[None]:
             # Alembic: restore the schema `create_all` produces before going on.
             SQLModel.metadata.drop_all(engine)
             _create_postgres_schema()
+        _load_plan_catalog()
         yield
         return
 
@@ -151,7 +152,14 @@ def _clean_database() -> Generator[None]:
         # removed them) or are not the ones the models describe.
         SQLModel.metadata.drop_all(engine)
         SQLModel.metadata.create_all(engine)
+    _load_plan_catalog()
     yield
+
+
+def _load_plan_catalog() -> None:
+    """The plans are data the migration loads; `create_all` leaves them empty."""
+    with Session(engine) as db_session:
+        plan_service.ensure_catalog(db_session)
 
 
 @pytest.fixture(autouse=True)
