@@ -96,6 +96,7 @@ flowchart TB
     SRV --> SV10["wallet_service.py — JWT de Google Wallet"]
     SRV --> SV11["payment_service.py — pagos de membresía"]
     SRV --> SV12["turnstile_service.py — Cloudflare Turnstile en el login"]
+    SRV --> SV13["ai_service.py — chat del admin: herramientas de solo lectura"]
     SCR --> SC1["seed.py — 2 negocios demo, usuarios, niveles, clientes, compras y un enlace"]
     SCR --> SC2["simulate.py — historial de demo (--bulk) y compra suelta para la tarea programada (--tick)"]
     SCH --> S1["user_schema.py — UserCreate · UserUpdate · UserResponse · MeResponse"]
@@ -121,6 +122,7 @@ flowchart TB
     API --> A6["checkout_api.py — /checkout"]
     API --> A7["movement_api.py — /movement"]
     API --> A8["platform_api.py — /platform"]
+    API --> A9["chat_api.py — /chat"]
     API --> A9["card_api.py — /card (público, sin sesión)"]
 ```
 
@@ -311,6 +313,7 @@ Las rutas no preguntan por el rol sino por un **permiso** (`require_permission(P
 | `tiers.manage` | Editar los niveles | | ✅ | | |
 | `users.manage` | Usuarios del negocio | | ✅ | | |
 | `business.manage` | Nombre, vigencia, color y logo | | ✅ | | |
+| `ai.chat` | Chat de IA de solo lectura sobre su negocio | | ✅ | | |
 | `platform` | Panel de plataforma (estado y uso, nunca datos) | ✅ | | | |
 
 Los roles son fijos en código a propósito: un negocio chico no tiene quién administre permisos por usuario. El rol se fija al crear el usuario y no se cambia después.
@@ -402,6 +405,43 @@ sequenceDiagram
 - Un plan de pago sin prueba responde 422 `plan_invalid`: se pide después y lo asigna la plataforma a mano, porque no hay pasarela.
 - Apagado por defecto (`REGISTRATION_ENABLED`): se enciende en producción al publicar el aviso de privacidad (#75). Sin verificación de correo en esta versión (punto abierto del equipo).
 
+### Chat de IA del admin (issue #73)
+
+Decisión en la wiki (*Agente de IA para admins: decisión*): `services/ai_service.py` y `api/v1/chat_api.py`. El backend habla con cualquier API compatible con `chat/completions` de OpenAI (hoy Opencode Go) por `httpx`, sin SDK. El modelo recibe cuatro herramientas, que son las consultas que ya existen; ninguna recibe el negocio, todas usan el `business_id` del token:
+
+| Herramienta | Consulta | Equivale a |
+|-------------|----------|------------|
+| `customer_summary` | `customer_service.summary` | `GET /customer/summary` |
+| `customer_lookup` | `customer_service.lookup` (sin `photo_url`) | `GET /customer/lookup` |
+| `movement_list` | `movement_service.list_movements` (hasta 20, con totales; respeta `history_days`) | `GET /movement/list` |
+| `tier_list` | `tier_service.list_tiers` | `GET /tier/list` |
+
+```mermaid
+sequenceDiagram
+    participant F as Frontend (pestaña)
+    participant API as POST /chat/send
+    participant S as ai_service
+    participant LLM as Proveedor (Opencode Go)
+    F->>API: historial de la pestaña + session_id
+    API->>API: permiso ai.chat · plan con IA · BusinessId
+    API->>S: chat(session, business_id, datos)
+    loop hasta AI_MAX_ROUNDS (3) y AI_TIMEOUT_SECONDS (20 s) en total
+        S->>LLM: chat/completions (tools, x-opencode-session)
+        LLM-->>S: tool_calls o respuesta
+        S->>S: run_tool con el business_id del token
+    end
+    S-->>F: reply + session_id
+    Note over S,LLM: apagado, sin red, lento o respuesta inválida → 503 ai_unavailable
+```
+
+- **Solo lectura.** Ninguna herramienta escribe ni calcula dinero. Una tarjeta de otro negocio responde `customer_not_found` al modelo, igual que el resto de la API.
+- **Sin memoria.** El servidor no guarda la conversación: el navegador manda el historial de su pestaña (hasta 20 mensajes de hasta 2000 caracteres, el último del usuario). El `session_id` lo genera el backend en el primer turno y el frontend lo repite; viaja en la cabecera `x-opencode-session` (`AI_SESSION_HEADER` vacío la omite para otro proveedor).
+- **Última vuelta sin herramientas.** En la última vuelta se manda `tool_choice: "none"`; si el modelo insiste, 503 en vez de un ciclo.
+- **Modelo sin herramientas.** Con `AI_TOOLS_ENABLED=false`, el backend manda el resumen de clientes y los niveles en el mensaje de sistema y no ofrece herramientas; la ruta no cambia.
+- **Degradación (RNF-06).** `AI_ENABLED` apagado (por defecto, CI y sin internet), sin modelo o sin key, o el proveedor falla o tarda: 503 `ai_unavailable`. Nada más del panel depende del chat.
+- **Privacidad (RNF-02).** La pregunta y lo que consultan las herramientas viajan al proveedor. El aviso en el chat lo pinta el frontend; la key nunca se registra en logs.
+- **Plan.** La ruta exige `ai_enabled` en el plan efectivo (403 `plan_required`). `ai_messages_month` todavía no se cuenta: con un modelo gratis no hace falta cuota.
+
 ### Imágenes: logo, foto del cliente y foto de perfil
 
 Tres columnas guardan una imagen, y las tres siguen la misma regla (`services/upload_service.py`):
@@ -473,6 +513,7 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | GET | `/api/v1/plan/list` | — (público) | Catálogo de planes que se ofrecen (`is_public`), del más barato al más caro: `key`, `name`, `price_cents`, límites (`max_customers`, `max_users`, `max_devices`, `history_days`; `null` = sin límite), capacidades (`images_enabled`, `exports_enabled`, `ai_enabled`, `ai_messages_month`), `trial_days` e `is_default`. Igual para todos; no trae datos de ningún negocio |
 | GET | `/api/v1/plan/summary` | admin | Plan del negocio de la sesión: `plan` (el efectivo, con la forma de `/plan/list`), `assigned_plan_key` (el guardado; difiere si la prueba venció), `trial_ends_at`, `trial_active`, `unit_price_cents` y `usage` (`customers` y `users`, cada uno con `used` y `limit`; `null` = sin límite) |
 | POST | `/api/v1/registration/create` | — (público) | Alta de negocio (issue #69): `business_name`, `admin_name`, `email`, `password` y `plan_id` opcional (sin él, el plan por defecto). Crea en una transacción el negocio (`active`), su primer admin, tres niveles vacíos (Básico, Plata, Oro: $0 y sin beneficios) y el plan; un plan con prueba fija `trial_ends_at`. Responde 201 con `business_id`, `name`, `email`, `plan`, `plan_key` y `trial_ends_at`. Sin auto-login: el admin entra por `/auth/login`. 403 `registration_closed`, 429 `rate_limited`, 400 `turnstile_failed`, 422 `plan_invalid`, 409 `email_taken` |
+| POST | `/api/v1/chat/send` | admin | Chat de IA de solo lectura sobre el negocio del token (issue #73). Cuerpo: `messages` (historial de la pestaña, 1 a 20, `role` = `user` \| `assistant`, el último del usuario) y `session_id` opcional. Responde `reply` y `session_id`. 403 `plan_required` si el plan no incluye IA, 503 `ai_unavailable` si está apagado o el proveedor falla |
 
 **Respuesta de `/auth/me`** (`MeResponse`): los campos de `UserResponse` más `business`, el resumen del negocio que el frontend muestra en el encabezado del panel y de la caja. No incluye datos de uso ni de clientes.
 
@@ -524,7 +565,8 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | `plan_invalid` | 422 | `/registration/create`: el plan no existe, no es público o es de pago sin prueba (se pide después y lo asigna la plataforma). `/platform/business/{business_id}/update`: el `plan_id` no existe |
 | `registration_closed` | 403 | `/registration/create` con `REGISTRATION_ENABLED` apagado |
 | `limit_reached` | 409 | `/customer/create`, `/user/create` y `/user/{user_id}/update` al reactivar: el plan efectivo ya no admite otro cliente o usuario |
-| `plan_required` | 403 | Subir imágenes o `/movement/export` con un plan que no incluye esa función |
+| `plan_required` | 403 | Subir imágenes, `/movement/export` o `/chat/send` con un plan que no incluye esa función |
+| `ai_unavailable` | 503 | `/chat/send`: `AI_ENABLED` apagado, sin modelo o key, o el proveedor no respondió bien en `AI_TIMEOUT_SECONDS` |
 | `turnstile_failed` | 400 | `POST /api/v1/auth/login` y `POST /api/v1/registration/create` con `TURNSTILE_ENABLED`: falta `X-Turnstile-Token`, Cloudflare lo rechaza, es de otro hostname o `siteverify` no respondió en 5 s. `detail` también es `turnstile_failed`, como fija el contrato de la wiki |
 
 Cada módulo nuevo agrega sus códigos a `ErrorCode` (`core/errors.py`).

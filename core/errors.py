@@ -42,6 +42,7 @@ class ErrorCode(StrEnum):
     REGISTRATION_CLOSED = "registration_closed"
     LIMIT_REACHED = "limit_reached"
     PLAN_REQUIRED = "plan_required"
+    AI_UNAVAILABLE = "ai_unavailable"
 
 
 class ApiError(HTTPException):

@@ -88,6 +88,20 @@ class Settings(BaseSettings):
     turnstile_secret: str = ""
     turnstile_siteverify_url: str = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
 
+    # Chat for admins (issue #73): any API compatible with OpenAI's chat/completions.
+    # Off by default (development, CI and no internet): the route answers 503
+    # `ai_unavailable`. `ai_session_header` is Opencode Go's conversation id;
+    # empty for a provider that does not ask for it.
+    ai_enabled: bool = False
+    ai_base_url: str = "https://opencode.ai/inference/go/v1"
+    ai_api_key: str = ""
+    ai_model: str = ""
+    ai_session_header: str = "x-opencode-session"
+    # False when the model cannot call tools: the backend sends the data itself.
+    ai_tools_enabled: bool = True
+    ai_timeout_seconds: float = Field(default=20, gt=0, le=120)
+    ai_max_rounds: int = Field(default=3, ge=1, le=10)
+
     @field_validator("cors_origins", "google_wallet_origins", mode="before")
     @classmethod
     def _split_origins(cls, value: str | list[str]) -> list[str]:
@@ -106,6 +120,10 @@ class Settings(BaseSettings):
     @property
     def effective_s3_public_endpoint_url(self) -> str:
         return self.s3_public_endpoint_url or self.s3_endpoint_url
+
+    @property
+    def ai_configured(self) -> bool:
+        return self.ai_enabled and bool(self.ai_base_url and self.ai_api_key and self.ai_model)
 
     @property
     def turnstile_hostname(self) -> str:

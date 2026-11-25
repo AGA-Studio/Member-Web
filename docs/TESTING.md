@@ -815,6 +815,18 @@ Los criterios de aceptación de *Registro de negocios: decisión* (wiki).
 | `test_the_new_business_sees_no_other_business` | El negocio nuevo no ve clientes ni niveles de otro (aislamiento) | ✅ |
 | `TestGuards` | Cerrado por defecto (403 `registration_closed`, nada escrito); el sexto intento por IP en una hora → 429 con `Retry-After`; con `TURNSTILE_ENABLED`, token rechazado → 400 y válido → 201 | ✅ |
 
+### 5.6f Chat de IA — `tests/api/test_chat.py` y `tests/api/test_isolation_chat.py`
+
+El proveedor es un servidor falso de `chat/completions` (`httpx.MockTransport`) que responde un guion y guarda cada petición: sin red ni SDK.
+
+| Prueba | Verifica | Resultado |
+|--------|----------|-----------|
+| `TestAvailability` | Apagado por defecto → 503 `ai_unavailable`; encendido sin modelo → 503 sin llamar al proveedor; 500, JSON inválido, sin `choices` o respuesta vacía → 503; sin red → 503; el resto del panel sigue respondiendo | ✅ |
+| `TestConversation` | Respuesta y `session_id` nuevo; la petición lleva URL, key, `x-opencode-session`, user agent, modelo, historial y las 4 herramientas; sin cabecera para otro proveedor; ida y vuelta de una herramienta (sin `photo_url`); tope de vueltas con `tool_choice: "none"` y 503; sin herramientas el backend manda los datos; nada se guarda entre turnos | ✅ |
+| `TestTools` | Solo las 4 herramientas de lectura; tarjeta desconocida, argumentos inválidos y herramienta desconocida son errores para el modelo, no 500; movimientos y niveles reales | ✅ |
+| `TestAccess` | Solo el admin (employee, manager y plataforma → 403 sin llamar al proveedor; sin sesión → 401); plan sin IA → 403 `plan_required`; cuerpo inválido → 422 (7 casos, incluido un mensaje `system` inyectado) | ✅ |
+| `test_isolation_chat.py` | El modelo pide la tarjeta de otro negocio (aunque mande un `business_id`) → `customer_not_found` y el nombre nunca viaja; resumen, niveles y movimientos son solo del negocio del token | ✅ |
+
 ### 5.7 Aislamiento multi-negocio — `tests/api/test_isolation.py`
 
 Es la prueba obligatoria del MVP: *"0 filas de otro negocio, comprobado por test automático"*.
