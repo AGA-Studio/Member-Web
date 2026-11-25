@@ -49,7 +49,7 @@ from schemas.customer_schema import (
     TierSummaryResponse,
 )
 from schemas.pagination_schema import PageResponse
-from services import payment_service, storage_service, upload_service
+from services import payment_service, plan_service, storage_service, upload_service
 
 CODE_PREFIX = "MP-"
 CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"
@@ -371,6 +371,7 @@ def create_customer(
     session: Session, business_id: int, data: CustomerCreate, recorded_by: int
 ) -> CustomerResponse:
     """New customer and card, with its first payment in the same transaction."""
+    plan_service.assert_capacity(session, business_id, plan_service.Capacity.CUSTOMERS)
     email = data.email.lower()
     if _email_in_use(session, business_id, email, exclude_id=None):
         raise _email_taken
