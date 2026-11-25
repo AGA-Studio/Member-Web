@@ -780,7 +780,7 @@ Lee las rutas de `API_V1_ROUTERS` y el permiso que pide cada una (`require_permi
 | `test_each_route_answers_by_the_matrix[platform / admin / manager / employee]` | Cada rol llama a todas las rutas protegidas: 403 justo donde la matriz no le da el permiso (4 casos) | ✅ |
 | `TestManager` | `/auth/me` trae `permissions`; el admin crea un manager, que ve clientes y no usuarios; lee los comprobantes de otro cajero; no edita niveles ni el negocio; no ve clientes de otro negocio (404 en ficha y en `lookup`) | ✅ |
 
-### 5.6d Planes — `tests/unit/test_plan_service.py` y `tests/api/test_plan.py`
+### 5.6d Planes — `tests/unit/test_plan_service.py`, `tests/api/test_plan.py` y `tests/api/test_plan_limits.py`
 
 | Prueba | Verifica | Resultado |
 |--------|----------|-----------|
@@ -788,6 +788,12 @@ Lee las rutas de `API_V1_ROUTERS` y el permiso que pide cada una (`require_permi
 | `TestEffectivePlan` | Sin plan → Gratis; plan asignado sin prueba → ese plan; prueba vigente → el plan; prueba vencida → Gratis sin tocar `plan_id`; la fecha leída de SQLite (sin zona) se toma como UTC; el plan no cambia `status` | ✅ |
 | `test_answers_without_a_session` / `test_shape` / `test_unlimited_is_null` | `GET /plan/list` es público, con la forma del contrato y `null` = sin límite | ✅ |
 | `test_same_list_for_any_business` | El catálogo es igual para cualquier sesión: no depende del negocio | ✅ |
+| `TestCustomerCapacity` (`test_plan_limits.py`) | Alta hasta el límite y luego 409 `limit_reached`; una tarjeta cancelada libera su lugar; las tarjetas de otro negocio no cuentan; prueba vencida → límites de Gratis; `null` = sin límite | ✅ |
+| `TestUserCapacity` | Crear sobre el límite → 409; un usuario inactivo no cuenta; reactivar sobre el límite → 409 y sigue inactivo; editar a un usuario activo no se bloquea | ✅ |
+| `TestFeatures` | Sin `images_enabled`, logo, foto del cliente y foto de perfil → 403 `plan_required`; sin `exports_enabled`, `/movement/export` → 403; con el plan, 200; el permiso se revisa antes que el plan | ✅ |
+| `TestHistoryWindow` / `TestPlatform` | `history_days` oculta las compras viejas de `/movement/list` sin cambiar el saldo de puntos; sin límite salen todas; el dueño de plataforma no queda limitado | ✅ |
+
+Las fixtures `make_business` y `two_businesses` usan el plan `chain` para que una prueba de otra cosa nunca choque con un límite; las de `test_plan_limits.py` fijan el suyo.
 
 ### 5.6e Alta de negocio — `tests/api/test_registration.py`
 
