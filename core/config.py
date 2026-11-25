@@ -76,6 +76,12 @@ class Settings(BaseSettings):
     # Requests per minute and IP to the public card endpoints.
     card_rate_limit_per_minute: int = Field(default=30, ge=1)
 
+    # Public business sign-up (`POST /registration/create`, issue #69). Off by
+    # default so nothing opens by accident: production turns it on once the
+    # privacy notice (#75) is published. Attempts per hour and IP, valid or not.
+    registration_enabled: bool = False
+    registration_rate_limit_per_hour: int = Field(default=5, ge=1)
+
     # Cloudflare Turnstile on the login. Off in development and CI: the header is
     # ignored. On (production), every login needs a valid `X-Turnstile-Token`.
     turnstile_enabled: bool = False
