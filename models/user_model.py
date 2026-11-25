@@ -15,6 +15,7 @@ from models.enum_utils import enum_values
 class Role(StrEnum):
     PLATFORM = "platform"  # Us: sees each business's status and usage, never its data.
     ADMIN = "admin"  # Administrator of one business.
+    MANAGER = "manager"  # Shift lead: counter, customers and history (core/permissions.py).
     EMPLOYEE = "employee"  # Cashier of one business.
 
 

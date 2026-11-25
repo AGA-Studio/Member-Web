@@ -37,5 +37,5 @@ def test_email_unique_constraint(session: Session, make_business) -> None:
 
 
 def test_enum_values() -> None:
-    assert [r.value for r in Role] == ["platform", "admin", "employee"]
+    assert [r.value for r in Role] == ["platform", "admin", "manager", "employee"]
     assert [s.value for s in BusinessStatus] == ["trial", "active", "suspended"]
