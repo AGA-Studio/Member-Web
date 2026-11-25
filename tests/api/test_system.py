@@ -44,6 +44,7 @@ EXPECTED_PATHS = {
     "/api/v1/card/{token}/google-wallet",
     "/api/v1/public/logo/{business_id}.png",
     "/api/v1/plan/list",
+    "/api/v1/plan/summary",
     "/api/v1/registration/create",
 }
 
