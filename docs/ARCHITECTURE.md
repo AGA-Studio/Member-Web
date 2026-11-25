@@ -130,6 +130,7 @@ Existen las tablas de autenticación, los niveles, los clientes con su tarjeta, 
 
 ```mermaid
 erDiagram
+    plans ||--o{ businesses : "plan contratado"
     businesses ||--o{ users : "tiene"
     businesses ||--o{ tiers : "define"
     businesses ||--o{ customers : "tiene"
@@ -150,7 +151,29 @@ erDiagram
         int validity_months "meses de vigencia; 12 por defecto"
         string primary_color "#rrggbb o null (azul de Member+)"
         enum status "trial | active | suspended"
+        int plan_id FK "nullable: null = plan por defecto"
+        datetime trial_ends_at "nullable; prueba del plan"
+        int unit_price_cents "nullable; precio congelado al contratar"
         datetime created_at
+    }
+
+    plans {
+        int id PK
+        string key UK "free | counter | business | chain"
+        string name
+        int price_cents "mensual, MXN"
+        int max_customers "null = sin límite"
+        int max_users "null = sin límite"
+        int max_devices "null = sin límite"
+        int history_days "null = sin límite"
+        bool images_enabled
+        bool exports_enabled
+        bool ai_enabled
+        int ai_messages_month
+        int trial_days "0 = sin prueba"
+        bool is_default "uno solo: Gratis"
+        bool is_public "se ofrece en /plan/list"
+        int sort_order
     }
 
     users {
@@ -311,6 +334,25 @@ stateDiagram-v2
 
 En la base los valores de los `ENUM` se guardan en minúscula (`'admin'`, `'suspended'`), igual que en la API. Ver [MIGRATIONS.md](MIGRATIONS.md#7-migraciones-existentes).
 
+### Planes (issue #70)
+
+`plans` es un catálogo global, sin `business_id` (no lleva RLS; el rol del negocio solo puede leerlo). Cada negocio apunta a uno con `businesses.plan_id`. Lo que aplica en este momento es el **plan efectivo**, que se calcula al leer (`plan_service.effective_plan`) y nunca con un job:
+
+```mermaid
+flowchart LR
+    B["businesses"] --> P{"¿plan_id?"}
+    P -- "null" --> D["plan por defecto<br/>(Gratis)"]
+    P -- "sí" --> T{"¿trial_ends_at?"}
+    T -- "null" --> C["plan contratado"]
+    T -- "en el futuro" --> C
+    T -- "ya pasó" --> D
+```
+
+- `status` es acceso y el plan son capacidades: que termine la prueba no suspende al negocio, no borra nada ni apaga tarjetas emitidas.
+- Los números del catálogo (`plan_service.CATALOG`) son la sugerencia de arranque de *Planes y límites: propuesta* en la wiki; los fija el equipo. Cambiarlos es una migración nueva, porque el catálogo es dato: la migración `613f061889d5` lleva su propia copia.
+- Los negocios que existían antes de esa migración quedaron en el plan `business` sin prueba, para no cerrarles nada de lo que ya usaban. El seed pone a Café Aurora en `business` y a Gimnasio Titán en `counter`.
+- Las pruebas cargan el catálogo con `plan_service.ensure_catalog` después de limpiar la base, porque `create_all` crea la tabla vacía.
+
 ### Imágenes: logo, foto del cliente y foto de perfil
 
 Tres columnas guardan una imagen, y las tres siguen la misma regla (`services/upload_service.py`):
@@ -379,6 +421,7 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | GET | `/api/v1/card/{token}` | — (público) | Tarjeta pública del enlace: negocio (con su color), nombre, código, nivel, vigencia y `wallet.google`. 404 `card_link_not_found` |
 | GET | `/api/v1/card/{token}/google-wallet` | — (público) | `save_url` firmado para guardar la tarjeta en Google Wallet. 503 `wallet_unavailable` sin configuración |
 | GET | `/api/v1/public/logo/{business_id}.png` | — (público) | Logo del negocio como PNG cuadrado de 1024 px con 15 % de margen: lo cargan el pase de Google Wallet, el correo de la tarjeta y la tarjeta pública (`/card/{token}`), que no pueden usar una URL firmada que caduca en 1 h. `Cache-Control` de un día (la URL lleva `?v=` con la huella de la clave). 404 sin logo, con negocio suspendido, sin almacenamiento o si el archivo no se puede leer |
+| GET | `/api/v1/plan/list` | — (público) | Catálogo de planes que se ofrecen (`is_public`), del más barato al más caro: `key`, `name`, `price_cents`, límites (`max_customers`, `max_users`, `max_devices`, `history_days`; `null` = sin límite), capacidades (`images_enabled`, `exports_enabled`, `ai_enabled`, `ai_messages_month`), `trial_days` e `is_default`. Igual para todos; no trae datos de ningún negocio |
 
 **Respuesta de `/auth/me`** (`MeResponse`): los campos de `UserResponse` más `business`, el resumen del negocio que el frontend muestra en el encabezado del panel y de la caja. No incluye datos de uso ni de clientes.
 

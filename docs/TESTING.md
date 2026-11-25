@@ -780,6 +780,15 @@ Lee las rutas de `API_V1_ROUTERS` y el permiso que pide cada una (`require_permi
 | `test_each_route_answers_by_the_matrix[platform / admin / manager / employee]` | Cada rol llama a todas las rutas protegidas: 403 justo donde la matriz no le da el permiso (4 casos) | ✅ |
 | `TestManager` | `/auth/me` trae `permissions`; el admin crea un manager, que ve clientes y no usuarios; lee los comprobantes de otro cajero; no edita niveles ni el negocio; no ve clientes de otro negocio (404 en ficha y en `lookup`) | ✅ |
 
+### 5.6d Planes — `tests/unit/test_plan_service.py` y `tests/api/test_plan.py`
+
+| Prueba | Verifica | Resultado |
+|--------|----------|-----------|
+| `TestCatalog` | Un solo plan por defecto (`free`), claves únicas, `ensure_catalog` idempotente y sin pisar un plan editado; la lista pública oculta `chain` | ✅ |
+| `TestEffectivePlan` | Sin plan → Gratis; plan asignado sin prueba → ese plan; prueba vigente → el plan; prueba vencida → Gratis sin tocar `plan_id`; la fecha leída de SQLite (sin zona) se toma como UTC; el plan no cambia `status` | ✅ |
+| `test_answers_without_a_session` / `test_shape` / `test_unlimited_is_null` | `GET /plan/list` es público, con la forma del contrato y `null` = sin límite | ✅ |
+| `test_same_list_for_any_business` | El catálogo es igual para cualquier sesión: no depende del negocio | ✅ |
+
 ### 5.7 Aislamiento multi-negocio — `tests/api/test_isolation.py`
 
 Es la prueba obligatoria del MVP: *"0 filas de otro negocio, comprobado por test automático"*.
@@ -996,6 +1005,8 @@ Usan su propia fixture `empty_database`, que deja la base sin ninguna tabla (ni 
 | `test_app_works_on_migrated_schema` | Login y alta de usuario sobre tablas creadas por Alembic | ✅ |
 | `test_lowercase_enum_migration_converts_existing_rows` | Filas con `'ADMIN'`/`'SUSPENDED'` de la primera migración quedan en `'admin'`/`'suspended'`, y el `downgrade` las regresa (H7) | ✅ |
 | `test_app_stores_lowercase_enum_values` | La app guarda `'employee'` y `'trial'` en la base (H7) | ✅ |
+| `test_plans_migration_keeps_existing_businesses_open` | `613f061889d5` carga los cuatro planes y deja a un negocio que ya existía en `business`, sin prueba y con su precio | ✅ |
+| `test_manager_role_downgrade_turns_managers_into_employees` | Bajar `0fad7d4917d8` convierte a los managers en `employee` | ✅ |
 
 Para comprobar que la prueba de sincronía sirve, se agregó temporalmente `phone: str | None` a `User` sin generar migración. La prueba falló como se esperaba:
 

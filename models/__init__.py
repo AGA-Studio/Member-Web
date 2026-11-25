@@ -6,6 +6,7 @@ from models.card_email_model import CardEmail
 from models.customer_model import Customer
 from models.login_attempt_model import LoginAttempt
 from models.membership_payment_model import MembershipPayment, PaymentKind, PaymentMethod
+from models.plan_model import Plan
 from models.purchase_model import CardStatus, Purchase
 from models.revoked_token_model import RevokedToken
 from models.tier_model import Tier, TierFinish
@@ -22,6 +23,7 @@ __all__ = [
     "MembershipPayment",
     "PaymentKind",
     "PaymentMethod",
+    "Plan",
     "Purchase",
     "RevokedToken",
     "Role",
