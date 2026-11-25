@@ -25,6 +25,7 @@ from api.v1 import (
     customer_api,
     logo_api,
     movement_api,
+    plan_api,
     platform_api,
     profile_api,
     public_api,
@@ -52,6 +53,7 @@ API_V1_ROUTERS = [
     platform_api.router,
     card_api.router,
     public_api.router,
+    plan_api.router,
 ]
 
 
