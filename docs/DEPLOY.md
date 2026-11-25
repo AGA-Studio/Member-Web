@@ -180,6 +180,8 @@ Cómo se comporta:
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `MAIL_FROM` | relay de Brevo: `smtp-relay.brevo.com`, `587` | Envío de la tarjeta por correo. Sin `SMTP_HOST` la API arranca igual, pero en producción todo envío responde `email_failed`. `SMTP_TLS` acepta `starttls`, `ssl` o `none`; `SMTP_TIMEOUT_SECONDS` (10) es opcional. En producción ya están configuradas |
 | `GOOGLE_WALLET_ISSUER_ID`, `GOOGLE_WALLET_SERVICE_ACCOUNT_JSON`, `GOOGLE_WALLET_ORIGINS`, `GOOGLE_WALLET_LOGO_URL` | — | Botón «Agregar a Google Wallet». Si falta cualquiera de las cuatro, la tarjeta oculta el botón y `GET /card/{token}/google-wallet` responde 503. El issuer y la cuenta de servicio salen de Google Wallet Console; el logo debe ser una URL `https` pública |
 | `CARD_RATE_LIMIT_PER_MINUTE` | `30` | Opcional. Peticiones por minuto y por IP a los endpoints públicos de la tarjeta |
+| `REGISTRATION_ENABLED` | `true` | Opcional, `false` por defecto: el alta pública de negocios responde 403 `registration_closed`. Encenderla **solo después de publicar el aviso de privacidad** (#75) |
+| `REGISTRATION_RATE_LIMIT_PER_HOUR` | `5` | Opcional. Intentos de alta por hora y por IP, válidos o no |
 | `PORT` | `8000` | Lo lee el entrypoint; Coolify puede inyectarlo |
 
 Nada de esto va en el repo. `.env.example` documenta las claves con valores falsos.

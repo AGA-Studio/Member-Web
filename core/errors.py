@@ -38,6 +38,8 @@ class ErrorCode(StrEnum):
     RATE_LIMITED = "rate_limited"
     TURNSTILE_FAILED = "turnstile_failed"
     BUSINESS_NOT_FOUND = "business_not_found"
+    PLAN_INVALID = "plan_invalid"
+    REGISTRATION_CLOSED = "registration_closed"
 
 
 class ApiError(HTTPException):

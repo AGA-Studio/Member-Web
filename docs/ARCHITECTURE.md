@@ -353,6 +353,35 @@ flowchart LR
 - Los negocios que existían antes de esa migración quedaron en el plan `business` sin prueba, para no cerrarles nada de lo que ya usaban. El seed pone a Café Aurora en `business` y a Gimnasio Titán en `counter`.
 - Las pruebas cargan el catálogo con `plan_service.ensure_catalog` después de limpiar la base, porque `create_all` crea la tabla vacía.
 
+### Alta de negocio (issue #69)
+
+Registro directo, sin aprobación manual (wiki, *Registro de negocios: decisión*): `services/registration_service.py` y `api/v1/registration_api.py`.
+
+```mermaid
+sequenceDiagram
+    participant W as Frontend /registro
+    participant R as registration_api
+    participant S as registration_service
+    participant DB as PostgreSQL
+    W->>R: POST /registration/create (+ X-Turnstile-Token)
+    R->>R: REGISTRATION_ENABLED, límite por IP, Turnstile
+    R->>S: register(datos)
+    S->>DB: plan elegido (público, gratis o con prueba)
+    S->>DB: ¿email en uso?
+    S->>DB: INSERT negocio + admin + 3 niveles, un solo COMMIT
+    alt índice único de email (carrera)
+        S->>DB: ROLLBACK
+        R-->>W: 409 email_taken
+    else
+        R-->>W: 201
+    end
+    W->>W: /login?correo=... (sin auto-login)
+```
+
+- Corre como dueño de las tablas, sin `rls.activate()`, igual que el login: el negocio no existe hasta el `COMMIT`. El aislamiento entra cuando el admin nuevo inicia sesión.
+- Un plan de pago sin prueba responde 422 `plan_invalid`: se pide después y lo asigna la plataforma a mano, porque no hay pasarela.
+- Apagado por defecto (`REGISTRATION_ENABLED`): se enciende en producción al publicar el aviso de privacidad (#75). Sin verificación de correo en esta versión (punto abierto del equipo).
+
 ### Imágenes: logo, foto del cliente y foto de perfil
 
 Tres columnas guardan una imagen, y las tres siguen la misma regla (`services/upload_service.py`):
@@ -422,6 +451,7 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | GET | `/api/v1/card/{token}/google-wallet` | — (público) | `save_url` firmado para guardar la tarjeta en Google Wallet. 503 `wallet_unavailable` sin configuración |
 | GET | `/api/v1/public/logo/{business_id}.png` | — (público) | Logo del negocio como PNG cuadrado de 1024 px con 15 % de margen: lo cargan el pase de Google Wallet, el correo de la tarjeta y la tarjeta pública (`/card/{token}`), que no pueden usar una URL firmada que caduca en 1 h. `Cache-Control` de un día (la URL lleva `?v=` con la huella de la clave). 404 sin logo, con negocio suspendido, sin almacenamiento o si el archivo no se puede leer |
 | GET | `/api/v1/plan/list` | — (público) | Catálogo de planes que se ofrecen (`is_public`), del más barato al más caro: `key`, `name`, `price_cents`, límites (`max_customers`, `max_users`, `max_devices`, `history_days`; `null` = sin límite), capacidades (`images_enabled`, `exports_enabled`, `ai_enabled`, `ai_messages_month`), `trial_days` e `is_default`. Igual para todos; no trae datos de ningún negocio |
+| POST | `/api/v1/registration/create` | — (público) | Alta de negocio (issue #69): `business_name`, `admin_name`, `email`, `password` y `plan_id` opcional (sin él, el plan por defecto). Crea en una transacción el negocio (`active`), su primer admin, tres niveles vacíos (Básico, Plata, Oro: $0 y sin beneficios) y el plan; un plan con prueba fija `trial_ends_at`. Responde 201 con `business_id`, `name`, `email`, `plan`, `plan_key` y `trial_ends_at`. Sin auto-login: el admin entra por `/auth/login`. 403 `registration_closed`, 429 `rate_limited`, 400 `turnstile_failed`, 422 `plan_invalid`, 409 `email_taken` |
 
 **Respuesta de `/auth/me`** (`MeResponse`): los campos de `UserResponse` más `business`, el resumen del negocio que el frontend muestra en el encabezado del panel y de la caja. No incluye datos de uso ni de clientes.
 
@@ -456,7 +486,7 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | `user_inactive` | 403 | `ensure_user_can_access`: usuario desactivado (login y cada petición) |
 | `business_suspended` | 403 | `ensure_user_can_access`: negocio suspendido (login y cada petición) |
 | `not_authenticated` | 401 | `get_token_data` / `get_current_user`: sin sesión, token inválido, vencido o revocado |
-| `email_taken` | 409 | `/user/create` y `/user/{user_id}/update`: email en uso |
+| `email_taken` | 409 | `/user/create`, `/user/{user_id}/update` y `/registration/create`: email en uso |
 | `tier_invalid` | 422 | `/tier/{tier_id}/update`: valor fuera de rango. `/customer/create` y `/customer/{customer_id}/update`: `level_id` inexistente, de otro negocio, o negocio sin niveles |
 | `customer_not_found` | 404 | `/customer/lookup`, `/customer/{customer_id}` y sus acciones, `/checkout/create` y `/checkout/preview`: no existe o es de otro negocio |
 | `amount_invalid` | 422 | `/checkout/create` y `/checkout/preview`: `amount_cents` fuera de 1 a 100 000 000. `/customer/create` y `/customer/{customer_id}/renew`: `amount_cents` fuera de 0 a 100 000 000. Un monto que no es entero es validación de campo (422 de FastAPI, sin `code`) |
@@ -469,8 +499,10 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | `card_link_not_found` | 404 | `/card/{token}` y `/google-wallet`: token desconocido, revocado, tarjeta vencida o cancelada, o negocio suspendido. Siempre el mismo cuerpo |
 | `business_not_found` | 404 | `/platform/business/{business_id}` y `/update`: el negocio no existe |
 | `wallet_unavailable` | 503 | `/card/{token}/google-wallet`: Google Wallet sin configurar en este entorno |
-| `rate_limited` | 429 | `/card/...` y `/public/logo/...`: más de `CARD_RATE_LIMIT_PER_MINUTE` peticiones por minuto desde la misma IP (con `Retry-After`) |
-| `turnstile_failed` | 400 | `POST /api/v1/auth/login` con `TURNSTILE_ENABLED`: falta `X-Turnstile-Token`, Cloudflare lo rechaza, es de otro hostname o `siteverify` no respondió en 5 s. `detail` también es `turnstile_failed`, como fija el contrato de la wiki |
+| `rate_limited` | 429 | `/card/...` y `/public/logo/...`: más de `CARD_RATE_LIMIT_PER_MINUTE` peticiones por minuto desde la misma IP. `/registration/create`: más de `REGISTRATION_RATE_LIMIT_PER_HOUR` intentos por hora desde la misma IP. Siempre con `Retry-After` |
+| `plan_invalid` | 422 | `/registration/create`: el plan no existe, no es público o es de pago sin prueba (se pide después y lo asigna la plataforma) |
+| `registration_closed` | 403 | `/registration/create` con `REGISTRATION_ENABLED` apagado |
+| `turnstile_failed` | 400 | `POST /api/v1/auth/login` y `POST /api/v1/registration/create` con `TURNSTILE_ENABLED`: falta `X-Turnstile-Token`, Cloudflare lo rechaza, es de otro hostname o `siteverify` no respondió en 5 s. `detail` también es `turnstile_failed`, como fija el contrato de la wiki |
 
 Cada módulo nuevo agrega sus códigos a `ErrorCode` (`core/errors.py`).
 
