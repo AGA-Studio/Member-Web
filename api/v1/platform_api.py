@@ -1,7 +1,8 @@
 """Router for /api/v1/platform: the platform owner's view of the businesses.
 
 Only the `platform` role. It belongs to no business, so nothing here filters by one:
-it sees every business, but only its status and usage, and only changes its status.
+it sees every business, but only its status, plan and usage; it changes the status
+and the plan.
 """
 
 from typing import Annotated
@@ -58,5 +59,5 @@ def get_business(session: SessionDep, business_id: int) -> PlatformBusinessDetai
 def update_business(
     session: SessionDep, business_id: int, data: PlatformBusinessUpdate
 ) -> PlatformBusinessDetailResponse:
-    """Suspends (`suspended`) or reactivates (`active`) a business."""
+    """Suspends or reactivates a business, or assigns its plan and agreed price."""
     return platform_service.update_business(session, business_id, data)
