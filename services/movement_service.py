@@ -31,6 +31,7 @@ from schemas.movement_schema import (
     MovementResponse,
     MovementSummaryResponse,
 )
+from services import plan_service
 from services.customer_service import as_utc
 
 CSV_HEADER = [
@@ -80,6 +81,15 @@ def _conditions(
     if date_to is not None:
         conditions.append(Purchase.created_at <= _utc(date_to))
     return conditions
+
+
+def _history_floor(session: Session, business_id: int) -> list[ColumnElement[bool]]:
+    """The plan's `history_days`: older purchases leave the list, export and totals.
+
+    Only what is shown. Balances are computed elsewhere, over every movement.
+    """
+    since = plan_service.history_since(session, business_id)
+    return [] if since is None else [Purchase.created_at >= since]
 
 
 def _rows(conditions: list[ColumnElement[bool]]):
@@ -146,6 +156,7 @@ def list_movements(
     conditions = _conditions(
         business_id, q=q, customer_id=customer_id, date_from=date_from, date_to=date_to
     )
+    conditions += _history_floor(session, business_id)
     summary = _summary(session, conditions)
     last_page = max(1, math.ceil(summary.count / page_size))
     page = min(page, last_page)
@@ -188,6 +199,7 @@ def export_csv(
     conditions = _conditions(
         business_id, q=q, customer_id=customer_id, date_from=date_from, date_to=date_to
     )
+    conditions += _history_floor(session, business_id)
     out = io.StringIO()
     writer = csv.writer(out, lineterminator="\r\n")
     writer.writerow(CSV_HEADER)
