@@ -46,6 +46,7 @@ EXPECTED_PATHS = {
     "/api/v1/plan/list",
     "/api/v1/plan/summary",
     "/api/v1/registration/create",
+    "/api/v1/chat/send",
 }
 
 
