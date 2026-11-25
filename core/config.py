@@ -87,6 +87,10 @@ class Settings(BaseSettings):
     turnstile_enabled: bool = False
     turnstile_secret: str = ""
     turnstile_siteverify_url: str = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+    # Extra hostnames accepted by siteverify, comma-separated fnmatch patterns
+    # (e.g. `*-memberplus.neyzt.org` for the PR previews). Empty = only
+    # `turnstile_hostname`, the hostname of the frontend.
+    turnstile_allowed_hosts: str = ""
 
     # Chat for admins (issue #73): any API compatible with OpenAI's chat/completions.
     # Off by default (development, CI and no internet): the route answers 503

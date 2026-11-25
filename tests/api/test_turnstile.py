@@ -238,3 +238,34 @@ class TestSiteverifyAnswers:
         assert "invalid-input-response" in caplog.text
         assert FAILING_SECRET not in caplog.text
         assert json.dumps(FAILING_SECRET) not in caplog.text
+
+
+class TestAllowedHosts:
+    """Extra hostnames for the PR previews: `TURNSTILE_ALLOWED_HOSTS`."""
+
+    def test_preview_hostname_passes_with_its_pattern(
+        self, turnstile_on: FakeSiteverify, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(settings, "turnstile_allowed_hosts", "*-memberplus.neyzt.org")
+        turnstile_on.handler = lambda request: httpx.Response(
+            200, json={"success": True, "hostname": "5-memberplus.neyzt.org"}
+        )
+        assert verify_turnstile(TOKEN) is True
+
+    def test_unrelated_hostname_still_fails(
+        self, turnstile_on: FakeSiteverify, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(settings, "turnstile_allowed_hosts", "*-memberplus.neyzt.org")
+        turnstile_on.handler = lambda request: httpx.Response(
+            200, json={"success": True, "hostname": "evil.example"}
+        )
+        assert verify_turnstile(TOKEN) is False
+
+    def test_blank_patterns_keep_the_exact_match(
+        self, turnstile_on: FakeSiteverify, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(settings, "turnstile_allowed_hosts", " , ")
+        turnstile_on.handler = lambda request: httpx.Response(
+            200, json={"success": True, "hostname": "5-memberplus.neyzt.org"}
+        )
+        assert verify_turnstile(TOKEN) is False

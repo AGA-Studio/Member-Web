@@ -3,8 +3,9 @@
 - `TURNSTILE_ENABLED` off (development, CI, offline demo): every login passes and
   the network is never touched.
 - On: one `POST` to `siteverify` with a 5 s timeout. It passes only when
-  Cloudflare answers `success` for the frontend's hostname. Anything else (no
-  token, bad token, Cloudflare down or slow) fails: fail-closed.
+  Cloudflare answers `success` for the frontend's hostname, or for one of the
+  extra patterns in `TURNSTILE_ALLOWED_HOSTS` (the PR previews). Anything else
+  (no token, bad token, Cloudflare down or slow) fails: fail-closed.
 
 `remoteip` is never sent. Behind Cloudflare and Coolify uvicorn trusts any
 `X-Forwarded-For` (`--forwarded-allow-ips '*'` in docker/entrypoint.sh), so the
@@ -14,6 +15,7 @@ The secret is never logged; only Cloudflare's `error-codes` are.
 """
 
 import logging
+from fnmatch import fnmatch
 
 import httpx
 
@@ -29,6 +31,16 @@ logger = logging.getLogger("uvicorn.error")
 # HTTP transport used for `siteverify`. None = the real network. Tests replace it
 # with an `httpx.MockTransport` that answers like Cloudflare.
 _transport: httpx.BaseTransport | None = None
+
+
+def _hostname_allowed(hostname: str | None) -> bool:
+    """The frontend's hostname, or one matching `TURNSTILE_ALLOWED_HOSTS`."""
+    if hostname == settings.turnstile_hostname:
+        return True
+    if not hostname:
+        return False
+    patterns = (pattern.strip() for pattern in settings.turnstile_allowed_hosts.split(","))
+    return any(fnmatch(hostname, pattern) for pattern in patterns if pattern)
 
 
 def verify_turnstile(token: str | None) -> bool:
@@ -55,7 +67,7 @@ def verify_turnstile(token: str | None) -> bool:
         codes = result.get("error-codes") if isinstance(result, dict) else None
         logger.warning("Turnstile failed: error-codes=%s", codes)
         return False
-    if result.get("hostname") != settings.turnstile_hostname:
+    if not _hostname_allowed(result.get("hostname")):
         logger.warning("Turnstile failed: unexpected hostname %r", result.get("hostname"))
         return False
     return True

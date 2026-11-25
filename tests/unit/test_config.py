@@ -82,3 +82,8 @@ def test_turnstile_is_off_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_turnstile_hostname_comes_from_the_frontend_url() -> None:
     s = make_settings(secret_key="k", frontend_public_url="https://memberplus.neyzt.org/")
     assert s.turnstile_hostname == "memberplus.neyzt.org"
+
+
+def test_turnstile_allowed_hosts_is_empty_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TURNSTILE_ALLOWED_HOSTS", raising=False)
+    assert make_settings(secret_key="k").turnstile_allowed_hosts == ""
