@@ -29,4 +29,11 @@ class Business(SQLModel, table=True):
         default=BusinessStatus.TRIAL,
         sa_type=sa.Enum(BusinessStatus, name="businessstatus", values_callable=enum_values),
     )
+    # Plan (issue #70). None = the default plan. What applies right now is
+    # `plan_service.effective_plan`: a trial that ended falls back to the default.
+    plan_id: int | None = Field(default=None, foreign_key="plans.id")
+    trial_ends_at: datetime | None = Field(default=None)
+    # Monthly price agreed when the plan was contracted; a later catalog change
+    # does not touch it. None while the business is on a free plan or a trial.
+    unit_price_cents: int | None = Field(default=None)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
