@@ -190,7 +190,7 @@ El `&&` garantiza que la API nunca arranque con un esquema viejo. Antes de una m
 
 ## 7. Migraciones existentes
 
-Catorce migraciones hasta la fecha. El orden de la cadena es el de `down_revision`, de la más vieja a la más nueva:
+Quince migraciones hasta la fecha. El orden de la cadena es el de `down_revision`, de la más vieja a la más nueva:
 
 | Revisión | Archivo | Qué hace |
 |----------|---------|----------|
@@ -208,6 +208,7 @@ Catorce migraciones hasta la fecha. El orden de la cadena es el de `down_revisio
 | `d3f6a8c0e1b2` | `2026_11_18_1900-d3f6a8c0e1b2_add_primary_color_to_businesses.py` | Agrega `businesses.primary_color` (`#rrggbb` o `null`). |
 | `e4a7b9c1d3f5` | `2026_11_18_2000-e4a7b9c1d3f5_enable_row_level_security.py` | Escrita a mano, solo PostgreSQL. Crea el rol `memberplus_tenant` y la política `tenant_isolation` en cada tabla de negocio (Row Level Security). |
 | `0fad7d4917d8` | `2026_11_24_2000-0fad7d4917d8_add_manager_role.py` | Escrita a mano, solo PostgreSQL. Agrega `manager` al tipo `role` (`ALTER TYPE ... ADD VALUE`). PostgreSQL no borra valores de un `ENUM`: el `downgrade` pasa a los managers a `employee` y reconstruye el tipo. |
+| `613f061889d5` | `2026_11_24_2100-613f061889d5_add_plans.py` | Crea `plans` y carga el catálogo (copia congelada de `plan_service.CATALOG`); agrega `businesses.plan_id`, `trial_ends_at` y `unit_price_cents`. Los negocios que ya existían quedan en el plan `business` sin prueba. En PostgreSQL, el rol del negocio solo lee `plans`. |
 
 ```mermaid
 flowchart LR
@@ -225,7 +226,8 @@ flowchart LR
     R11 --> R12["d3f6a8c0e1b2<br/>primary color"]
     R12 --> R13["e4a7b9c1d3f5<br/>row level security"]
     R13 --> R14["0fad7d4917d8<br/>manager role"]
-    R14 --> HEAD(["head"])
+    R14 --> R15["613f061889d5<br/>plans"]
+    R15 --> HEAD(["head"])
 ```
 
 SQL de la primera migración en PostgreSQL (`uv run alembic upgrade f689e0ec2cd6 --sql`). Crea los `ENUM` en mayúscula; la segunda migración los renombra:
@@ -291,6 +293,8 @@ ALTER TYPE businessstatus RENAME VALUE 'SUSPENDED' TO 'suspended';
 | `test_app_works_on_migrated_schema` | La API funciona (login y crear usuario) sobre tablas creadas por Alembic |
 | `test_lowercase_enum_migration_converts_existing_rows` | Filas en mayúscula de la primera migración quedan en minúscula con `c9e2d3e6ee70`, y el `downgrade` las regresa |
 | `test_app_stores_lowercase_enum_values` | La app guarda `'employee'` y `'trial'` en la base |
+| `test_plans_migration_keeps_existing_businesses_open` | `613f061889d5` carga los cuatro planes y deja a un negocio que ya existía en `business`, sin prueba y con su precio |
+| `test_manager_role_downgrade_turns_managers_into_employees` | Bajar `0fad7d4917d8` convierte a los managers en `employee` |
 
 Se comprobó que la prueba de sincronía detecta un olvido real: al agregar `phone: str | None` a `User` sin migración, falló con:
 
