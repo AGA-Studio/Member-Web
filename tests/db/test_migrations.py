@@ -33,6 +33,7 @@ APP_TABLES = {
     "card_deliveries",
     "card_emails",
     "membership_payments",
+    "plans",
 }
 
 
@@ -203,3 +204,55 @@ def test_app_stores_lowercase_enum_values(empty_database) -> None:
         )
         session.commit()
     assert raw_enum_values() == ({"employee"}, {"trial"})
+
+
+def test_plans_migration_keeps_existing_businesses_open(empty_database) -> None:
+    """Businesses created before the plans go to `business` without a trial (issue #70)."""
+    run("upgrade", "0fad7d4917d8")
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO businesses (name, status, validity_months, created_at) "
+                "VALUES ('Old', 'active', 12, CURRENT_TIMESTAMP)"
+            )
+        )
+
+    run("upgrade", "head")
+    with engine.connect() as connection:
+        plans = connection.execute(text("SELECT key, is_default FROM plans ORDER BY sort_order"))
+        assert [tuple(row) for row in plans] == [
+            ("free", True),
+            ("counter", False),
+            ("business", False),
+            ("chain", False),
+        ]
+        row = connection.execute(
+            text(
+                "SELECT p.key, b.trial_ends_at, b.unit_price_cents "
+                "FROM businesses b JOIN plans p ON p.id = b.plan_id"
+            )
+        ).one()
+    assert tuple(row) == ("business", None, 39_900)
+
+
+def test_manager_role_downgrade_turns_managers_into_employees(empty_database) -> None:
+    """PostgreSQL cannot drop an enum value: going back must not leave a manager behind."""
+    run("upgrade", "head")
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO businesses (name, status, validity_months, created_at) "
+                "VALUES ('B', 'active', 12, CURRENT_TIMESTAMP)"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO users (business_id, name, email, hashed_password, role, is_active, "
+                "created_at) VALUES (1, 'Mgr', 'mgr@demo.mx', 'h', 'manager', true, "
+                "CURRENT_TIMESTAMP)"
+            )
+        )
+
+    run("downgrade", "e4a7b9c1d3f5")
+    roles, _ = raw_enum_values()
+    assert roles == {"employee"}
