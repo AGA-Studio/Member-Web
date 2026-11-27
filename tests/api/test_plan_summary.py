@@ -41,6 +41,7 @@ class TestSummary:
             "trial_active",
             "unit_price_cents",
             "usage",
+            "can_change_plan",
         }
         assert body["assigned_plan_key"] == "chain"
         assert (body["trial_ends_at"], body["trial_active"]) == (None, False)
