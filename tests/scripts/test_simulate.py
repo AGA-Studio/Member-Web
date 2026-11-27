@@ -400,9 +400,7 @@ class TestBulk:
 
         bulk(session, now=NOW, rng=random.Random(20261))
 
-        sol_purchases = session.exec(
-            select(Purchase).where(Purchase.business_id == sol.id)
-        ).all()
+        sol_purchases = session.exec(select(Purchase).where(Purchase.business_id == sol.id)).all()
         assert any(row.idempotency_key.startswith("demo-") for row in sol_purchases)
         after = session.exec(select(Customer).where(Customer.business_id == sol.id)).all()
         assert len(after) == SOL_CUSTOMERS_COUNT
