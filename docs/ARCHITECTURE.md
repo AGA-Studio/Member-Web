@@ -98,7 +98,7 @@ flowchart TB
     SRV --> SV12["turnstile_service.py — Cloudflare Turnstile en el login"]
     SRV --> SV13["ai_service.py — chat del admin: herramientas de solo lectura"]
     SCR --> SC1["seed.py — 3 negocios demo (uno en el plan Gratis, lleno), usuarios, niveles, clientes, compras y un enlace"]
-    SCR --> SC2["simulate.py — historial de demo (--bulk) y compra suelta para la tarea programada (--tick)"]
+    SCR --> SC2["simulate.py — historial de demo en los tres negocios (--bulk; clientes nuevos solo en Aurora y Titán) y compra suelta para la tarea programada (--tick)"]
     SCH --> S1["user_schema.py — UserCreate · UserUpdate · UserResponse · MeResponse"]
     SCH --> S4["business_schema.py — BusinessUpdate · BusinessSummaryResponse"]
     SCH --> S2["token_schema.py — Token · TokenData"]

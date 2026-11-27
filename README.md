@@ -149,6 +149,7 @@ En desarrollo, el seed usa la contraseña `demo12345` (o la de `SEED_PASSWORD` e
 | `uv run alembic revision --autogenerate -m "..."` | Genera una migración (revisarla a mano) |
 | `uv run alembic check` | Falla si los modelos y las migraciones divergen |
 | `uv run python -m scripts.seed` | Datos de demo con tres negocios |
+| `uv run python -m scripts.simulate --bulk` | Historial de demo: 84 días de compras en los tres negocios y 10 clientes nuevos en Café Aurora y Gimnasio Titán (se niega a correr dos veces) |
 
 ## API
 
