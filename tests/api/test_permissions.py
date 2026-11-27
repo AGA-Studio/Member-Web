@@ -55,6 +55,13 @@ def guarded_routes() -> list[tuple[str, str, Permission]]:
 
 
 GUARDED = guarded_routes()
+
+
+def _past_the_permission(response) -> bool:
+    """A 403 that a route raises only once the permission check passed."""
+    return response.json().get("code") == "plan_change_closed"
+
+
 # Not a route of its own: it widens what CHECKOUT reads (checkout_service.get_receipt).
 NOT_A_ROUTE = {Permission.RECEIPTS_ALL}
 
@@ -86,7 +93,8 @@ def test_each_route_answers_by_the_matrix(client: TestClient, staff, role: Role)
     for method, path, permission in GUARDED:
         response = client.request(method, path)
         # Any 403: on some routes `BusinessId` stops the platform owner before the check.
-        denied = response.status_code == 403
+        # `plan_change_closed` comes after the permission (PATCH /plan/update, switch off).
+        denied = response.status_code == 403 and not _past_the_permission(response)
         if denied == has_permission(role, permission):
             wrong.append(f"{method} {path} ({permission}): {response.status_code}")
     assert not wrong, f"{role} got the wrong answer on:\n" + "\n".join(wrong)

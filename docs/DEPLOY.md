@@ -168,6 +168,7 @@ Cómo se comporta:
 | `CARD_RATE_LIMIT_PER_MINUTE` | `30` | Opcional. Peticiones por minuto y por IP a los endpoints públicos de la tarjeta |
 | `REGISTRATION_ENABLED` | `true` | Opcional, `false` por defecto: el alta pública de negocios responde 403 `registration_closed`. Encenderla **solo después de publicar el aviso de privacidad** (#75) |
 | `REGISTRATION_RATE_LIMIT_PER_HOUR` | `5` | Opcional. Intentos de alta por hora y por IP, válidos o no |
+| `PLAN_SELF_SERVICE_ENABLED` | `false` | Opcional, `false` por defecto: `PATCH /plan/update` responde 403 `plan_change_closed` y `/plan/summary` trae `can_change_plan = false`. El pago del cambio es simulado, así que encendido cualquier admin pasa a un plan de pago sin pagar: **no encenderlo en producción** hasta que el equipo lo apruebe; solo en local y demo |
 | `AI_ENABLED` | `true` | Opcional, `false` por defecto: `/chat/send` responde 503 `ai_unavailable`. Encenderlo cuando el equipo fije el modelo gratis |
 | `AI_API_KEY`, `AI_MODEL` | — | Key de Opencode Go (solo en Coolify, nunca en el repo) y el modelo gratis del catálogo. Sin cualquiera de las dos, el chat queda apagado |
 | `AI_BASE_URL`, `AI_SESSION_HEADER` | `https://opencode.ai/inference/go/v1`, `x-opencode-session` | Opcionales. Otro proveedor compatible con OpenAI es cambiar la URL y vaciar la cabecera |

@@ -375,6 +375,29 @@ flowchart LR
 
 - El admin ve el de su negocio en `GET /plan/summary`: el plan efectivo, el asignado, la prueba y el uso contra cada límite. El frontend lo usa para mostrar «3 de 50 clientes» antes de que salga un `limit_reached`.
 - La plataforma lo ve en la lista y el detalle de `/platform/business` y lo cambia a mano con `PATCH /platform/business/{business_id}/update` (`plan_id` y `unit_price_cents`), porque no hay pasarela de pagos. Asignar un plan termina la prueba: el plan queda contratado. El nuevo plan aplica en la siguiente petición; bajar de plan no borra nada.
+- El admin también puede cambiarlo desde *Plan y uso* con `PATCH /plan/update`, **solo con `PLAN_SELF_SERVICE_ENABLED` encendido** (apagado por defecto). El pago es simulado en el frontend: no hay cobro, así que encendido en producción cualquier admin pasaría a un plan de pago sin pagar. La wiki (*Cambio de plan desde el panel*) lo deja pendiente del equipo; mientras tanto, la casilla *¿Hay planes y cobro?* sigue vigente y el plan lo asigna la plataforma.
+
+```mermaid
+flowchart TD
+    R["PATCH /plan/update"] --> S{"¿sesión y negocio activo?"}
+    S -- "no" --> E1["401 / 403 business_suspended"]
+    S -- "sí" --> P{"¿business.manage?"}
+    P -- "no" --> E2["403 Permission denied"]
+    P -- "sí" --> C{"¿can_change_plan?"}
+    C -- "no" --> E3["403 plan_change_closed"]
+    C -- "sí" --> B{"¿cuerpo válido?"}
+    B -- "no" --> E4["422 por campo"]
+    B -- "sí" --> V{"¿plan existe y es público?"}
+    V -- "no" --> E5["422 plan_invalid"]
+    V -- "sí" --> U{"¿mismo plan y sin trial_ends_at?"}
+    U -- "sí" --> E6["409 plan_unchanged"]
+    U -- "no" --> OK["assign + commit → 200 resumen"]
+```
+
+- `can_change_plan` (en `/plan/summary`, en la respuesta de `/plan/update` y en el `plan` del detalle de plataforma) es `true` solo con el interruptor encendido **y** un plan asignado público, o ninguno. Un negocio en un plan oculto (Cadena, asignado a mano con precio pactado) no lo cambia solo: perdería ese precio y no podría regresar.
+- La revisión de `can_change_plan` es una dependencia de la ruta, así que responde antes de validar el cuerpo. Si falla cualquier paso, no se escribe nada.
+- Reutiliza `plan_service.assign`: `unit_price_cents` queda en el precio de lista (0 en Gratis) y `trial_ends_at` en `null`. Cambiar durante la prueba la termina, aunque se elija el mismo plan (queda contratado), y no se concede otra. Con la prueba vencida, elegir el plan asignado lo contrata.
+- Bajar de plan se permite aunque el uso pase de los límites nuevos; no se borra ni se desactiva nada, y las altas siguientes responden 409 `limit_reached`. Sin migración ni límite por IP: la ruta exige sesión y permiso.
 
 ### Alta de negocio (issue #69)
 
@@ -511,7 +534,8 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | GET | `/api/v1/card/{token}/google-wallet` | — (público) | `save_url` firmado para guardar la tarjeta en Google Wallet. 503 `wallet_unavailable` sin configuración |
 | GET | `/api/v1/public/logo/{business_id}.png` | — (público) | Logo del negocio como PNG cuadrado de 1024 px con 15 % de margen: lo cargan el pase de Google Wallet, el correo de la tarjeta y la tarjeta pública (`/card/{token}`), que no pueden usar una URL firmada que caduca en 1 h. `Cache-Control` de un día (la URL lleva `?v=` con la huella de la clave). 404 sin logo, con negocio suspendido, sin almacenamiento o si el archivo no se puede leer |
 | GET | `/api/v1/plan/list` | — (público) | Catálogo de planes que se ofrecen (`is_public`), del más barato al más caro: `key`, `name`, `price_cents`, límites (`max_customers`, `max_users`, `max_devices`, `history_days`; `null` = sin límite), capacidades (`images_enabled`, `exports_enabled`, `ai_enabled`, `ai_messages_month`), `trial_days` e `is_default`. Igual para todos; no trae datos de ningún negocio |
-| GET | `/api/v1/plan/summary` | admin | Plan del negocio de la sesión: `plan` (el efectivo, con la forma de `/plan/list`), `assigned_plan_key` (el guardado; difiere si la prueba venció), `trial_ends_at`, `trial_active`, `unit_price_cents` y `usage` (`customers` y `users`, cada uno con `used` y `limit`; `null` = sin límite) |
+| GET | `/api/v1/plan/summary` | admin | Plan del negocio de la sesión: `plan` (el efectivo, con la forma de `/plan/list`), `assigned_plan_key` (el guardado; difiere si la prueba venció), `trial_ends_at`, `trial_active`, `unit_price_cents`, `usage` (`customers` y `users`, cada uno con `used` y `limit`; `null` = sin límite) y `can_change_plan` (el admin puede cambiarlo desde el panel) |
+| PATCH | `/api/v1/plan/update` | admin | El admin cambia el plan de su negocio (pago simulado en el frontend). Cuerpo `plan_id`. Responde lo mismo que `/plan/summary`. Termina la prueba en curso y fija `unit_price_cents` al precio del plan. 403 `plan_change_closed` (interruptor `PLAN_SELF_SERVICE_ENABLED` apagado o plan oculto), 422 `plan_invalid` (inexistente u oculto), 409 `plan_unchanged` (ya es el plan contratado, sin prueba) |
 | POST | `/api/v1/registration/create` | — (público) | Alta de negocio (issue #69): `business_name`, `admin_name`, `email`, `password` y `plan_id` opcional (sin él, el plan por defecto). Crea en una transacción el negocio (`active`), su primer admin, tres niveles vacíos (Básico, Plata, Oro: $0 y sin beneficios) y el plan; un plan con prueba fija `trial_ends_at`. Responde 201 con `business_id`, `name`, `email`, `plan`, `plan_key` y `trial_ends_at`. Sin auto-login: el admin entra por `/auth/login`. 403 `registration_closed`, 429 `rate_limited`, 400 `turnstile_failed`, 422 `plan_invalid`, 409 `email_taken` |
 | POST | `/api/v1/chat/send` | admin | Chat de IA de solo lectura sobre el negocio del token (issue #73). Cuerpo: `messages` (historial de la pestaña, 1 a 20, `role` = `user` \| `assistant`, el último del usuario) y `session_id` opcional. Responde `reply` y `session_id`. 403 `plan_required` si el plan no incluye IA, 503 `ai_unavailable` si está apagado o el proveedor falla |
 
@@ -562,8 +586,10 @@ Prefijo común: `/api/v1`. Documentación interactiva en `http://127.0.0.1:8000/
 | `business_not_found` | 404 | `/platform/business/{business_id}` y `/update`: el negocio no existe |
 | `wallet_unavailable` | 503 | `/card/{token}/google-wallet`: Google Wallet sin configurar en este entorno |
 | `rate_limited` | 429 | `/card/...` y `/public/logo/...`: más de `CARD_RATE_LIMIT_PER_MINUTE` peticiones por minuto desde la misma IP. `/registration/create`: más de `REGISTRATION_RATE_LIMIT_PER_HOUR` intentos por hora desde la misma IP. Siempre con `Retry-After` |
-| `plan_invalid` | 422 | `/registration/create`: el plan no existe, no es público o es de pago sin prueba (se pide después y lo asigna la plataforma). `/platform/business/{business_id}/update`: el `plan_id` no existe |
+| `plan_invalid` | 422 | `/registration/create`: el plan no existe, no es público o es de pago sin prueba (se pide después y lo asigna la plataforma). `/platform/business/{business_id}/update`: el `plan_id` no existe. `/plan/update`: el plan no existe o es oculto |
 | `registration_closed` | 403 | `/registration/create` con `REGISTRATION_ENABLED` apagado |
+| `plan_change_closed` | 403 | `/plan/update` con `PLAN_SELF_SERVICE_ENABLED` apagado o con un plan oculto asignado (`can_change_plan = false`) |
+| `plan_unchanged` | 409 | `/plan/update`: el plan pedido ya es el contratado y no hay prueba que terminar |
 | `limit_reached` | 409 | `/customer/create`, `/user/create` y `/user/{user_id}/update` al reactivar: el plan efectivo ya no admite otro cliente o usuario |
 | `plan_required` | 403 | Subir imágenes, `/movement/export` o `/chat/send` con un plan que no incluye esa función |
 | `ai_unavailable` | 503 | `/chat/send`: `AI_ENABLED` apagado, sin modelo o key, o el proveedor no respondió bien en `AI_TIMEOUT_SECONDS` |

@@ -780,7 +780,7 @@ Lee las rutas de `API_V1_ROUTERS` y el permiso que pide cada una (`require_permi
 | `test_each_route_answers_by_the_matrix[platform / admin / manager / employee]` | Cada rol llama a todas las rutas protegidas: 403 justo donde la matriz no le da el permiso (4 casos) | ✅ |
 | `TestManager` | `/auth/me` trae `permissions`; el admin crea un manager, que ve clientes y no usuarios; lee los comprobantes de otro cajero; no edita niveles ni el negocio; no ve clientes de otro negocio (404 en ficha y en `lookup`) | ✅ |
 
-### 5.6d Planes — `tests/unit/test_plan_service.py`, `tests/api/test_plan.py`, `tests/api/test_plan_limits.py` y `tests/api/test_plan_summary.py`
+### 5.6d Planes — `tests/unit/test_plan_service.py`, `tests/api/test_plan.py`, `tests/api/test_plan_limits.py`, `tests/api/test_plan_summary.py` y `tests/api/test_plan_update.py`
 
 | Prueba | Verifica | Resultado |
 |--------|----------|-----------|
@@ -793,9 +793,12 @@ Lee las rutas de `API_V1_ROUTERS` y el permiso que pide cada una (`require_permi
 | `TestFeatures` | Sin `images_enabled`, logo, foto del cliente y foto de perfil → 403 `plan_required`; sin `exports_enabled`, `/movement/export` → 403; con el plan, 200; el permiso se revisa antes que el plan | ✅ |
 | `TestHistoryWindow` / `TestPlatform` | `history_days` oculta las compras viejas de `/movement/list` sin cambiar el saldo de puntos; sin límite salen todas; el dueño de plataforma no queda limitado | ✅ |
 
-| `TestSummary` (`test_plan_summary.py`) | `/plan/summary` con la forma del contrato y el uso (las tarjetas canceladas no cuentan); prueba vigente; prueba vencida → Gratis con `assigned_plan_key` intacto; sin plan → Gratis; solo el admin (employee, manager y plataforma → 403; sin sesión → 401) | ✅ |
+| `TestSummary` (`test_plan_summary.py`) | `/plan/summary` con la forma del contrato (incluido `can_change_plan`) y el uso (las tarjetas canceladas no cuentan); prueba vigente; prueba vencida → Gratis con `assigned_plan_key` intacto; sin plan → Gratis; solo el admin (employee, manager y plataforma → 403; sin sesión → 401) | ✅ |
 | `TestPlatformAssign` | La plataforma asigna un plan: termina la prueba y toma el precio del plan; plan oculto con precio pactado; solo el precio; estado y plan juntos; `plan_id` inexistente → 422 `plan_invalid` sin cambiar nada, ni el estado; cuerpo inválido → 422; el plan nuevo aplica en la siguiente petición | ✅ |
-| `test_isolation_plan.py` | Un negocio no cuenta las tarjetas de otro ni ve su plan | ✅ |
+| `TestChange` (`test_plan_update.py`) | Con `PLAN_SELF_SERVICE_ENABLED`: Gratis → Negocio responde 200 y los límites aplican al instante (alta de usuario y exportar); la respuesta es igual a `/plan/summary`; cambiar en prueba la termina y toma el precio del plan, también eligiendo el mismo plan (luego 409); con la prueba vencida se contrata el plan asignado; sin plan, cualquier plan público; bajar con uso por encima del límite no borra nada y la siguiente alta es 409 `limit_reached`; el mismo plan sin prueba → 409 `plan_unchanged` sin tocar el precio pactado; plan oculto o inexistente → 422 `plan_invalid` sin cambios; cuerpo inválido → 422 por campo; un negocio en Cadena → `can_change_plan = false` y 403 `plan_change_closed` | ✅ |
+| `TestSwitchedOff` | Apagado por defecto; apagado → `can_change_plan = false` y 403 `plan_change_closed` sin cambios, también con cuerpo inválido (la revisión va antes del cuerpo) | ✅ |
+| `TestAccess` (`test_plan_update.py`) | employee, manager y plataforma → 403 de permiso, también antes del cuerpo; sin sesión → 401; negocio suspendido → 403 `business_suspended` sin cambios | ✅ |
+| `test_isolation_plan.py` | Un negocio no cuenta las tarjetas de otro ni ve su plan; el cambio de plan de A no toca el plan ni el precio de B | ✅ |
 
 Las fixtures `make_business` y `two_businesses` usan el plan `chain` para que una prueba de otra cosa nunca choque con un límite; las de `test_plan_limits.py` fijan el suyo.
 

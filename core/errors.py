@@ -42,6 +42,8 @@ class ErrorCode(StrEnum):
     REGISTRATION_CLOSED = "registration_closed"
     LIMIT_REACHED = "limit_reached"
     PLAN_REQUIRED = "plan_required"
+    PLAN_CHANGE_CLOSED = "plan_change_closed"
+    PLAN_UNCHANGED = "plan_unchanged"
     AI_UNAVAILABLE = "ai_unavailable"
 
 

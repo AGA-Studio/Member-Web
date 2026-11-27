@@ -82,6 +82,12 @@ class Settings(BaseSettings):
     registration_enabled: bool = False
     registration_rate_limit_per_hour: int = Field(default=5, ge=1)
 
+    # The admin changes their own plan (`PATCH /plan/update`). Off by default:
+    # the payment is simulated in the frontend, so with it on any admin moves to
+    # a paid plan without paying. On only locally and in the demo until the team
+    # decides; while off, the platform assigns plans by hand.
+    plan_self_service_enabled: bool = False
+
     # Cloudflare Turnstile on the login. Off in development and CI: the header is
     # ignored. On (production), every login needs a valid `X-Turnstile-Token`.
     turnstile_enabled: bool = False
