@@ -1112,7 +1112,7 @@ También se probó dentro de la imagen Docker: crea los datos con `SEED_PASSWORD
 
 ### 5.11 Simulador de demo — `tests/scripts/test_simulate.py`
 
-`scripts/simulate.py` alimenta la demo después del seed: `--bulk` agrega 84 días de compras retroactivas y 10 clientes por negocio (deterministas con semilla fija; idempotente por omisión: se niega a correr dos veces), y `--tick` inserta 1–2 compras de «ahora» por minuto para la tarea programada de Coolify. Reutiliza `pricing_service.calculate` y las reglas de estado de tarjeta del seed, y no toca filas existentes. Solo alimenta a Café Aurora y a Gimnasio Titán: Abarrotes Sol se queda fuera a propósito, para que siga clavado en el límite de 50 clientes del plan `free`.
+`scripts/simulate.py` alimenta la demo después del seed: `--bulk` agrega 84 días de compras retroactivas y 10 clientes por negocio (deterministas con semilla fija; idempotente por omisión: se niega a correr dos veces), y `--tick` inserta 1–2 compras de «ahora» por minuto para la tarea programada de Coolify. Reutiliza `pricing_service.calculate` y las reglas de estado de tarjeta del seed, y no toca filas existentes. Las compras llegan a los tres negocios, Abarrotes Sol incluido (el plan limita tarjetas, usuarios y cuánto historial se *muestra*, nunca si se puede cobrar); los clientes generados, solo a Café Aurora y a Gimnasio Titán, para que Sol siga clavado en el límite de 50 tarjetas del plan `free`.
 
 | Prueba | Verifica | Resultado |
 |--------|----------|-----------|
@@ -1136,11 +1136,12 @@ También se probó dentro de la imagen Docker: crea los datos con `SEED_PASSWORD
 | `test_generated_names_pass_the_name_rule` | Los nombres generados cumplen `PersonName` (regla H5) | ✅ |
 | `test_codes_do_not_collide` | Códigos únicos dentro de cada negocio, sin chocar con los del seed | ✅ |
 | `test_generated_codes_follow_the_numeric_rule` | Los códigos cumplen `MP-XXXXX`: 5 caracteres del alfabeto sin `0/O/1/I/L`, no correlativos (decisión Numeración) | ✅ |
-| `test_only_touches_the_demo_businesses` | Ninguna fila fuera de Café Aurora o Gimnasio Titán (Abarrotes Sol nunca recibe compras `demo-`) | ✅ |
+| `test_only_touches_the_demo_businesses` | Ninguna fila fuera de los tres negocios demo (Café Aurora, Gimnasio Titán, Abarrotes Sol) | ✅ |
+| `test_sol_takes_purchases_but_not_customers` | Sol recibe compras `demo-` pero ningún cliente generado: sigue en 50 tarjetas y el 409 `limit_reached` sigue siendo real | ✅ |
 | `test_marks_cards_as_expiring_soon` | Dos tarjetas por negocio quedan «por vencer» para el panel | ✅ |
 | `test_inserts_one_or_two_purchases_now` | 1–2 compras por tick, con `created_at` del momento del tick | ✅ |
 | `test_same_minute_does_not_duplicate` | Dos corridas en el mismo minuto → la segunda es no-op | ✅ |
-| `test_alternates_businesses` | Los ticks alternan de negocio minuto a minuto | ✅ |
+| `test_alternates_businesses` | Tres minutos seguidos de ticks rotan por los tres negocios | ✅ |
 | `test_only_picks_active_cards` | Nunca elige tarjetas vencidas ni canceladas | ✅ |
 | `test_without_active_customers_exits_clean` | Sin clientes activos no falla ni escribe | ✅ |
 | `test_bulk_prints_created` | `main --bulk` imprime lo creado y el resumen | ✅ |

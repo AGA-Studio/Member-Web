@@ -113,10 +113,10 @@ Cómo se comporta:
    Para que la demo tenga semanas de historial, la misma terminal ejecuta el simulador:
 
    ```bash
-   python -m scripts.simulate --bulk      # 84 días de compras y 10 clientes por negocio de demo
+   python -m scripts.simulate --bulk      # 84 días de compras en los tres negocios, 10 clientes en los dos con plan de sobra
    ```
 
-   Es determinista e idempotente por omisión: **se niega a correr dos veces** sobre la misma base (una segunda corrida no escribe nada); para regenerar el historial hay que rehacer el seed desde cero. No necesita `SEED_PASSWORD` (no crea usuarios) ni toca filas existentes, y solo alimenta a Café Aurora y a Gimnasio Titán: Abarrotes Sol se queda en el límite del plan `free` para mostrar los 409 y los 403 del catálogo.
+   Es determinista e idempotente por omisión: **se niega a correr dos veces** sobre la misma base (una segunda corrida no escribe nada); para regenerar el historial hay que rehacer el seed desde cero. No necesita `SEED_PASSWORD` (no crea usuarios) ni toca filas existentes. Las compras llegan a los tres negocios; los clientes generados, solo a Café Aurora y a Gimnasio Titán, para que Abarrotes Sol siga clavado en el límite de 50 tarjetas del plan `free` y la demo pueda mostrar los 409 y los 403 del catálogo. Abarrotes Sol sí recibe compras a propósito: el plan limita tarjetas, usuarios y cuánto historial se *muestra*, nunca si una venta se puede cobrar (y a Sol los primeros ~24 días de historial se le salen de la ventana de 60 días, que es justo lo que enseña el corte).
 7. **Webhook de deploy (obligatorio: es el despliegue automático).** Dos piezas, una vez:
    - En Coolify → *Keys & Tokens* → *API Tokens* → crear un token con permiso **`deploy`** (solo ese). El valor se muestra una sola vez.
    - En la app → *Webhooks* → copiar **Deploy Webhook (auth required)**: `https://coolify.neyzt.org/api/v1/deploy?uuid=<uuid-de-la-app>&force=false`.
