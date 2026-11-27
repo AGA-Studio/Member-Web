@@ -21,7 +21,7 @@ from models import (
     User,
 )
 from schemas.validators import normalize_person_name
-from scripts.seed import seed
+from scripts.seed import SOL_CUSTOMERS_COUNT, seed
 from scripts.simulate import (
     CASHIER_EMAILS,
     DEMO_BUSINESSES,
@@ -47,9 +47,9 @@ def minimal_businesses(
 ) -> None:
     """Bare businesses for the guard tests: no seed, no customers.
 
-    Titán's cashier IS its admin in the seed data (the gym has no employee),
-    so one user per business covers both lookups; `with_admin=False` leaves
-    only an employee, which is what the admin guard needs to fail.
+    One user per demo business covers both lookups (in the seed, Titán's
+    cashier IS its admin and Sol's is its employee); `with_admin=False` leaves
+    only employees, which is what the admin guard needs to fail.
     """
     hashed = hash_password("guard-password-123")
     for key, name in DEMO_BUSINESSES:
@@ -380,10 +380,33 @@ class TestBulk:
     def test_only_touches_the_demo_businesses(self, session: Session) -> None:
         seed(session, PASSWORD)
         bulk(session, now=NOW, rng=random.Random(20261))
-        aurora = business_named(session, "Café Aurora")
-        titan = business_named(session, "Gimnasio Titán")
+        ids = {
+            business_named(session, name).id
+            for name in ("Café Aurora", "Gimnasio Titán", "Abarrotes Sol")
+        }
         for row in purchases_with_prefix(session, "demo-"):
-            assert row.business_id in {aurora.id, titan.id}
+            assert row.business_id in ids
+
+    def test_sol_takes_purchases_but_not_customers(self, session: Session) -> None:
+        """Free plan: purchases are not a capacity, cards are (see plan_service).
+
+        Adding purchases to Abarrotes Sol keeps the 409 `limit_reached` real:
+        `usage` still counts exactly `SOL_CUSTOMERS_COUNT` live cards.
+        """
+        seed(session, PASSWORD)
+        sol = business_named(session, "Abarrotes Sol")
+        before = session.exec(select(Customer).where(Customer.business_id == sol.id)).all()
+        assert len(before) == SOL_CUSTOMERS_COUNT
+
+        bulk(session, now=NOW, rng=random.Random(20261))
+
+        sol_purchases = session.exec(
+            select(Purchase).where(Purchase.business_id == sol.id)
+        ).all()
+        assert any(row.idempotency_key.startswith("demo-") for row in sol_purchases)
+        after = session.exec(select(Customer).where(Customer.business_id == sol.id)).all()
+        assert len(after) == SOL_CUSTOMERS_COUNT
+        assert all(not customer.email.startswith("demo.") for customer in after)
 
     def test_marks_cards_as_expiring_soon(self, session: Session) -> None:
         seed(session, PASSWORD)
@@ -424,15 +447,15 @@ class TestTick:
 
     def test_alternates_businesses(self, session: Session) -> None:
         seed(session, PASSWORD)
-        aurora = business_named(session, "Café Aurora")
-        titan = business_named(session, "Gimnasio Titán")
-        tick(session, now=NOW, rng=random.Random(3))
-        first = {row.business_id for row in purchases_with_prefix(session, "sim-")}
-        tick(session, now=NOW + timedelta(minutes=1), rng=random.Random(4))
-        second = {row.business_id for row in purchases_with_prefix(session, "sim-")} - first
-        assert first <= {aurora.id, titan.id}
-        assert second <= {aurora.id, titan.id}
-        assert first != second
+        ids = {
+            business_named(session, name).id
+            for name in ("Café Aurora", "Gimnasio Titán", "Abarrotes Sol")
+        }
+        seen: set[int] = set()
+        for index in range(3):
+            tick(session, now=NOW + timedelta(minutes=index), rng=random.Random(3 + index))
+            seen |= {row.business_id for row in purchases_with_prefix(session, "sim-")}
+        assert seen == ids  # three minutes in a row rotate over the three businesses
 
     def test_only_picks_active_cards(self, session: Session) -> None:
         seed(session, PASSWORD)

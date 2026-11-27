@@ -9,6 +9,12 @@ every purchase through `services.pricing_service` with the card status at that
 moment, and walks the events in chronological order so the per-customer
 balances accumulate exactly like the checkout does.
 
+Every demo business takes purchases, Abarrotes Sol included: a plan limits
+cards, users and how far back the history is *shown*, never whether a sale can
+be recorded. The generated customers skip Sol on purpose (`CUSTOMER_BUSINESSES`):
+it stays at the 50 cards of the free plan, which is what lets the demo show the
+409 `limit_reached` and the 403 `plan_required`.
+
 Nothing here edits existing rows: `--bulk` refuses to run on a database that
 already has `demo-` purchases (to regenerate, reset the database the way the
 seed reset documents), and `--tick` appends at most once per minute, so a
@@ -56,7 +62,19 @@ from services.customer_service import (
 )
 
 # Demos are keyed the same way as the seed: short key -> business name.
-DEMO_BUSINESSES = [("aurora", "Café Aurora"), ("titan", "Gimnasio Titán")]
+# All three take purchases; only the first two take generated customers.
+DEMO_BUSINESSES = [
+    ("aurora", "Café Aurora"),
+    ("titan", "Gimnasio Titán"),
+    ("sol", "Abarrotes Sol"),
+]
+
+# Generated customers only where the plan has room. Abarrotes Sol runs on the
+# free plan with exactly 50 cards: a generated customer there would break the
+# 409 `limit_reached` of the demo. Purchases are not a plan capacity (the free
+# plan limits cards, users and how far back the history is *shown*, never
+# whether a sale can be recorded), so Sol does take part in the purchases.
+CUSTOMER_BUSINESSES = ("aurora", "titan")
 
 # Both prefixes are namespaced apart from the seed's `seed-NN` keys.
 BULK_PREFIX = "demo-"
@@ -67,7 +85,11 @@ RNG_SEED = 20261
 CASHBACK_CHANCE = 0.15
 TWO_PURCHASES_CHANCE = 0.3
 
-CASHIER_EMAILS = {"aurora": "caja@cafe-aurora.mx", "titan": "admin@gimnasio-titan.mx"}
+CASHIER_EMAILS = {
+    "aurora": "caja@cafe-aurora.mx",
+    "titan": "admin@gimnasio-titan.mx",
+    "sol": "caja@abarrotes-sol.mx",
+}
 
 # (concept, low cents, high cents) per business. Amounts land on the receipt
 # as-is, so they are drawn from realistic menus, not arbitrary ranges.
@@ -86,10 +108,19 @@ MENUS = {
         ("Renta de casillero", 15_000, 20_000),
         ("Clase personalizada", 45_000, 60_000),
     ],
+    "sol": [
+        ("Despensa de la semana", 18_000, 28_000),
+        ("Refrescos y botanas", 6_000, 12_000),
+        ("Pan y leche", 7_000, 14_000),
+        ("Frutas y verduras", 5_000, 12_000),
+        ("Carnicería", 15_000, 30_000),
+        ("Detergente y limpieza", 9_000, 18_000),
+    ],
 }
 
-# Purchases per day: a café sells more often than a gym.
-DAILY_MAX = {"aurora": 4, "titan": 2}
+# Purchases per day: a café sells more often than a gym; the grocery store sits
+# in between.
+DAILY_MAX = {"aurora": 4, "titan": 2, "sol": 3}
 
 # Generated customers: fixed names (they must pass the API name rule), a fixed
 # email series and a deterministic card-code series, so a fresh database always
@@ -249,13 +280,17 @@ def charge(
 
 
 def extra_customers(session: Session, businesses: dict[str, Business], now: datetime) -> list[str]:
-    """The ten generated customers of each business (idempotent by email).
+    """The ten generated customers of each business with plan room (idempotent by email).
+
+    Only `CUSTOMER_BUSINESSES`: Abarrotes Sol stays at the 50 cards of the free
+    plan, which is what lets the demo show the 409 on `POST /customer/create`.
 
     Two of them per business were issued almost a year ago on purpose: they
     feed the "expiring soon" count of the admin panel.
     """
     created: list[str] = []
-    for key, business in businesses.items():
+    for key in CUSTOMER_BUSINESSES:
+        business = businesses[key]
         tiers = session.exec(
             select(Tier).where(Tier.business_id == business.id).order_by(Tier.price_cents, Tier.id)
         ).all()
@@ -427,7 +462,7 @@ def tick(
     At most one run per minute: the idempotency keys carry the UTC minute, so
     the cron firing and someone pressing "Run now" in the same minute is a
     no-op, not a double charge. Business selection alternates by minute so a
-    demo week touches both tenants.
+    demo week touches the three businesses.
     """
     now = now or utc_now()
     rng = rng or random.Random()
