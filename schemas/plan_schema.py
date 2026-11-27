@@ -1,4 +1,4 @@
-"""Output DTOs for plans. The catalog is read-only through the API."""
+"""DTOs for plans. The catalog is read-only through the API."""
 
 from datetime import datetime
 
@@ -52,3 +52,11 @@ class PlanSummaryResponse(BaseModel):
     # Agreed monthly price of the business; null when it never had a paid plan.
     unit_price_cents: int | None
     usage: PlanUsageResponse
+    # The admin may change the plan from the panel (`PATCH /plan/update`).
+    can_change_plan: bool
+
+
+class PlanUpdate(BaseModel):
+    """The plan the admin picks for their own business. Never a `business_id`."""
+
+    plan_id: int

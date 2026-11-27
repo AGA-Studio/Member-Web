@@ -19,6 +19,7 @@ from fastapi import status
 from sqlalchemy import func
 from sqlmodel import Session, select
 
+from core.config import settings
 from core.errors import ApiError, ErrorCode
 from models.business_model import Business
 from models.customer_model import Customer
@@ -257,6 +258,7 @@ def summary(session: Session, business_id: int) -> PlanSummaryResponse:
         trial_ends_at=as_utc(business.trial_ends_at) if business.trial_ends_at else None,
         trial_active=trial_active(business),
         unit_price_cents=business.unit_price_cents,
+        can_change_plan=can_change_plan(session, business),
         usage=PlanUsageResponse(
             customers=UsageItemResponse(
                 used=used[Capacity.CUSTOMERS], limit=limit_of(plan, Capacity.CUSTOMERS)
@@ -287,3 +289,61 @@ def assign(
     business.plan_id = plan.id
     business.trial_ends_at = None
     business.unit_price_cents = plan.price_cents if unit_price_cents is None else unit_price_cents
+
+
+# --- Change by the business itself -------------------------------------------
+
+
+def can_change_plan(session: Session, business: Business) -> bool:
+    """The admin may change the plan from the panel.
+
+    Needs `PLAN_SELF_SERVICE_ENABLED` and a public assigned plan (or none). A
+    hidden plan was assigned by hand at an agreed price: changing it alone would
+    lose that price with no way back, so only the platform changes it.
+    """
+    if not settings.plan_self_service_enabled:
+        return False
+    if business.plan_id is None:
+        return True
+    assigned = session.get(Plan, business.plan_id)
+    return assigned is None or assigned.is_public
+
+
+def ensure_can_change_plan(session: Session, business_id: int) -> None:
+    """403 `plan_change_closed` when the business cannot change its plan alone."""
+    business = session.get(Business, business_id)
+    if business is None or not can_change_plan(session, business):
+        raise ApiError(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="The plan cannot be changed from the panel",
+            code=ErrorCode.PLAN_CHANGE_CLOSED,
+        )
+
+
+def change_by_business(session: Session, business_id: int, plan_id: int) -> PlanSummaryResponse:
+    """The admin picks a public plan; the payment is simulated in the frontend.
+
+    `ensure_can_change_plan` already ran (as a dependency, before the body).
+    422 `plan_invalid` for a missing or hidden plan; 409 `plan_unchanged` for the
+    plan already contracted. During a trial, any plan (even the trial's) ends it
+    and is contracted; an ended trial lets the business contract its plan again.
+    Lowering the plan never deletes anything: the limits block new ones.
+    """
+    business = session.get(Business, business_id)
+    plan = session.get(Plan, plan_id)
+    if plan is None or not plan.is_public:
+        raise ApiError(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Plan not found",
+            code=ErrorCode.PLAN_INVALID,
+        )
+    if business.plan_id == plan.id and business.trial_ends_at is None:
+        raise ApiError(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="The business already has this plan",
+            code=ErrorCode.PLAN_UNCHANGED,
+        )
+    assign(session, business, plan.id)
+    session.add(business)
+    session.commit()
+    return summary(session, business_id)
